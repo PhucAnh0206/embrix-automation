@@ -21,7 +21,7 @@ if (!process.env.TEST_WORKER_INDEX && process.env.CLEAN_LOGS_ON_START === 'true'
   }
 }
 
-const ENV = process.env.TEST_ENV ?? 'coopeg-sandbox';
+const ENV = process.env.TEST_ENV ?? 'sandbox';
 
 const BASE_URLS: Record<string, string> = {
   'coopeg-sandbox': 'https://coreui.coopeg.embrix.org/',
@@ -94,7 +94,7 @@ export default defineConfig({
     {
       name: 'regression',
       testMatch: [
-        '**/regression/coopeguanacaste/*.spec.ts'
+        '**/regression/embrixPlatform/*.spec.ts'
       ],
       dependencies: ['setup'],
       use: {
