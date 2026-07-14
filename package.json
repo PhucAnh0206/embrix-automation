@@ -1,0 +1,27 @@
+{
+  "name": "embrix-o2x-playwright",
+  "version": "2.0.0",
+  "private": true,
+  "scripts": {
+    "test": "playwright test",
+    "test:headed": "playwright test --headed",
+    "test:ui": "playwright test --ui",
+    "test:setup": "playwright test --project=setup",
+    "test:smoke:coopeg": "playwright test --project=smoke --env=coopeg-sandbox",
+    "test:smoke:coopeg:headed": "playwright test --project=smoke --env=coopeg-sandbox --headed",
+    "test:regression:coopeg": "playwright test --project=regression --env=coopeg-sandbox",
+    "test:regression:coopeg:headed": "playwright test --project=regression --env=coopeg-sandbox --headed",
+    "report": "playwright show-report",
+    "postinstall": "playwright install"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.49.0",
+    "@types/node": "^20.10.0",
+    "@types/pg": "^8.20.0",
+    "dotenv": "^16.4.5",
+    "exceljs": "^4.4.0"
+  },
+  "dependencies": {
+    "pg": "^8.21.0"
+  }
+}

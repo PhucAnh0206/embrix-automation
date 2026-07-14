@@ -1,0 +1,12 @@
+[
+    {
+        "name": "Create simple Residental account with simple services",
+        "services": {
+            "bundleId": "BDL_INT_100MBPS",
+            "packageId": "",
+            "serviceType": "INTERNET",
+            "action": "ADD",
+            "quantity": "1"
+        }
+    }
+]

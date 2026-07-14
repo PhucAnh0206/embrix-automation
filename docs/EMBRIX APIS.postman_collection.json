@@ -1,0 +1,1399 @@
+{
+  "info": {
+    "_postman_id": "f8c99b04-87dc-4ad9-bbc3-35761005e1ce",
+    "name": "EMBRIX APIS",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "_exporter_id": "14226096"
+  },
+  "item": [
+    {
+      "name": "Server",
+      "item": [
+        {
+          "name": "Set CCP Time",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "graphql",
+              "graphql": {
+                "query": "mutation {\n  setCcpTime(input: {ccpTime: \"2030-07-01\"}) {\n    ccpTime\n  }\n}\n\n###\n\n# mutation {\n#   runBilling(input: {accountId: \"212377\"}) {\n#     id\n#     billTotal\n#     total\n#     status\n#     startDate\n#     endDate\n#   }\n# }\n\n###\n\n# {\n#   getAccountById(input: {id: \"ACCT_002\"}) {\n#     id\n#     groupId\n#     partyId\n#   }\n# }\n\n###\n\n# {\n#   getCcpDateTime(dummy: \"Hello\") {\n#     ccpTime\n#   }\n# }\n\n###\n\n# mutation {\n#   runBilling(input: {accountId: \"S13-RESIDENCIAL-001\"}) {\n#     id\n#     billTotal\n#     total\n#     status\n#     startDate\n#     endDate\n#   }\n# }\n",
+                "variables": ""
+              }
+            },
+            "url": {
+              "raw": "https://transactional.coopeg.embrix.org/graphql",
+              "protocol": "https",
+              "host": [
+                "transactional",
+                "coopeg",
+                "embrix",
+                "org"
+              ],
+              "path": [
+                "graphql"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get CCP Time",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "graphql",
+              "graphql": {
+                "query": "{\n  getCcpDateTime(dummy: \"Hello\") {\n    ccpTime\n  }\n}",
+                "variables": ""
+              }
+            },
+            "url": {
+              "raw": "https://transactional.coopeg.embrix.org/graphql",
+              "protocol": "https",
+              "host": [
+                "transactional",
+                "coopeg",
+                "embrix",
+                "org"
+              ],
+              "path": [
+                "graphql"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Search Bundles",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    // \"bundleId\" : \"BDL_VOIP\n    //\"marketSegment\" : \"NONE\",\n    \"bundleStatus\": \"SELLABLE\"\n    //\"excludePackageBundle\" : \"true\",\n    // \"accountType\":\"RESIDENCIAL\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "https://crm-gateway.coopegsbx.embrix.org/searchBundles",
+              "protocol": "https",
+              "host": [
+                "crm-gateway",
+                "coopegsbx",
+                "embrix",
+                "org"
+              ],
+              "path": [
+                "searchBundles"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Search Packages",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"packageStatus\": \"SELLABLE\"\n    //\"accountType\": \"ENTERPRISE\"\n    //\"packageId\":\"PKG_IPTV_STANDARD\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "https://crm-gateway.coopegsbx.embrix.org/searchPackages",
+              "protocol": "https",
+              "host": [
+                "crm-gateway",
+                "coopegsbx",
+                "embrix",
+                "org"
+              ],
+              "path": [
+                "searchPackages"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "GraphQL Server Query",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "graphql",
+              "graphql": {
+                "query": "{\r\n  getBilledTransactionSummaryReport(page: 1, size: 10000000, filter: {startDate: \"2026-02-01\", endDate: \"2026-02-28\"}) {\r\n    accountId\r\n    company\r\n    firstName\r\n    lastName\r\n    accountType\r\n    startDate\r\n    endDate\r\n    billUnitId\r\n    serviceType\r\n    priceOfferId\r\n    priceOfferName\r\n    itemId\r\n    itemName\r\n    dueDate\r\n    status\r\n    amount\r\n    billUnitStatus\r\n    invoiceUnitId\r\n    transactionDescription\r\n    billableServiceName\r\n    billableServiceId\r\n    city\r\n    state\r\n    district\r\n    neighbourhood\r\n    postalCode\r\n  }\r\n}\r\n",
+                "variables": ""
+              }
+            },
+            "url": {
+              "raw": "https://transactional.coopeg.embrix.org/graphql",
+              "protocol": "https",
+              "host": [
+                "transactional",
+                "coopeg",
+                "embrix",
+                "org"
+              ],
+              "path": [
+                "graphql"
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Account",
+      "item": [
+        {
+          "name": "Create Account & Order (Sandbox)",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "eyJhbGciOiJIUzUxMiJ9.eyJqdGkiOiJKV1QwMDAwMDAxIiwic3ViIjoiYXV0aGVtYnJpeCIsImVtYnJpeC1hdXRob3JpdHkiOlt7ImF1dGhvcml0eSI6IlNZU1RFTSJ9XSwiaWF0IjoxNzUzODk1NTA2LCJleHAiOjE3Njk0NDc1MDZ9.HHRUlbDhxapTEubbWvWJ_jqxTM-HT29ExzHxTykAlASxRGGCa7w_iZcHVKCkRj8Ke76lNFykOlXSbzvhKn96lA",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\r\n  \"userId\": \"congeroadmin\",\r\n  \"firstName\": \"Tuan\",\r\n  \"lastName\": \"Dao\",\r\n  \"organization\": \"2196045\",\r\n  \"country\": \"Costa Rica\",\r\n  \"landmark\": \"\",\r\n  \"state\": \"Guanacaste\",\r\n  \"extraLine\": \"test\",\r\n  \"postalCode\": \"11000\",\r\n  \"city\": \"Nicoya\",\r\n  \"street\": \"Nicoya 122\",\r\n  \"orderType\": \"NEW\",\r\n  \"district\": \"Nicoya\",\r\n  \"neighbourhood\": \"Pedernal\",\r\n  \"billingOnlyFlag\": \"true\",\r\n  \"accounttype\": \"RESIDENTIAL\",\r\n  \"groupid\": \"152355\",\r\n  \"staticIpRented\": \"true\",\r\n  \"identity\": \"502210226\",\r\n  \"identityDocument\": \"CÉDULA DE IDENTIDAD\",\r\n  \"phone\": \"89572382\",\r\n  \"paymentProfiles\": [\r\n    {\r\n      \"paymentMethod\": \"CHECK\"\r\n    }\r\n  ],\r\n  \"accountId\": \"AC-453449\",\r\n  \"orderId\": \"OR-453449\",\r\n  \"commercialName\": \"CREATE_ACT_ORDER_453449\",\r\n  \"email\": \"tuan.dao+cus.453449@congerotechnology.com\",\r\n  \"services\": [\r\n    {\r\n      \"bundleId\": \"BDL_INT_100MBPS\",\r\n      \"packageId\": \"\",\r\n      \"serviceType\": \"INTERNET\",\r\n      \"action\": \"ADD\",\r\n      \"quantity\": \"1\"\r\n    }\r\n  ]\r\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "https://crm-gateway.coopegsbx.embrix.org/processAccountAndOrder",
+              "protocol": "https",
+              "host": [
+                "crm-gateway",
+                "coopegsbx",
+                "embrix",
+                "org"
+              ],
+              "path": [
+                "processAccountAndOrder"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Create Account & Order (Sandbox) Intercompany",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "eyJhbGciOiJIUzUxMiJ9.eyJqdGkiOiJKV1QwMDAwMDAxIiwic3ViIjoiYXV0aGVtYnJpeCIsImVtYnJpeC1hdXRob3JpdHkiOlt7ImF1dGhvcml0eSI6IlNZU1RFTSJ9XSwiaWF0IjoxNzUzODk1NTA2LCJleHAiOjE3Njk0NDc1MDZ9.HHRUlbDhxapTEubbWvWJ_jqxTM-HT29ExzHxTykAlASxRGGCa7w_iZcHVKCkRj8Ke76lNFykOlXSbzvhKn96lA",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\r\n    \"userId\": \"congeroadmin\",\r\n    \"firstName\": \"Tuan\",\r\n    \"lastName\": \"Dao\",\r\n    \"organization\": \"2196045\",\r\n    \"commercialName\": \"CREATE_ACT_ORDER_46\",\r\n    \"accountId\": \"AC-46\",\r\n    \"orderId\": \"OR-46\",\r\n    \"email\": \"tuan.dao+cus.46@congerotechnology.com\",\r\n    \"country\": \"Costa Rica\",\r\n    \"landmark\": \"\",\r\n    \"state\": \"Guanacaste\",\r\n    \"extraLine\": \"test\",\r\n    \"postalCode\": \"11000\",\r\n    \"city\": \"Nicoya\",\r\n    \"street\": \"Nicoya 122\",\r\n    \"orderType\": \"NEW\",\r\n    \"district\": \"Nicoya\",\r\n    \"neighbourhood\": \"Pedernal\",\r\n    \"billingOnlyFlag\": \"true\", // true: auto-generate 1st invoice\r\n    \"accounttype\": \"INTERCOMPANY\",\r\n    \"groupid\": \"152355\",\r\n    \"staticIpRented\": \"true\",\r\n    \"identity\": \"502210226\", // must be valid, no need to change\r\n    \"identityDocument\": \"CÉDULA DE IDENTIDAD\", // must be valid, no need to change\r\n    \"phone\": \"89572382\",\r\n    \"collectionProfile\":\"Normal\", // check in AR-Collections-Config-Actions\r\n    \"paymentProfiles\": [\r\n        {\r\n            \"paymentMethod\": \"CHECK\"\r\n        }\r\n    ],\r\n    \"services\": [\r\n        {\r\n            \"bundleId\": \"TELEFONIA ANALOGA\",\r\n            \"packageId\": \"PKG_INT_100MBPS_TELANAG\",\r\n            \"serviceType\": \"VOIP\",\r\n            \"action\": \"ADD\",\r\n            \"quantity\": \"1\"\r\n        }, {\r\n            \"bundleId\": \"INTERNET 100 MBPS TELEFONIA\",\r\n            \"packageId\": \"PKG_INT_100MBPS_TELANAG\",\r\n            \"serviceType\": \"INTERNET\",\r\n            \"action\": \"ADD\",\r\n            \"quantity\": \"1\"\r\n        }\r\n    ]\r\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "https://crm-gateway.coopegsbx.embrix.org/processAccountAndOrder",
+              "protocol": "https",
+              "host": [
+                "crm-gateway",
+                "coopegsbx",
+                "embrix",
+                "org"
+              ],
+              "path": [
+                "processAccountAndOrder"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Create Account & Order (New Sandbox)",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "eyJhbGciOiJIUzUxMiJ9.eyJqdGkiOiJKV1QwMDAwMDAxIiwic3ViIjoiYXV0aGVtYnJpeCIsImVtYnJpeC1hdXRob3JpdHkiOlt7ImF1dGhvcml0eSI6IlNZU1RFTSJ9XSwiaWF0IjoxNzUzODk1NTA2LCJleHAiOjE3Njk0NDc1MDZ9.HHRUlbDhxapTEubbWvWJ_jqxTM-HT29ExzHxTykAlASxRGGCa7w_iZcHVKCkRj8Ke76lNFykOlXSbzvhKn96lA",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\r\n    \"userId\": \"congeroadmin\",\r\n    \"firstName\": \"Tuan\",\r\n    \"lastName\": \"Dao\",\r\n    \"organization\": \"2196045\",\r\n    \"commercialName\": \"CREATE_ACT_ORDER_01\",\r\n    \"accountId\": \"AC-01\",\r\n    \"orderId\": \"OR-01\",\r\n    \"email\": \"tuan.dao+cus.01@congerotechnology.com\",\r\n    \"orderType\": \"NEW\",\r\n    \"accounttype\": \"RESIDENTIAL\",\r\n    \"groupId\": \"152355\",\r\n    \"billingOnlyFlag\": true,\r\n    \"country\": \"CR\",\r\n    \"state\": \"Guanacaste\",\r\n    \"city\": \"Nicoya\",\r\n    \"district\": \"Nicoya\",\r\n    \"neighbourhood\": \"Pedernal\",\r\n    \"street\": \"Nicoya 122\",\r\n    \"postalCode\": \"11000\",\r\n    \"extraLine\": \"test\",\r\n    \"paymentProfiles\": [\r\n        {\r\n            \"paymentMethod\": \"CHECK\",\r\n            \"paymentTerm\": \"ON_RECEIPT\"\r\n        }\r\n    ],\r\n    \"billingFrequency\": \"MONTHLY\",\r\n    \"billingDom\": \"1\",\r\n    \"services\": [\r\n        {\r\n            \"bundleId\": \"BDL_INT_100MBPS\",\r\n            \"serviceType\": \"INTERNET\",\r\n            \"action\": \"ADD\",\r\n            \"quantity\": \"1\"\r\n        }\r\n    ]\r\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "https://crm-gateway.congero.embrix.org/processAccountAndOrder",
+              "protocol": "https",
+              "host": [
+                "crm-gateway",
+                "congero",
+                "embrix",
+                "org"
+              ],
+              "path": [
+                "processAccountAndOrder"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Create Account & Order (Dev)",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "eyJhbGciOiJIUzUxMiJ9.eyJqdGkiOiJKV1QwMDAwMDAxIiwic3ViIjoiYXV0aGVtYnJpeCIsImVtYnJpeC1hdXRob3JpdHkiOlt7ImF1dGhvcml0eSI6IlNZU1RFTSJ9XSwiaWF0IjoxNzUzODk1NTA2LCJleHAiOjE3Njk0NDc1MDZ9.HHRUlbDhxapTEubbWvWJ_jqxTM-HT29ExzHxTykAlASxRGGCa7w_iZcHVKCkRj8Ke76lNFykOlXSbzvhKn96lA",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\r\n    \"userId\": \"congeroadmin\",\r\n    \"firstName\": \"Tuan\",\r\n    \"lastName\": \"Dao\",\r\n    \"organization\": \"2196045\",\r\n    \"commercialName\": \"CREATE_ACT_ORDER_46\",\r\n    \"accountId\": \"AC-46\",\r\n    \"orderId\": \"OR-46\",\r\n    \"email\": \"tuan.dao+cus.46@congerotechnology.com\",\r\n    \"country\": \"Costa Rica\",\r\n    \"landmark\": \"\",\r\n    \"state\": \"Guanacaste\",\r\n    \"extraLine\": \"test\",\r\n    \"postalCode\": \"11000\",\r\n    \"city\": \"Nicoya\",\r\n    \"street\": \"Nicoya 122\",\r\n    \"orderType\": \"NEW\",\r\n    \"district\": \"Nicoya\",\r\n    \"neighbourhood\": \"Pedernal\",\r\n    \"billingOnlyFlag\": \"true\", // true: auto-generate 1st invoice\r\n    \"accounttype\": \"RESIDENTIAL\",\r\n    \"groupid\": \"152355\",\r\n    \"staticIpRented\": \"true\",\r\n    \"identity\": \"502210226\", // must be valid, no need to change\r\n    \"identityDocument\": \"CÉDULA DE IDENTIDAD\", // must be valid, no need to change\r\n    \"phone\": \"89572382\",\r\n    \"collectionProfile\":\"Normal\", // check in AR-Collections-Config-Actions\r\n    \"paymentProfiles\": [\r\n        {\r\n            \"paymentMethod\": \"CHECK\"\r\n        }\r\n    ],\r\n    \"services\": [\r\n        {\r\n            \"bundleId\": \"BDL_INT_100MBPS\",\r\n            \"packageId\": \"\",\r\n            \"serviceType\": \"INTERNET\",\r\n            \"action\": \"ADD\",\r\n            \"quantity\": \"1\"\r\n        }\r\n    ]\r\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "https://crm-gateway.demo.embrix.org/processAccountAndOrder",
+              "protocol": "https",
+              "host": [
+                "crm-gateway",
+                "demo",
+                "embrix",
+                "org"
+              ],
+              "path": [
+                "processAccountAndOrder"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Search Account Assets",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"accountId\": \"AC-41\",\n    \"status\":\"ACTIVE\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "https://crm-gateway.coopegsbx.embrix.org/searchAccountAssets",
+              "protocol": "https",
+              "host": [
+                "crm-gateway",
+                "coopegsbx",
+                "embrix",
+                "org"
+              ],
+              "path": [
+                "searchAccountAssets"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Account Invoices",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "eyJhbGciOiJIUzUxMiJ9.eyJqdGkiOiJKV1QwMDAwMDAxIiwic3ViIjoiYXV0aGVtYnJpeCIsImVtYnJpeC1hdXRob3JpdHkiOlt7ImF1dGhvcml0eSI6IlNZU1RFTSJ9XSwiaWF0IjoxNzU5NzYyNzI1LCJleHAiOjE3NzUzMTQ3MjV9.OaSQXF3269r4mKNNSi-ParTWu-cCGoSnstIyoZon5sh7ZHdkmF_yavNvU1V3JD6b12_HxS1Sw5h0MgrQHnQ7Fw",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\r\n      //\"invoiceUnitId\": \"214390\"\r\n      \"accountId\":\"AC-45\"\r\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "https://crm-gateway.coopeg.embrix.org/getAccountsInvoices",
+              "protocol": "https",
+              "host": [
+                "crm-gateway",
+                "coopeg",
+                "embrix",
+                "org"
+              ],
+              "path": [
+                "getAccountsInvoices"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Modify Order",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "eyJhbGciOiJIUzUxMiJ9.eyJqdGkiOiJKV1QwMDAwMDAxIiwic3ViIjoiYXV0aGVtYnJpeCIsImVtYnJpeC1hdXRob3JpdHkiOlt7ImF1dGhvcml0eSI6IlNZU1RFTSJ9XSwiaWF0IjoxNzE0NTM0OTU0LCJleHAiOjE3MzAwODY5NTR9.0l2Rs8AvLenHwuiYOS3ijjvtvFaiMuLd25vEGbeaI93Y2zKmq7mXl6xlR1vgGa3A50xR4pi6eY-5Z1WeLTtROA",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\r\n    \"userId\": \"congeroadmin\",\r\n    \"accountId\": \"AC-41\",\r\n    \"orderType\": \"MODIFY\",\r\n    \"billOrderCharges\": \"false\", // always false\r\n    \"staticIpRented\": \"false\",\r\n    \"orderId\": \"AC-41-02\", // add a new one if modify\r\n    \"services\": [\r\n        {\r\n            \"bundleId\": \"BDL_TV\", // check in Budle Name (Billing Hub - Packages - search for packageID)\r\n            \"packageId\": \"PKG_NA_TV_100MBPS\",\r\n            \"serviceType\": \"IPTV\",\r\n            \"action\": \"ADD\",\r\n            \"quantity\": \"1\"\r\n        },\r\n        {\r\n            \"bundleId\": \"BDL_INT_NA_100MBPS_TVE\",\r\n            \"packageId\": \"PKG_NA_TV_100MBPS\",\r\n            \"serviceType\": \"INTERNET\",\r\n            \"action\": \"ADD\",\r\n            \"quantity\": \"1\"\r\n        },\r\n        {\r\n            \"bundleId\": \"BDL_INT_100MBPS\",\r\n            \"packageId\": \"\",\r\n            \"serviceType\": \"INTERNET\",\r\n            \"action\": \"CANCEL\",\r\n            \"quantity\": \"1\",\r\n            \"instanceId\": \"OR-41:B:BDL_INT_100MBPS-1\"\r\n        }\r\n    ]\r\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "https://crm-gateway.coopegsbx.embrix.org/processAccountAndOrder",
+              "protocol": "https",
+              "host": [
+                "crm-gateway",
+                "coopegsbx",
+                "embrix",
+                "org"
+              ],
+              "path": [
+                "processAccountAndOrder"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Create Account ERP",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\r\n    \"userId\": \"COOPEWEB\",\r\n    \"firstName\": \"MARIA FERNANDA\",\r\n    \"lastName\": \"QUESADA PINEDA\",\r\n    \"organization\": \"\",\r\n    \"commercialName\": \"\",\r\n    \"accountId\": \"256367_1\",\r\n    \"orderId\": \"813563_1\",\r\n    \"email\": \"saray.mora@congerotechnology.com\",\r\n    \"country\": \"Costa Rica\",\r\n    \"landmark\": \"\",\r\n    \"state\": \"GUANACASTE\",\r\n    \"extraLine\": \"\",\r\n    \"postalCode\": \"50101\",\r\n    \"city\": \"LIBERIA\",\r\n    \"phone\": \"60161554\",\r\n    \"street\": \"Pruebaa\",\r\n    \"district\": \"LIBERIA\",\r\n    \"orderType\": \"NEW\",\r\n    \"collectionProfile\": \"Normal\",\r\n    \"billingOnlyFlag\": \"true\",\r\n    \"partyId\": \"109225\",\r\n    \"groupId\": \"\",\r\n    \"accounttype\": \"RESIDENTIAL\",\r\n    \"customAccountType\": \"\",\r\n    \"identity\": \"503830816\",\r\n    \"identityDocument\": \"CÉDULA DE IDENTIDAD\",\r\n    \"staticIpRented\": \"false\",\r\n    \"paymentProfiles\": [\r\n        {\r\n            \"paymentMethod\": \"CHECK\"\r\n        }\r\n    ],\r\n    \"services\": [\r\n        {\r\n            \"bundleId\": \"BDL_INT_300MBPS\",\r\n            \"packageId\": \"\",\r\n            \"serviceType\": \"INTERNET\",\r\n            \"action\": \"ADD\",\r\n            \"quantity\": \"1\"\r\n        }\r\n    ]\r\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "https://crm-gateway.coopegsbx2.embrix.org/processAccountAndOrder",
+              "protocol": "https",
+              "host": [
+                "crm-gateway",
+                "coopegsbx2",
+                "embrix",
+                "org"
+              ],
+              "path": [
+                "processAccountAndOrder"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Account Items",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\r\n \"accountId\" :\"AC-23\",\r\n \"invoiceUnitId\": \"372379\"\r\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "https://crm-gateway.coopegsbx.embrix.org/getAccountItems",
+              "protocol": "https",
+              "host": [
+                "crm-gateway",
+                "coopegsbx",
+                "embrix",
+                "org"
+              ],
+              "path": [
+                "getAccountItems"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Modify Order (Mass Change)",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "eyJhbGciOiJIUzUxMiJ9.eyJqdGkiOiJKV1QwMDAwMDAxIiwic3ViIjoiYXV0aGVtYnJpeCIsImVtYnJpeC1hdXRob3JpdHkiOlt7ImF1dGhvcml0eSI6IlNZU1RFTSJ9XSwiaWF0IjoxNzY1NTc0MDI3LCJleHAiOjE3ODExMjYwMjd9.ksHb1eCF7ngH_aOuO3o0JGtNhJnJYtHWrn2pEW9BwFdQPs-UOKB2AYJcLbBrU4GvpT0LoRTPq7a8cBC8yZNC5A",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\r\n    \"userId\": \"KDINARTE\",\r\n    \"orderId\": \"{{orderid}}\",\r\n    \"billingOnlyFlag\": \"true\",\r\n    \"accountId\": \"{{contrato}}\",\r\n    \"orderType\": \"MODIFY\",\r\n    \"staticIpRented\": \"false\",\r\n    \"billOrderCharges\": \"false\",\r\n    \"services\": [\r\n        {\r\n            \"action\": \"ADD\",\r\n      \"bundleId\": \"BDL_INT_NA_200MBPS_TV\",\r\n      \"packageId\": \"PKG_NA_TV_200MBPS\",\r\n      \"serviceType\": \"INTERNET\" },\r\n          {\r\n            \"action\": \"ADD\",\r\n      \"bundleId\": \"BDL_TV\",\r\n      \"packageId\": \"PKG_NA_TV_200MBPS\",\r\n      \"serviceType\": \"IPTV\" },\r\n\r\n             {\r\n            \"action\": \"CANCEL\",\r\n      \"bundleId\": \"BDL_INT_N_100MBPS_TV\",\r\n      \"packageId\": \"PKG_TV_100MBPS\",\r\n      \"serviceType\": \"INTERNET\"\r\n        }    ,\r\n                  {\r\n            \"action\": \"CANCEL\",\r\n      \"bundleId\": \"BDL_TV\",\r\n      \"packageId\": \"PKG_TV_100MBPS\",\r\n      \"serviceType\": \"IPTV\"\r\n        }    \r\n    ]\r\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "https://crm-gateway.coopeg-prod.embrix.org/processAccountAndOrder",
+              "protocol": "https",
+              "host": [
+                "crm-gateway",
+                "coopeg-prod",
+                "embrix",
+                "org"
+              ],
+              "path": [
+                "processAccountAndOrder"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Change Plan (First Subscription)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\r\n    \"accountId\": \"ISP10_2\",\r\n    \"orderId\":\"ORDISP10_2_2\",\r\n    \"orderType\":\"NEW\",\r\n    \"changeFirstInvoicePackage\":true,\r\n    \"services\": [\r\n        {\r\n      \"bundleId\": \"BDL_INT_50MBPS_TV\",\r\n      \"packageId\": \"PKG_INT_TV_50MBPS\",\r\n      \"serviceType\": \"INTERNET\",\r\n      \"action\": \"ADD\",\r\n       \"quantity\": \"1\"\r\n       }\r\n       ,\r\n       {\r\n      \"bundleId\": \"BDL_TV\",\r\n      \"packageId\": \"PKG_INT_TV_50MBPS\",\r\n      \"serviceType\": \"IPTV\",\r\n      \"action\": \"ADD\",\r\n       \"quantity\": \"1\"\r\n}\r\n]\r\n    \r\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "https://crm-gateway.coopeg.embrix.org/processAccountAndOrder",
+              "protocol": "https",
+              "host": [
+                "crm-gateway",
+                "coopeg",
+                "embrix",
+                "org"
+              ],
+              "path": [
+                "processAccountAndOrder"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Cancel Account",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\r\n    \"userId\": \"congeroadmin\",\r\n    \"accountId\": \"669439_66\",\r\n    \"orderId\": \"cancel669439_66\",\r\n    \"orderType\": \"CANCEL\",\r\n    \"cancellationReason\": \"PORT OUT\", //Razón\r\n    \"billingOnlyFlag\": \"true\"\r\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "https://crm-gateway.coopeg.embrix.org/processAccountAndOrder",
+              "protocol": "https",
+              "host": [
+                "crm-gateway",
+                "coopeg",
+                "embrix",
+                "org"
+              ],
+              "path": [
+                "processAccountAndOrder"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Create Account Without Services",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\r\n  \"userId\": \"JOBLANCO\",\r\n  \"accountId\": \"669439_68\",\r\n  \"orderId\": \"230629_68\",\r\n  \"orderType\": \"NEW\",\r\n  \"billOrderCharges\": \"false\",\r\n  \"staticIpRented\": \"false\",\r\n  \"services\": [\r\n{\r\n      \r\n      \"bundleId\": \"BDL_INT_50MBPS_TV\",     \r\n      \"packageId\": \"PKG_INT_TV_50MBPS\",   \r\n      \"serviceType\": \"INTERNET\",     \r\n      \"action\": \"ADD\"\r\n    \r\n     \r\n    },\r\n    {     \r\n      \"bundleId\": \"BDL_TV\",     \r\n      \"packageId\": \"PKG_INT_TV_50MBPS\",      \r\n      \"serviceType\": \"IPTV\",      \r\n      \"action\": \"ADD\"\r\n     \r\n    }\r\n  ]\r\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "https://crm-gateway.coopeg.embrix.org/processAccountAndOrder",
+              "protocol": "https",
+              "host": [
+                "crm-gateway",
+                "coopeg",
+                "embrix",
+                "org"
+              ],
+              "path": [
+                "processAccountAndOrder"
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Payment & Invoice",
+      "item": [
+        {
+          "name": "Apply Payment",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "eyJhbGciOiJIUzUxMiJ9.eyJqdGkiOiJKV1QwMDAwMDAxIiwic3ViIjoiYXV0aGVtYnJpeCIsImVtYnJpeC1hdXRob3JpdHkiOlt7ImF1dGhvcml0eSI6IlNZU1RFTSJ9XSwiaWF0IjoxNzE0NTM0OTU0LCJleHAiOjE3MzAwODY5NTR9.0l2Rs8AvLenHwuiYOS3ijjvtvFaiMuLd25vEGbeaI93Y2zKmq7mXl6xlR1vgGa3A50xR4pi6eY-5Z1WeLTtROA",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\r\n    \"paymentDate\": \"\",\r\n    \"paymentSource\": \"BRC\",\r\n    \"allocationData\": [\r\n        {\r\n            \"accountId\": \"AC-45\", //{{accountid}}\r\n            \"invoiceId\": \"399469\", //{{invoiceID}}\r\n            \"currency\": \"CRC\",\r\n            \"amount\": 19273.67\r\n        }\r\n    ]\r\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "https://crm-gateway.coopegsbx.embrix.org/applyPayment",
+              "protocol": "https",
+              "host": [
+                "crm-gateway",
+                "coopegsbx",
+                "embrix",
+                "org"
+              ],
+              "path": [
+                "applyPayment"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Reverse Payment",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  ""
+                ],
+                "type": "text/javascript",
+                "packages": {},
+                "requests": {}
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {\r",
+                  "    pm.response.to.have.status(200);\r",
+                  "});\r",
+                  "pm.test(\"Response time is less than 100ms\", function () {\r",
+                  "    pm.expect(pm.response.responseTime).to.be.below(100);\r",
+                  "});"
+                ],
+                "type": "text/javascript",
+                "packages": {},
+                "requests": {}
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "eyJhbGciOiJIUzUxMiJ9.eyJqdGkiOiJKV1QwMDAwMDAxIiwic3ViIjoiYXV0aGVtYnJpeCIsImVtYnJpeC1hdXRob3JpdHkiOlt7ImF1dGhvcml0eSI6IlNZU1RFTSJ9XSwiaWF0IjoxNzE1MjcyNDA2LCJleHAiOjE3MzA4MjQ0MDZ9.uJcWnMYzl8bW5rajCU7xCTav72lPqb5RYuWm8ZhZwGSjS3KYLigcrKZLoKauAoiqWjvGnwqEpA3VzOxdKXqFwQ",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\r\n    \"reversalDate\": \"\",\r\n    \"reversalDetails\": [\r\n        {\r\n            \"paymentId\": \"P16265\",\r\n            \"reversedAmount\": 45405.55\r\n        }\r\n    ]\r\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "https://crm-gateway.coopeg.embrix.org/reversePayment",
+              "protocol": "https",
+              "host": [
+                "crm-gateway",
+                "coopeg",
+                "embrix",
+                "org"
+              ],
+              "path": [
+                "reversePayment"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Manual Billing",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"accountId\": \"AC-04\",\n    \"txnDate\": \"2026-04-23\",\n    \"billStartDate\": \"2026-04-01\",\n    \"billEndDate\": \"2026-04-30\",\n    \"scheduleDaily\": false,\n    \"returnBase64PDF\": false,\n    \"manualPreratedTxnRec\": [\n        {\n            \"description\": \"Postman smoke test\",\n            \"serviceType\": \"VOICE\",\n            \"startDate\": \"2026-04-01\",\n            \"endDate\": \"2026-04-30\",\n            \"quantity\": 1,\n            \"unitPrice\": 250.00,\n            \"netAmount\": 250.00,\n            \"grossAmount\": 290.00,\n            \"discountAmount\": 0\n        }\n    ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "https://crm-gateway.coopegsbx.embrix.org/manualBilling",
+              "protocol": "https",
+              "host": [
+                "crm-gateway",
+                "coopegsbx",
+                "embrix",
+                "org"
+              ],
+              "path": [
+                "manualBilling"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Process Adjustment",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\r\n    \"accountId\" : \"244959\",\r\n    \"userId\": \"congeroadmin\",\r\n    \"invoiceId\" : \"255528\",\r\n    \"itemId\":\"I_PHC_DISP\",\r\n    \"percent\" :100,\r\n   \"adjustmentType\": \"BILL_ADJUSTMENT\",\r\n   \"creditDebitType\": \"CREDIT\",\r\n   \"customReason\" : \"NC - Error en facturación\",\r\n    \"taxRule\" : \"WITH_TAX\",\r\n   \"skipWorkOrder\" : true, //false to generate a work order, true no generate the work order\r\n     \"notes\" : \"NC_255528\"\r\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "https://crm-gateway.coopeg.embrix.org/processAdjustment",
+              "protocol": "https",
+              "host": [
+                "crm-gateway",
+                "coopeg",
+                "embrix",
+                "org"
+              ],
+              "path": [
+                "processAdjustment"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Payment Notification (Generate Work Order)",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "eyJhbGciOiJIUzUxMiJ9.eyJqdGkiOiJKV1QwMDAwMDAxIiwic3ViIjoiYXV0aGVtYnJpeCIsImVtYnJpeC1hdXRob3JpdHkiOlt7ImF1dGhvcml0eSI6IlNZU1RFTSJ9XSwiaWF0IjoxNzI3MTAyOTA1LCJleHAiOjE3NDI2NTQ5MDV9.LVd8YMCZP2aAMyG_dk9iyZyFhLSDzWITdbtGYiG0BEqOpQEH5a-YiVISErcInyyb_CdRWIlb5CjdyqiMxGOvrQ",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\r\n    \"accountId\":\"240183\",\r\n    \"postAttempt\": 0,\r\n    \"id\":\"724010\"//TRAMITE COOPEWEB\r\n}\r\n\r\n",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "https://crm-gateway.coopeg-prod.embrix.org/paymentNotification",
+              "protocol": "https",
+              "host": [
+                "crm-gateway",
+                "coopeg-prod",
+                "embrix",
+                "org"
+              ],
+              "path": [
+                "paymentNotification"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Process Adjustment (Credit Note)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "https://crm-gateway.coopeg.embrix.org/processAdjustment",
+              "protocol": "https",
+              "host": [
+                "crm-gateway",
+                "coopeg",
+                "embrix",
+                "org"
+              ],
+              "path": [
+                "processAdjustment"
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Provisioning",
+      "item": [
+        {
+          "name": "Update Provisioning Request (Retry)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\r\n    \"userId\": \"congeroadmin\",\r\n    \"orderId\": \"ORD-29775\",\r\n    \"accountId\": \"AC-10\",\r\n    \"orderType\": \"NEW\",\r\n    \"manualProvisioning\": false,\r\n    \"restartProvisioning\": true, // true when retry, always\r\n    \"services\": [\r\n        {\r\n            \"bundleId\": \"BDL_INT_100MBPS\",\r\n            \"packageId\": \"\",\r\n            \"modifyProvisioningData\": false, // true when using diff ont, false when using same ONT\r\n            \"provisioningDataType\": \"DEVICE\", // for Internet: DEVICE\r\n            \"serviceType\": \"INTERNET\",\r\n            \"provisioningId\": \"ALCLB3A44668\",\r\n            \"ontModel\": \"G-240W-G\",\r\n            \"action\": \"ADD\" // \r\n        }\r\n    ]\r\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "https://provision-gateway.coopeg.embrix.org/updateProvisioningRequest",
+              "protocol": "https",
+              "host": [
+                "provision-gateway",
+                "coopeg",
+                "embrix",
+                "org"
+              ],
+              "path": [
+                "updateProvisioningRequest"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Confirm Provisioning Services",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "Bearer eyJhbGciOiJIUzUxMiJ9.eyJqdGkiOiJKV1QwMDAwMDAxIiwic3ViIjoiYXV0aGVtYnJpeCIsImVtYnJpeC1hdXRob3JpdHkiOlt7ImF1dGhvcml0eSI6IlNZU1RFTSJ9XSwiaWF0IjoxNzIyOTgwNjIyLCJleHAiOjE3Mzg1MzI2MjJ9.AYdICfEaKD9xh0JMd_EdanE6diedT1w9mzbiRmXmvxSd3AMwquCXa4SQGEZbXOw-xu3w7Eg21PccP0HQqsM4lw",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\r\n    \"accountId\": \"669439_69\",    \r\n    \"orderId\": \"ORD-1097\",    \r\n    \"status\" :\"SUCCESS\",\r\n    \"services\": [\r\n       {\r\n     \"bundleId\": \"BDL_INT_100MBPS\",\r\n      \"packageId\": \"\",\r\n      \"serviceType\": \"INTERNET\",\r\n      \"action\": \"ADD\",\r\n       \"quantity\": \"1\"\r\n    }\r\n]}  ",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "https://provision-gateway.coopeg.embrix.org/updateProvisioningRequest",
+              "protocol": "https",
+              "host": [
+                "provision-gateway",
+                "coopeg",
+                "embrix",
+                "org"
+              ],
+              "path": [
+                "updateProvisioningRequest"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Manual Provisioning Confirmation",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "eyJhbGciOiJIUzUxMiJ9.eyJqdGkiOiJKV1QwMDAwMDAxIiwic3ViIjoiYXV0aGVtYnJpeCIsImVtYnJpeC1hdXRob3JpdHkiOlt7ImF1dGhvcml0eSI6IlNZU1RFTSJ9XSwiaWF0IjoxNzc0NDU2MzU2LCJleHAiOjE3OTAwMDgzNTZ9.L15dKvvdO01RYceNH-KddNNph3j_peRFUEMB5YLHGgskRnQfHz6T8XL2tch89cYvHr8qTLe-nLvYlO2aWukWwA",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\r\n    \"status\": \"SUCCESS\",\r\n    \"orderId\": \"2367410\",\r\n    \"services\": [\r\n        {\r\n            \"action\": \"ADD\",\r\n            \"bundleId\": \"BDL_CAM_COOPE_INT\",\r\n            \"quantity\": \"17\",\r\n            \"packageId\": \"\",\r\n            \"serviceType\": \"INTERNET\"\r\n        },\r\n        {\r\n            \"action\": \"CANCEL\",\r\n            \"bundleId\": \"BDL_CAM_COOPE_INT\",\r\n            \"quantity\": \"15\",\r\n            \"packageId\": \"\",\r\n            \"serviceType\": \"INTERNET\"\r\n        }\r\n    ],\r\n    \"accountId\": \"209271\"\r\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "https://provision-gateway.coopeg-prod.embrix.org/updateProvisioningRequest",
+              "protocol": "https",
+              "host": [
+                "provision-gateway",
+                "coopeg-prod",
+                "embrix",
+                "org"
+              ],
+              "path": [
+                "updateProvisioningRequest"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Confirm Relocation Provisioning",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\r\n    \"status\": \"SUCCESS\",\r\n    \"orderId\": \"ORD-2701\",\r\n    \"services\": [\r\n        {\r\n            \"action\": \"ADD\",\r\n            \"oltName\": \"\",\r\n            \"oltPath\": \"\",\r\n            \"spaceId\": \"\",\r\n            \"bundleId\": \"\",\r\n            \"vlanName\": \"\",\r\n            \"packageId\": \"\",\r\n            \"serviceType\": \"INTERNET\",\r\n            \"provisioningId\": \"\",\r\n            \"currentTemplate\": \"\",\r\n            \"accountIdExternal\": null,\r\n            \"oltConfigTemplate\": \"\",\r\n            \"customerIdExternal\": null,\r\n            \"ontSoftwareVersion\": \"\"\r\n        }\r\n    ],\r\n    \"accountId\": \"244563\"\r\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "https://provision-gateway.coopeg.embrix.org/updateProvisioningRequest",
+              "protocol": "https",
+              "host": [
+                "provision-gateway",
+                "coopeg",
+                "embrix",
+                "org"
+              ],
+              "path": [
+                "updateProvisioningRequest"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Modify Provisioning Order",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"accountId\": \"AC-41\",\n    \"orderId\": \"AC-41-02\",\n    \"orderType\": \"MODIFY\",\n    \"services\": [\n        {\n            \"bundleId\": \"BDL_TV\",\n            \"packageId\": \"PKG_NA_TV_100MBPS\",\n            \"action\": \"ADD\",\n            \"serviceType\": \"IPTV\",\n            \"provisioningId\": \"AC-41\", //cuenta\n            \"provisioningDataType\": \"STB\", //tipo\n            \"provisioningPlatform\": \"MOTV\" //plataforma\n        }\n    ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "https://provision-gateway.coopegsbx.embrix.org/updateProvisioningIdentifier",
+              "protocol": "https",
+              "host": [
+                "provision-gateway",
+                "coopegsbx",
+                "embrix",
+                "org"
+              ],
+              "path": [
+                "updateProvisioningIdentifier"
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Coope Web API Integration",
+      "item": [
+        {
+          "name": "Create Work Order",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyIjoiRU1CUklYIiwicHdkIjoiUm9jYTE5NzIwNUAiLCJzayI6IjAxMjM0NTY3ODkwMTIzNDU2Nzg5MDEyMzQ1Njc4OSIsImF1ZCI6WyJ3d3cuY29vcGVndWFuYWNhc3RlLmNvbSIsInd3dy5jb29wZWd1YW5hY2FzdGUuY29tIl0sImlzcyI6Ind3dy5jb29wZWd1YW5hY2FzdGUuY29tIiwibmJmIjoxNzExNTc1NTMxLCJleHAiOjE3MTE1NzkxMzEsImlhdCI6MTcxMTU3NTUzMX0.Z1rvmME8zHykTRty5GqYpOQgPwtGYTUlThBohP8VilQ",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"numSolicitud\": \"ORD-638494\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "https://dev-204.coopecg.com/webapiEmbrix/api/Transacciones/CreaOrdenTrabajo",
+              "protocol": "https",
+              "host": [
+                "dev-204",
+                "coopecg",
+                "com"
+              ],
+              "path": [
+                "webapiEmbrix",
+                "api",
+                "Transacciones",
+                "CreaOrdenTrabajo"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Register Accounting Entry",
+          "protocolProfileBehavior": {
+            "disableBodyPruning": true
+          },
+          "request": {
+            "method": "GET",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\r\n    \"ASIENTO\": {\r\n        \"NOTA\": \"ASIENTO DIARIO 2024-07-01 00:00:00.0\",\r\n        \"ORIGEN\": \"CG\",\r\n        \"PAQUETE\": \"EB\",\r\n        \"USUARIO\": \"COOPEWEB\",\r\n        \"CONTABILIDAD\": \"N\",\r\n        \"TIPO_ASIENTO\": \"FE\",\r\n        \"CLASE_ASIENTO\": \"N\",\r\n        \"TOTAL_DEBITO_DOL\": 0.0,\r\n        \"TOTAL_DEBITO_LOC\": 124170.12,\r\n        \"TOTAL_CREDITO_DOL\": 0.0,\r\n        \"TOTAL_CREDITO_LOC\": 124170.12\r\n    },\r\n    \"DETALLE\": [\r\n        {\r\n            \"NIT\": \"ND\",\r\n            \"FUENTE\": \"FE\",\r\n            \"REFERENCIA\": \"FACTURACIÓN JULIO TELECOM\",\r\n            \"CENTRO_COSTO\": \"00-00000\",\r\n            \"DEBITO_DOLAR\": 0.0,\r\n            \"DEBITO_LOCAL\": 65646.12,\r\n            \"CREDITO_DOLAR\": 0.0,\r\n            \"CREDITO_LOCAL\": 0.0,\r\n            \"CUENTA_CONTABLE\": \"8-01-10-01-000\"\r\n        },\r\n        {\r\n            \"NIT\": \"ND\",\r\n            \"FUENTE\": \"FE\",\r\n            \"REFERENCIA\": \"FACTURACIÓN JULIO TELECOM\",\r\n            \"CENTRO_COSTO\": \"00-00000\",\r\n            \"DEBITO_DOLAR\": 0.0,\r\n            \"DEBITO_LOCAL\": 0.0,\r\n            \"CREDITO_DOLAR\": 0.0,\r\n            \"CREDITO_LOCAL\": 65646.12,\r\n            \"CUENTA_CONTABLE\": \"1-03-20-01-000\"\r\n        },\r\n        {\r\n            \"NIT\": \"ND\",\r\n            \"FUENTE\": \"FE\",\r\n            \"REFERENCIA\": \"FACTURACIÓN JULIO TELECOM\",\r\n            \"CENTRO_COSTO\": \"00-00000\",\r\n            \"DEBITO_DOLAR\": 0.0,\r\n            \"DEBITO_LOCAL\": 44238.94,\r\n            \"CREDITO_DOLAR\": 0.0,\r\n            \"CREDITO_LOCAL\": 0.0,\r\n            \"CUENTA_CONTABLE\": \"4-03-01-00-000\"\r\n        },\r\n        {\r\n            \"NIT\": \"ND\",\r\n            \"FUENTE\": \"FE\",\r\n            \"REFERENCIA\": \"FACTURACIÓN JULIO TELECOM\",\r\n            \"CENTRO_COSTO\": \"00-00000\",\r\n            \"DEBITO_DOLAR\": 0.0,\r\n            \"DEBITO_LOCAL\": 0.0,\r\n            \"CREDITO_DOLAR\": 0.0,\r\n            \"CREDITO_LOCAL\": 44238.94,\r\n            \"CUENTA_CONTABLE\": \"1-03-20-01-000\"\r\n        },\r\n        {\r\n            \"NIT\": \"ND\",\r\n            \"FUENTE\": \"FE\",\r\n            \"REFERENCIA\": \"FACTURACIÓN JULIO TELECOM\",\r\n            \"CENTRO_COSTO\": \"36-04000\",\r\n            \"DEBITO_DOLAR\": 0.0,\r\n            \"DEBITO_LOCAL\": 14285.06,\r\n            \"CREDITO_DOLAR\": 0.0,\r\n            \"CREDITO_LOCAL\": 0.0,\r\n            \"CUENTA_CONTABLE\": \"2-02-15-03-000\"\r\n        },\r\n        {\r\n            \"NIT\": \"ND\",\r\n            \"FUENTE\": \"FE\",\r\n            \"REFERENCIA\": \"FACTURACIÓN JULIO TELECOM\",\r\n            \"CENTRO_COSTO\": \"00-00000\",\r\n            \"DEBITO_DOLAR\": 0.0,\r\n            \"DEBITO_LOCAL\": 0.0,\r\n            \"CREDITO_DOLAR\": 0.0,\r\n            \"CREDITO_LOCAL\": 14285.06,\r\n            \"CUENTA_CONTABLE\": \"1-03-20-01-000\"\r\n        }\r\n    ]\r\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "https://dev-204.coopecg.com/webapiEmbrix/api/Transacciones/RegistrarAsiento",
+              "protocol": "https",
+              "host": [
+                "dev-204",
+                "coopecg",
+                "com"
+              ],
+              "path": [
+                "webapiEmbrix",
+                "api",
+                "Transacciones",
+                "RegistrarAsiento"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Manual Provisioning",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyIjoiRU1CUklYIiwicHdkIjoiUm9jYTE5NzIwNUAiLCJzayI6IjAxMjM0NTY3ODkwMTIzNDU2Nzg5MDEyMzQ1Njc4OSIsImF1ZCI6WyJ3d3cuY29vcGVndWFuYWNhc3RlLmNvbSIsInd3dy5jb29wZWd1YW5hY2FzdGUuY29tIl0sImlzcyI6Ind3dy5jb29wZWd1YW5hY2FzdGUuY29tIiwibmJmIjoxNzQ0MzI1Nzc5LCJleHAiOjE3NDQ0OTg1NzksImlhdCI6MTc0NDMyNTc3OX0.jNxFXHCq0thGdxWOvxVJgjCUP9kIb1FxmI3OO1RTzeY",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\r\n    \"accountId\": \"000030010\",\r\n    \"orderId\": \"ORD-2355\",\r\n    \"status\": \"SUCCESS\",\r\n    \"orderType\": \"NEW\",\r\n    \"services\": [\r\n        {\r\n            \"action\": \"ADD\",\r\n            \"bundleId\": \"BDL_TV_PREM_EMP\",\r\n            \"packageId\": \"PKG_TV_PREM_EMP\",\r\n            \"serviceType\": \"IPTV\",\r\n            \"provisioningId\": \"000030010\",\r\n            \"provisioningDataType\": \"STB\",\r\n                  \"provisioningPlatform\": \"MOTV\",\r\n   \"externalProductId\": \"\",\r\n    \"subscriberId\": \"\"\r\n        }\r\n    ]\r\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "https://api-interno.coopecg.com/webapiEmbrix/api/Transacciones/AprovisionamientoManual",
+              "protocol": "https",
+              "host": [
+                "api-interno",
+                "coopecg",
+                "com"
+              ],
+              "path": [
+                "webapiEmbrix",
+                "api",
+                "Transacciones",
+                "AprovisionamientoManual"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Disconnect Devices",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyIjoiRU1CUklYIiwicHdkIjoiUm9jYTE5NzIwNUAiLCJzayI6IjAxMjM0NTY3ODkwMTIzNDU2Nzg5MDEyMzQ1Njc4OSIsImF1ZCI6WyJ3d3cuY29vcGVndWFuYWNhc3RlLmNvbSIsInd3dy5jb29wZWd1YW5hY2FzdGUuY29tIl0sImlzcyI6Ind3dy5jb29wZWd1YW5hY2FzdGUuY29tIiwibmJmIjoxNzIzODQzNjg5LCJleHAiOjE3MjQwMTY0ODksImlhdCI6MTcyMzg0MzY4OX0.LGg_ON48yc7z3s94Wc_bYsZL29UOfEsWez9GtlvSC-U",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"IdUsuario\": \"157416\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "https://webapi.coopeguanacaste.com/webapiEmbrix/api/Transacciones/CortaDispositivos",
+              "protocol": "https",
+              "host": [
+                "webapi",
+                "coopeguanacaste",
+                "com"
+              ],
+              "path": [
+                "webapiEmbrix",
+                "api",
+                "Transacciones",
+                "CortaDispositivos"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Token",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\r\n\"Username\":\"EMBRIX\",\r\n\"Password\":\"Roca197205@\",\r\n\"Secretkey\":\"012345678901234567890123456789\",\r\n\"TipoAutenticacion\":\"1\"\r\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "https://webapi.coopeguanacaste.com/webapiEmbrix/api/Autenticacion/Token",
+              "protocol": "https",
+              "host": [
+                "webapi",
+                "coopeguanacaste",
+                "com"
+              ],
+              "path": [
+                "webapiEmbrix",
+                "api",
+                "Autenticacion",
+                "Token"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Disconnect ARADIAL Sessions",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyIjoiRU1CUklYIiwicHdkIjoiUm9jYTE5NzIwNUAiLCJzayI6IjAxMjM0NTY3ODkwMTIzNDU2Nzg5MDEyMzQ1Njc4OSIsImF1ZCI6WyJ3d3cuY29vcGVndWFuYWNhc3RlLmNvbSIsInd3dy5jb29wZWd1YW5hY2FzdGUuY29tIl0sImlzcyI6Ind3dy5jb29wZWd1YW5hY2FzdGUuY29tIiwibmJmIjoxNzE5MjYzNTY2LCJleHAiOjE3MTk0MzYzNjYsImlhdCI6MTcxOTI2MzU2Nn0.DNTW4opUF1CXE78QcbnfjU372G7K6bU2M-DNkBk31Uo",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"IdUsuario\": \"150882\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "https://dev-204.coopecg.com/webapiEmbrix/api/Transacciones/DesconectarSesionesARADIAL",
+              "protocol": "https",
+              "host": [
+                "dev-204",
+                "coopecg",
+                "com"
+              ],
+              "path": [
+                "webapiEmbrix",
+                "api",
+                "Transacciones",
+                "DesconectarSesionesARADIAL"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Create General Work Order (Cancel)",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyIjoiRU1CUklYIiwicHdkIjoiUm9jYTE5NzIwNUAiLCJzayI6IjAxMjM0NTY3ODkwMTIzNDU2Nzg5MDEyMzQ1Njc4OSIsImF1ZCI6WyJ3d3cuY29vcGVndWFuYWNhc3RlLmNvbSIsInd3dy5jb29wZWd1YW5hY2FzdGUuY29tIl0sImlzcyI6Ind3dy5jb29wZWd1YW5hY2FzdGUuY29tIiwibmJmIjoxNzMyODI2NTMyLCJleHAiOjE3MzI5OTkzMzIsImlhdCI6MTczMjgyNjUzMn0.xwzlQk_qRBC9jbi5ZUoy4f2SbICpMBXGejvjoVnoEK4",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\r\n    \"contrato\": 237442,\r\n    \"tipo_orden\": \"RTR\",\r\n    \"uso_orden\": \"T\",\r\n    \"stado\": \"I\",\r\n    \"avance_orden\": \"I\",\r\n    \"observacion\": \"Orden de Retiro\"\r\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "https://api-dev-204.coopecg.com/webapiEmbrix/api/Transacciones/CreaOrdenTrabajoGen",
+              "protocol": "https",
+              "host": [
+                "api-dev-204",
+                "coopecg",
+                "com"
+              ],
+              "path": [
+                "webapiEmbrix",
+                "api",
+                "Transacciones",
+                "CreaOrdenTrabajoGen"
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Create General Work Order (Notify Cancellation)",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyIjoiRU1CUklYIiwicHdkIjoiUm9jYTE5NzIwNUAiLCJzayI6IjAxMjM0NTY3ODkwMTIzNDU2Nzg5MDEyMzQ1Njc4OSIsImF1ZCI6WyJ3d3cuY29vcGVndWFuYWNhc3RlLmNvbSIsInd3dy5jb29wZWd1YW5hY2FzdGUuY29tIl0sImlzcyI6Ind3dy5jb29wZWd1YW5hY2FzdGUuY29tIiwibmJmIjoxNzYyNTU0MDMzLCJleHAiOjE3NjI3MjY4MzMsImlhdCI6MTc2MjU1NDAzM30.WdR-GWAD0iJ-CLEwnAzOMA3H5vJWpotQmmcs_iILIcQ",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\"accountId\": \"215791\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "https://webapi.coopeguanacaste.com/webapiEmbrix/api/Transacciones/CreaOrdenTrabajoGen",
+              "protocol": "https",
+              "host": [
+                "webapi",
+                "coopeguanacaste",
+                "com"
+              ],
+              "path": [
+                "webapiEmbrix",
+                "api",
+                "Transacciones",
+                "CreaOrdenTrabajoGen"
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Other",
+      "item": [
+        {
+          "name": "Inventory Retrieval Manager",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\r\n    \"userId\": \"LROJAS\",\r\n    \"orderId\": \"2367410\",\r\n    \"services\": [\r\n        {\r\n            \"action\": \"ADD\",\r\n            \"bundleId\": \"BDL_CAM_COOPE_INT\",\r\n            \"quantity\": 17,\r\n            \"packageId\": \"\",\r\n            \"serviceType\": \"INTERNET\"\r\n        },\r\n        {\r\n            \"action\": \"CANCEL\",\r\n            \"bundleId\": \"BDL_CAM_COOPE_INT\",\r\n            \"quantity\": 15,\r\n            \"packageId\": \"\",\r\n            \"instanceId\": \"MIG_ORD_209271:B:BDL_CAM_COOPE_INT-1\",\r\n            \"serviceType\": \"INTERNET\"\r\n        }\r\n    ],\r\n    \"accountId\": \"209271\",\r\n    \"orderType\": \"MODIFY\",\r\n    \"staticIpRented\": \"false\",\r\n    \"billOrderCharges\": \"false\"\r\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "https://200.5.63.114:8443/idm/services/InventoryRetrievalMgrExtns",
+              "protocol": "https",
+              "host": [
+                "200",
+                "5",
+                "63",
+                "114"
+              ],
+              "port": "8443",
+              "path": [
+                "idm",
+                "services",
+                "InventoryRetrievalMgrExtns"
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    }
+  ]
+}

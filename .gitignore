@@ -1,0 +1,22 @@
+# Dependencies
+node_modules/
+
+# Auth state — contains credentials, never commit
+playwright/.auth/
+
+# Environment variables — contains secrets
+#.env
+
+# Test output
+test-results/
+playwright-report/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# test examples
+tests/examples/
+
+# documents
+#docs/personals/

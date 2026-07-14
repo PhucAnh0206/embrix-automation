@@ -1,0 +1,34 @@
+[
+  {
+    "name": "RESIDENTIAL_DEFAULT",
+    "payload": {
+      "userId": "congeroadmin",
+      "firstName": "Tuan",
+      "lastName": "Dao",
+      "organization": "2196045",
+      "country": "Costa Rica",
+      "landmark": "",
+      "state": "Guanacaste",
+      "extraLine": "test",
+      "postalCode": "11000",
+      "city": "Nicoya",
+      "street": "Nicoya 122",
+      "orderType": "NEW",
+      "district": "Nicoya",
+      "neighbourhood": "Pedernal",
+      "billingOnlyFlag": "true",
+      "accounttype": "RESIDENTIAL",
+      "groupid": "152355",
+      "staticIpRented": "true",
+      "identity": "502210226",
+      "identityDocument": "CÉDULA DE IDENTIDAD",
+      "phone": "89572382",
+      "collectionProfile": "Normal",
+      "paymentProfiles": [
+        {
+          "paymentMethod": "CHECK"
+        }
+      ]
+    }
+  }
+]
