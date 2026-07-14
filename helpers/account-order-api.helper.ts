@@ -49,6 +49,7 @@ export interface AccountAndOrderPayload {
   billingOnlyFlag?: string | boolean;
   accounttype?: string;
   groupid?: string;
+  groupId?: string;
   staticIpRented?: string | boolean;
   identity?: string;
   identityDocument?: string;
@@ -59,6 +60,26 @@ export interface AccountAndOrderPayload {
   services?: ServicePayload[];
 }
 
+/**
+ * Mapped interface for storing test session IDs and configuration contexts.
+ */
+export interface SavedContext {
+  testingDateObj?: {
+    startDate: string;
+    nextMonthFirstDate: string;
+    nextTwoMonthsFirstDate: string;
+  };
+  accountId: string;
+  orderId: string;
+  accountInfoPageUrl?: string;
+  billsPageUrl?: string;
+  invoiceId?: string;
+  totalAmount?: string;
+  provisioningOrderUrl?: string;
+  provisioningOrderId?: string;
+  requestContent?: string;
+  quickAccUrl? : string;
+}
 
 
 /**
@@ -188,7 +209,7 @@ export class AccountOrderApiHelper {
       accountId,
       orderId,
       commercialName: loadedTemplate.commercialName ?? `CREATE_ACT_ORDER_${randomSuffix}`,
-      email: loadedTemplate.email ?? `qa-automation+cus.${randomSuffix}@congerotechnology.com`,
+      email: loadedTemplate.email ?? `tuan.dao+cus.${randomSuffix}@congerotechnology.com`,
       services
     };
 
@@ -200,34 +221,18 @@ export class AccountOrderApiHelper {
     this.logger?.api('POST', url);
     this.logger?.data('Request Payload', finalPayload);
 
-    let response;
-    let status = 0;
-    let bodyText = "";
-    const maxRetries = 3;
+    const response = await this.request.post(url, {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      },
+      data: finalPayload,
+      timeout: EXTRA_LONG_WAIT * 2
+    });
 
-    for (let attempt = 1; attempt <= maxRetries; attempt++) {
-      response = await this.request.post(url, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        },
-        data: finalPayload,
-        timeout: EXTRA_LONG_WAIT * 2
-      });
-
-      status = response.status();
-      bodyText = await response.text();
-      this.logger?.api('POST', url, status, bodyText);
-
-      if (status !== 502 && status !== 503 && status !== 504) {
-        break;
-      }
-
-      if (attempt < maxRetries) {
-        this.logger?.log(`CRM API returned ${status} (Attempt ${attempt}/${maxRetries}). Retrying in 2 seconds...`);
-        await new Promise((resolve) => setTimeout(resolve, 2000));
-      }
-    }
+    const status = response.status();
+    const bodyText = await response.text();
+    this.logger?.api('POST', url, status, bodyText);
 
     expect(status).toBe(200);
 

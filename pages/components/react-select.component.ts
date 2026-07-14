@@ -1,5 +1,5 @@
 import { Page, Locator } from '@playwright/test';
-import { MEDIUM_WAIT } from '../../helpers/timeouts.helper';
+import { SHORT_WAIT, MEDIUM_WAIT } from '../../helpers/timeouts.helper';
 
 /**
  * ReactSelectComponent — Encapsulates interactions with custom React-Select dropdowns.
@@ -51,11 +51,11 @@ export class ReactSelectComponent {
     await this.control.waitFor({ state: 'visible', timeout: MEDIUM_WAIT });
     await this.control.click();
 
-    await this.menu.waitFor({ state: 'visible', timeout: MEDIUM_WAIT });
+    await this.menu.waitFor({ state: 'visible', timeout: SHORT_WAIT });
     await this.menu
       .getByText(new RegExp(this.escapeRegex(optionText), 'i'))
       .click();
-    await this.menu.waitFor({ state: 'hidden', timeout: MEDIUM_WAIT });
+    await this.menu.waitFor({ state: 'hidden', timeout: SHORT_WAIT });
   }
 
   /**
@@ -71,13 +71,13 @@ export class ReactSelectComponent {
     const input = this.control.locator('input').first();
     await input.fill(searchText);
 
-    await this.menu.waitFor({ state: 'visible', timeout: MEDIUM_WAIT });
+    await this.menu.waitFor({ state: 'visible', timeout: SHORT_WAIT });
     const target = optionText ?? searchText;
     await this.menu
       .getByText(new RegExp(this.escapeRegex(target), 'i'))
       .first()
       .click();
-    await this.menu.waitFor({ state: 'hidden', timeout: MEDIUM_WAIT });
+    await this.menu.waitFor({ state: 'hidden', timeout: SHORT_WAIT });
   }
 
   // ── Utilities ───────────────────────────────────────────────────────

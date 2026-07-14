@@ -1,89 +1,96 @@
-import { test as base } from '@playwright/test';
+import { test as base, mergeTests, TestInfo } from '@playwright/test';
 import { Page, Locator } from '@playwright/test';
 import { MEDIUM_WAIT, SHORT_WAIT } from '../helpers/timeouts.helper';
 
-/** Page extensions */
 declare module '@playwright/test' {
-  // Extended Page type with custom methods
   interface Page {
-    navigate(url: string): Promise<void>;
     navigateToHome(): Promise<void>;
     waitForLoadingToDisappear(): Promise<void>;
   }
 }
-
-/** Page objects */
-import { CustomerActivityPage } from '../pages/customer-hub/customer-management/account-details/account-data/customer-activity.page'
+import { AccountInfoPage } from '../pages/customer-hub/customer-management/account-details/account-data/account-info.page';
+import { CustomerManagementPage } from '../pages/customer-hub/customer-management/customer-management.page';
 import { BillsPage } from '../pages/customer-hub/customer-management/account-details/billing-data/bills.page';
 import { DailySchedulePage } from '../pages/operations-hub/jobs-management/daily-schedule.page';
-import { LoginPage } from '../pages/login.page';
-import { OrderListingPage } from '../pages/customer-hub/order-management/order/order-listing.page';
-import { CustomerListingPage } from '../pages/customer-hub/customer-management/customer-listing.page';
-import { ServicesPage } from '../pages/customer-hub/customer-management/account-details/subscription-data/services.page';
-import { OrderDetailsPage } from '../pages/customer-hub/order-management/order/order-details.page';
-
-/** Common component helpers */
-import { ReactSelectComponent } from '../pages/components/react-select.component';
-import { SidebarComponent } from '../pages/components/sidebar.component';
-import { TableComponent } from '../pages/components/table.component';
-import { ToastComponent } from '../pages/components/toast.component';
-
-/** API helpers */
-import { ServerHelper } from '../helpers/server-api.helper';
-import { AccountOrderApiHelper } from '../helpers/account-order-api.helper';
-
-/** Database helpers */
 import { DatabaseHelper } from '../helpers/database.helper';
 import { JobScheduleDbHelper } from '../helpers/db/job-schedule.db';
-import { ProvisioningDbHelper } from '../helpers/db/provisioning.db';
-
-/** Utils helpers */
+import { LoginPage } from '../pages/login.page';
+import { OrderManagementPage } from '../pages/customer-hub/order-management/order-management.page';
+import { ReactSelectComponent } from '../pages/components/react-select.component';
 import { ScreenshotHelper } from '../helpers/screenshot.helper';
+import { SearchAccountsPage } from '../pages/customer-hub/customer-management/search-accounts.page';
+import { SidebarComponent } from '../pages/components/sidebar.component';
+import { ServicesPage } from '../pages/customer-hub/customer-management/account-details/subscription-data/services.page';
+import { TaskManagementPage } from '../pages/operations-hub/task-management/taskManagement.page';
+import { CorrspondencePage } from '../pages/operations-hub/correspondence/correspondence.page';
+import { TableComponent } from '../pages/components/table.component';
+import { PaymentHistoryPage } from '../pages/ar-hub/payment/paymentHistory.page';
+import { SearchQuote } from '../pages/customer-hub/quote-management/search-quote.page';
+import { BundlePage } from '../pages/pricing-hub/Basic-configuration/bundle.page';
+import { UserManagementPage } from '../pages/operations-hub/user-management/userManagement.page';
+import { ContactPage } from '../pages/customer-hub/customer-management/account-details/account-data/contact.page';
+import { CollectionPage } from '../pages/ar-hub/collections/accountInCollection.page';
+import { UsagePage } from '../pages/billing-hub/Bulk-operations/usage.page';
+import { NewQuote } from '../pages/customer-hub/quote-management/new-quote.page';
+import { GLSetupPage } from '../pages/revenue-hub/configuration/glSetup.page';
+import { GLAccountsPage } from '../pages/revenue-hub/configuration/glAccounts.page';
+import { CurrencyPage } from '../pages/pricing-hub/Basic-configuration/currency.page';
+import { TaxationPage } from '../pages/billing-hub/Bulk-operations/taxation.page';
+import { ProductFamilyPage } from '../pages/pricing-hub/Basic-configuration/productFamily.page';
+import { CreateOrderPage } from '../pages/customer-hub/order-management/create-order.page';
+import { ServerHelper } from '../helpers/server-api.helper';
+import { AccountOrderApiHelper } from '../helpers/account-order-api.helper';
 import { TestLogger } from '../helpers/test-logger';
+import { ToastComponent } from '../pages/components/toast.component';
 import {
   loadTestContext,
   updateTestContext,
   saveTestContext,
   SavedContext
 } from '../helpers/test-context.helper';
+import { InvoicePage } from '../pages/billing-hub/Bulk-operations/invoices.page';
 
-/** Custom type: AllFixtures
+/**
  * All fixture types merged into a single test context.
  * This ensures cross-fixture dependencies (e.g. helpers needing testLogger)
  * are resolved correctly.
  */
 type AllFixtures = {
-  // Page objects
-  customerActivityPage: CustomerActivityPage;
+  accountInfoPage: AccountInfoPage;
+  accountOrderApiHelper: AccountOrderApiHelper;
+  customerManagementPage: CustomerManagementPage;
+  userManagementPage: UserManagementPage
   billsPage: BillsPage;
   dailySchedulePage: DailySchedulePage;
-  loginPage: LoginPage;
-  orderListingPage: OrderListingPage;
-  customerListingPage: CustomerListingPage;
-  servicesPage: ServicesPage;
-  orderDetailsPage: OrderDetailsPage;
-
-  // Components
-  reactSelect: (container: Locator) => ReactSelectComponent;
-  sidebar: SidebarComponent;
-  table: (container: Locator) => TableComponent;
-  toast: ToastComponent;
-
-  // Workflows
-  rerunDailyScheduleFlow: (date: string) => Promise<void>;
-
-  // APIs
-  accountOrderApiHelper: AccountOrderApiHelper;
-  serverHelper: ServerHelper;
-
-  // Database
   databaseHelper: DatabaseHelper;
   jobScheduleDbHelper: JobScheduleDbHelper;
-  provisioningDbHelper: ProvisioningDbHelper;
-
-  // Utils
+  loginPage: LoginPage;
+  orderManagementPage: OrderManagementPage;
+  reactSelect: (container: Locator) => ReactSelectComponent;
   screenshotHelper: ScreenshotHelper;
+  searchAccountsPage: SearchAccountsPage;
+  taskManagementPage: TaskManagementPage;
+  serverHelper: ServerHelper;
+  searchQuote: SearchQuote;
+  newQuote: NewQuote;
+  usagePage: UsagePage;
+  contactPage: ContactPage;
+  bundlePage: BundlePage;
+  currencyPage: CurrencyPage;
+  taxationPage: TaxationPage;
+  gLAccountsPage: GLAccountsPage;
+  gLSetupPage: GLSetupPage;
+  paymentHistoryPage: PaymentHistoryPage;
+  invoicePage: InvoicePage;
+  corrspondencePage: CorrspondencePage;
+  collectionPage: CollectionPage;
+  productFamilyPage: ProductFamilyPage;
+  createOrderPage: CreateOrderPage;
+  servicesPage: ServicesPage;
+  sidebar: SidebarComponent;
+  table: (container: Locator) => TableComponent;
   testLogger: TestLogger;
+  toast: ToastComponent;
   testContext: {
     load: () => SavedContext;
     update: (partial: Partial<SavedContext>) => void;
@@ -93,92 +100,142 @@ type AllFixtures = {
 
 export const test = base.extend<AllFixtures>({
   page: async ({ page }, use) => {
-
-    /** Navigate to a path relative to baseURL, wait for network idle. */
-    page.navigate = async (path: string) => {
-      await page.goto(path);
-      await page.waitForLoadState('networkidle');
-      await page.waitForLoadingToDisappear();
-    };
-
-    /** Navigate to the home page */
     page.navigateToHome = async () => {
       await page.goto(process.env.EMBRIX_BASE_URL ?? '/');
       await page.waitForLoadState('networkidle');
-      await page.waitForLoadingToDisappear()
+      const loader = page.locator('.animate__animated.animate__zoomIn');
+      await loader.waitFor({ state: 'hidden', timeout: SHORT_WAIT }).catch(() => { });
     };
 
-    /** Wait for loading animation to disappear */
     page.waitForLoadingToDisappear = async () => {
       const loader = page.locator('.animate__animated.animate__zoomIn');
-      // Wait at most SHORT_WAIT (1s) for loader to appear. If it doesn't show up, skip waiting for it.
+      // Wait up to 1s for the loader to appear (in case of transition delays)
       await loader.waitFor({ state: 'visible', timeout: SHORT_WAIT }).catch(() => { });
-      if (await loader.isVisible()) {
-        await loader.waitFor({ state: 'hidden', timeout: MEDIUM_WAIT }).catch(() => { });
-      }
+      // Wait for the loader to be hidden
+      await loader.waitFor({ state: 'hidden', timeout: SHORT_WAIT }).catch(() => { });
     };
 
     await use(page);
   },
 
+  // Logger
+  testLogger: async ({ }, use, testInfo) => {
+    const logger = new TestLogger(testInfo.title);
+    await use(logger);
+    logger.flush();
+    await testInfo.attach('test-log', {
+      path: logger.getFilePath(),
+      contentType: 'text/plain',
+    }).catch(() => { });
+  },
 
-  /** 
-   * Fixtures
-   */
+  // Screenshot Helper — captures and attaches screenshots to the HTML report on demand
+  screenshotHelper: async ({ page }, use, testInfo) => {
+    const helper = new ScreenshotHelper(page, testInfo);
+    await use(helper);
+  },
 
-  /** Page objects fixtures */
+  // Page Objects
   loginPage: async ({ page }, use) => {
     await use(new LoginPage(page));
   },
 
-  customerListingPage: async ({ page }, use) => {
-    await use(new CustomerListingPage(page));
+  searchAccountsPage: async ({ page }, use) => {
+    await use(new SearchAccountsPage(page));
   },
 
-  billsPage: async ({ page, testLogger }, use) => {
-    await use(new BillsPage(page, testLogger));
+  billsPage: async ({ page }, use) => {
+    await use(new BillsPage(page));
   },
 
-  orderListingPage: async ({ page }, use) => {
-    await use(new OrderListingPage(page));
+  productFamilyPage: async ({ page }, use) => {
+    await use(new ProductFamilyPage(page));
   },
 
-  customerActivityPage: async ({ page }, use) => {
-    await use(new CustomerActivityPage(page));
+  bundlePage: async ({ page }, use) => {
+    await use(new BundlePage(page));
   },
+
+  contactPage: async ({ page }, use) => {
+    await use(new ContactPage(page));
+  },
+
+  taskManagementPage: async ({ page }, use) => {
+    await use(new TaskManagementPage(page));
+  },
+
+  userManagementPage: async ({ page }, use) => {
+    await use(new UserManagementPage(page));
+  },
+
+  gLAccountsPage: async ({ page }, use) => {
+    await use(new GLAccountsPage(page));
+  },
+  gLSetupPage: async ({ page }, use) => {
+    await use(new GLSetupPage(page));
+  },
+
+  usagePage: async ({ page }, use) => {
+    await use(new UsagePage(page));
+  },
+
+  corrspondencePage: async ({ page }, use) => {
+    await use(new CorrspondencePage(page));
+  },
+
+  taxationPage: async ({ page }, use) => {
+    await use(new TaxationPage(page));
+  },
+  paymentHistoryPage: async ({ page }, use) => {
+    await use(new PaymentHistoryPage(page));
+  },
+  invoicePage: async ({ page }, use) => {
+    await use(new InvoicePage(page));
+  },
+
+
+  collectionPage: async ({ page }, use) => {
+    await use(new CollectionPage(page));
+  },
+
+  orderManagementPage: async ({ page }, use) => {
+    await use(new OrderManagementPage(page));
+  },
+
+  accountInfoPage: async ({ page }, use) => {
+    await use(new AccountInfoPage(page));
+  },
+
+  createOrderPage: async ({ page }, use) => {
+    await use(new CreateOrderPage(page));
+  },
+  customerManagementPage: async ({ page }, use) => {
+    await use(new CustomerManagementPage(page));
+  },
+
+  searchQuote: async ({ page }, use) => {
+    await use(new SearchQuote(page));
+  },
+
+
+  currencyPage: async ({ page }, use) => {
+    await use(new CurrencyPage(page));
+  },
+
+  newQuote: async ({ page }, use) => {
+    await use(new NewQuote(page));
+  },
+
 
   servicesPage: async ({ page }, use) => {
     await use(new ServicesPage(page));
   },
 
-  dailySchedulePage: async ({ page, testLogger, serverHelper, jobScheduleDbHelper }, use) => {
-    await use(new DailySchedulePage(page, testLogger, serverHelper, jobScheduleDbHelper));
+  dailySchedulePage: async ({ page }, use) => {
+    await use(new DailySchedulePage(page));
   },
 
-  orderDetailsPage: async ({ page, testLogger }, use) => {
-    await use(new OrderDetailsPage(page, testLogger));
-  },
-
-  /** Components fixtures*/
-  reactSelect: async ({ page }, use) => {
-    const factory = (container: Locator) => new ReactSelectComponent(page, container);
-    await use(factory);
-  },
-
-  sidebar: async ({ page }, use) => {
-    await use(new SidebarComponent(page));
-  },
-
-  table: async ({ page }, use) => {
-    const factory = (container: Locator) => new TableComponent(page, container);
-    await use(factory);
-  },
-
-  toast: async ({ page }, use) => {
-    await use(new ToastComponent(page));
-  },
-
-  /** APIs fixtures */
+  /** Helpers (depend on testLogger) */
   serverHelper: async ({ request, testLogger }, use) => {
     await use(new ServerHelper(request, testLogger));
   },
@@ -187,7 +244,6 @@ export const test = base.extend<AllFixtures>({
     await use(new AccountOrderApiHelper(request, testLogger));
   },
 
-  /** Database fixtures */
   databaseHelper: async ({ }, use) => {
     const databaseHelper = new DatabaseHelper();
     await use(databaseHelper);
@@ -198,26 +254,26 @@ export const test = base.extend<AllFixtures>({
     await use(helper);
   },
 
-  provisioningDbHelper: async ({ }, use) => {
-    const helper = new ProvisioningDbHelper();
-    await use(helper);
-  },
-  /** Utils Fixtures */
-  screenshotHelper: async ({ page }, use, testInfo) => {
-    const helper = new ScreenshotHelper(page, testInfo);
-    await use(helper);
+  sidebar: async ({ page }, use) => {
+    await use(new SidebarComponent(page));
   },
 
-  testLogger: async ({ }, use, testInfo) => {
-    const logger = new TestLogger(testInfo.title);
-    await use(logger);
-    logger.flush();
-    await testInfo.attach('test-log', {
-      path: logger.getFilePath(),
-      contentType: 'text/plain',
-    })
+  /** Components */
+  toast: async ({ page }, use) => {
+    await use(new ToastComponent(page));
   },
 
+  reactSelect: async ({ page }, use) => {
+    const factory = (container: Locator) => new ReactSelectComponent(page, container);
+    await use(factory);
+  },
+
+  table: async ({ page }, use) => {
+    const factory = (container: Locator) => new TableComponent(page, container);
+    await use(factory);
+  },
+
+  /** Context Helper Fixture */
   testContext: async ({ }, use) => {
     await use({
       load: loadTestContext,
@@ -225,8 +281,6 @@ export const test = base.extend<AllFixtures>({
       save: saveTestContext,
     });
   },
-
-
 });
 
 export { expect } from '@playwright/test';

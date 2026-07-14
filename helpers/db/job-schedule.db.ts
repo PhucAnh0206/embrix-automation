@@ -1,3 +1,4 @@
+// helpers/db/job-schedule.db.ts
 import { DatabaseHelper } from '../database.helper';
 
 export class JobScheduleDbHelper {
@@ -24,19 +25,5 @@ export class JobScheduleDbHelper {
         
         await this.db.executeQuery(sqlQuery1, [id]);
         await this.db.executeQuery(sqlQuery2, [id]);
-    }
-
-    /**
-     * Clean stuck ERROR jobs by updating their status to COMPLETED to unblock the billing engine
-     */
-    async cleanStuckJobs(beforeDate?: string): Promise<void> {
-        let sqlQuery1 = `UPDATE core_engine.job_schedule_list SET status = 'COMPLETED' WHERE status = 'ERROR';`;
-        let sqlQuery2 = `UPDATE core_engine.job_schedule SET status = 'COMPLETED' WHERE status = 'ERROR';`;
-        if (beforeDate) {
-            sqlQuery1 = `UPDATE core_engine.job_schedule_list SET status = 'COMPLETED' WHERE status = 'ERROR' OR (status = 'PENDING' AND createddate < '${beforeDate}'::TIMESTAMP);`;
-            sqlQuery2 = `UPDATE core_engine.job_schedule SET status = 'COMPLETED' WHERE status = 'ERROR' OR (status = 'PENDING' AND scheduledate < '${beforeDate}'::TIMESTAMP);`;
-        }
-        await this.db.executeQuery(sqlQuery1);
-        await this.db.executeQuery(sqlQuery2);
     }
 }
