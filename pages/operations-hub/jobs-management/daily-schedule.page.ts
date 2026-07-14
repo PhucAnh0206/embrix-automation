@@ -1,11 +1,9 @@
 import { Page } from '@playwright/test';
 import { BasePage } from '../../base.page';
-import { JobScheduleDbHelper } from '../../../helpers/db/job-schedule.db';
-import { MEDIUM_WAIT, LONG_WAIT, SHORT_WAIT } from '../../../helpers/timeouts.helper';
-import { ServerHelper } from '../../../helpers/server-api.helper';
+import { MEDIUM_WAIT, LONG_WAIT } from '../../../helpers/timeouts.helper';
 import { SidebarComponent } from '../../components/sidebar.component';
+import { JobScheduleDbHelper } from '../../../helpers/db/job-schedule.db';
 import { TestLogger } from '../../../helpers/test-logger';
-import { ToastComponent } from '../../components/toast.component';
 
 /**
  * DailySchedulePage — Page Object for the Daily Schedule screen.
@@ -14,59 +12,59 @@ import { ToastComponent } from '../../components/toast.component';
  */
 export class DailySchedulePage extends BasePage {
     readonly sidebar: SidebarComponent;
-    readonly serverHelper: ServerHelper;
-    readonly jobScheduleDbHelper: JobScheduleDbHelper;
-    readonly testLogger: TestLogger;
-    readonly toastComponent: ToastComponent;
 
-    constructor(
-        page: Page,
-        testLogger: TestLogger,
-        serverHelper: ServerHelper,
-        jobScheduleDbHelper: JobScheduleDbHelper
-    ) {
+    constructor(page: Page) {
         super(page);
         this.sidebar = new SidebarComponent(page);
-        this.serverHelper = serverHelper;
-        this.jobScheduleDbHelper = jobScheduleDbHelper;
-        this.testLogger = testLogger;
-        this.toastComponent = new ToastComponent(page);
     }
 
-    /** DOM Elements */
+    // ── DOM Selectors ────────────────────────────────────────────────────────
+
     private get jobCalendarInput() { return this.page.locator('.react-datepicker__input-container input'); }
     private get createJobScheduleButton() { return this.page.getByRole('button', { name: 'Create Job Schedule', exact: true }); }
     private get processButton() { return this.page.getByRole('button', { name: 'Process', exact: true }); }
     private get refreshJobsButton() { return this.page.locator('button[title="Refresh jobs"]'); }
     private get confirmYesButton() { return this.page.getByRole('button', { name: 'Yes', exact: true }); }
+    private get noJobScheduleMessage() { return this.page.locator('text=/No job schedule on/'); }
 
     /** All job card elements on the page (each card has an h6 title, status label, etc.) */
     private get jobCards() { return this.page.locator('.card').filter({ has: this.page.locator('h6') }); }
+
+    // ── Navigation ──────────────────────────────────────────────────────────
 
     /**
      * Navigate to Daily Schedule screen via top nav menu + sidebar.
      * Opens Operations Hub → Jobs Management, then selects DAILY from the sidebar.
      */
-    async navigateViaNav(): Promise<string> {
-        await this.page.navigateToHome()
+    async navigateViaNav(): Promise<void> {
         await this.hoverNavMenu(/Operations Hub/i);
         await this.clickNavLink(/Jobs Management/i, /job-schedule/i);
         await this.page.waitForLoadingToDisappear();
-        return await this.sidebar.navigateTo('Jobs Management', 'DAILY');
+        await this.navigateViaSidebar();
     }
 
     /**
+     * Navigate to Daily Schedule via the left sidebar.
+     * Use this when already on the Jobs Management page.
+     */
+    async navigateViaSidebar(): Promise<string> {
+        return this.sidebar.navigateTo('Jobs Management', 'DAILY');
+    }
+
+    // ── Calendar Input ──────────────────────────────────────────────────────
+
+    /**
      * Input job calendar date (format: YYYY-MM-DD)
-     * @param date - Date to input in YYYY-MM-DD format
      */
     async inputJobCalendar(date: string): Promise<void> {
         await this.jobCalendarInput.click();
-        await this.page.keyboard.press('Control+A');
-        await this.page.keyboard.press('Backspace');
+        await this.jobCalendarInput.clear();
         await this.jobCalendarInput.fill(date);
         await this.jobCalendarInput.press('Enter');
         await this.page.waitForLoadingToDisappear();
     }
+
+    // ── Job Schedule Actions ────────────────────────────────────────────────
 
     /**
      * Click on Create Job Schedule button and wait for success toast
@@ -90,7 +88,6 @@ export class DailySchedulePage extends BasePage {
     async confirmProcess(): Promise<void> {
         await this.confirmYesButton.waitFor({ state: 'visible', timeout: MEDIUM_WAIT });
         await this.confirmYesButton.click();
-        await this.toastComponent.successToast.waitFor({ state: 'visible', timeout: SHORT_WAIT });
         await this.page.waitForLoadingToDisappear();
     }
 
@@ -101,6 +98,8 @@ export class DailySchedulePage extends BasePage {
         await this.refreshJobsButton.click();
         await this.page.waitForLoadingToDisappear();
     }
+
+    // ── Job Card Status ─────────────────────────────────────────────────────
 
     /**
      * Check if any job card still has "Pending" status.
@@ -123,118 +122,71 @@ export class DailySchedulePage extends BasePage {
         return (await this.jobCards.count()) > 0;
     }
 
+    // ── Composite Flows ─────────────────────────────────────────────────────
+
+    /**
+     * Clear existing job schedule for a date via DB, then refresh the UI.
+     * If job cards are visible, query DB for the schedule ID and delete it.
+     */
+    async clearExistingJobSchedule(
+        jobScheduleDbHelper: JobScheduleDbHelper,
+        date: string,
+        testLogger: TestLogger
+    ): Promise<void> {
+        const hasJobs = await this.isJobListVisible();
+        if (!hasJobs) {
+            testLogger.log(`No existing job schedule found on UI for date ${date}. Skipping cleanup.`);
+            return;
+        }
+
+        testLogger.log(`Existing job schedule found on UI for date ${date}. Cleaning up via DB...`);
+
+        try {
+            const jobSchedules = await jobScheduleDbHelper.getJobSchedule(date);
+            testLogger.data('Job Schedules to delete', jobSchedules);
+
+            for (const job of jobSchedules) {
+                await jobScheduleDbHelper.deleteJobScheduleById(job.id);
+                testLogger.log(`Deleted job schedule ID: ${job.id}`);
+            }
+        } catch (error) {
+            testLogger.error('Failed to clean up job schedules via DB', String(error));
+            throw error;
+        }
+
+        // Reload the page to reflect DB changes
+        await this.page.reload();
+        await this.page.waitForLoadState('networkidle').catch(() => { });
+        await this.page.waitForLoadingToDisappear();;
+
+        // Re-input the date to refresh the view
+        await this.inputJobCalendar(date);
+    }
+
     /**
      * Wait for all job cards to finish processing (no more Pending status).
      * Polls by clicking Refresh and checking statuses, up to maxRetries times.
+     * 
      * @returns true if all jobs completed within the retry limit, false otherwise
      */
     async waitForAllJobsCompleted(
+        testLogger: TestLogger,
         maxRetries: number = 10,
-        date?: string
     ): Promise<boolean> {
-        // Wait for job cards to be visible before checking statuses
-        await this.jobCards.first().waitFor({ state: 'visible', timeout: 5000 }).catch(() => { });
-
         for (let attempt = 1; attempt <= maxRetries; attempt++) {
             const hasPending = await this.hasAnyPendingJob();
 
             if (!hasPending) {
-                this.testLogger.log(`All jobs completed after ${attempt} check(s).`);
+                testLogger.log(`All jobs completed after ${attempt} check(s).`);
                 return true;
             }
 
-            this.testLogger.log(`Attempt ${attempt}/${maxRetries}: Some jobs still Pending. Refreshing...`);
-            // Unblock the billing engine in case other accounts on the sandbox database failed and blocked progress
-            await this.jobScheduleDbHelper.cleanStuckJobs(date).catch(e => this.testLogger.error("Failed to clean stuck jobs in loop", String(e)));
+            testLogger.log(`Attempt ${attempt}/${maxRetries}: Some jobs still Pending. Refreshing...`);
             await this.page.waitForTimeout(LONG_WAIT);
             await this.clickRefreshJobs();
         }
 
-        this.testLogger.error(`Jobs did not complete within ${maxRetries} retries.`, '');
+        testLogger.error(`Jobs did not complete within ${maxRetries} retries.`, '');
         return false;
-    }
-
-    /**
-     * Clear jobs for the first date, sixteenth date, seventeenth date, and twenty first date of a month
-     * @param dateObject - Object containing the dates to clear
-     */
-    async clearJobsForEachMonth(
-        dateObject: {
-            firstDate: string;
-            sixteenthDate?: string;
-            seventeenthDate?: string;
-            twentyFirstDate?: string;
-        }
-    ) {
-        const datesToClear = [
-            dateObject.firstDate,
-            dateObject.sixteenthDate,
-            dateObject.seventeenthDate,
-            dateObject.twentyFirstDate
-        ].filter((date): date is string => !!date);
-
-        for (const date of datesToClear) {
-            try {
-                this.testLogger.log(`START: Clearing job schedule for date ${date}`);
-                const jobSchedules = await this.jobScheduleDbHelper.getJobSchedule(date);
-                this.testLogger.data(`Job Schedules to delete for date ${date}: `, jobSchedules);
-
-                for (const job of jobSchedules) {
-                    await this.jobScheduleDbHelper.deleteJobScheduleById(job.id);
-                    this.testLogger.log(`Deleted job schedule ID: ${job.id}`);
-                }
-                this.testLogger.log(`END: Clearing job schedule for date ${date}`);
-            } catch (error) {
-                this.testLogger.error(`Failed to clean up job schedules via DB for date ${date}`, String(error));
-                throw error;
-            }
-        }
-    }
-
-    /**
-     * Create and run jobs for a specific date
-     * @param date - Date for which to create and run jobs (format: YYYY-MM-DD)
-     */
-    async createAndRunJobsForDate(
-        date: string
-    ) {
-        // Unblock the billing engine scheduler before starting the run
-        await this.jobScheduleDbHelper.cleanStuckJobs(date).catch(e => this.testLogger.error("Failed to clean stuck jobs initially", String(e)));
-
-        await this.navigateViaNav();
-        await this.inputJobCalendar(date);
-
-        const isCreateJobScheduleButtonVisible = await this.createJobScheduleButton.isVisible();
-
-        if (isCreateJobScheduleButtonVisible) {
-            await this.clickCreateJobSchedule();
-            await this.clickRefreshJobs();
-        }
-
-        await this.clickProcess()
-        await this.confirmProcess()
-        await this.clickRefreshJobs();
-        await this.waitForAllJobsCompleted(10, date)
-    }
-
-    /**
-     * Repare jobs for each month
-     * @param dateObject - Object containing the dates to clear
-     * @param serverHelper - Server helper for API operations
-     * @param testLogger - Test logger for logging purposes
-     */
-    async repareJobsForEachMonth(
-        dateObject: {
-            firstDate: string;
-            sixteenthDate?: string;
-            seventeenthDate?: string;
-            twentyFirstDate?: string;
-        }
-    ) {
-        this.testLogger.data('START - Repare daily jobs for date:', dateObject);
-        await this.clearJobsForEachMonth(dateObject)
-        await this.serverHelper.setAndVerifyCcpTime(dateObject.firstDate)
-        await this.createAndRunJobsForDate(dateObject.firstDate)
-        this.testLogger.data('END - Repare daily jobs for date:', dateObject);
     }
 }

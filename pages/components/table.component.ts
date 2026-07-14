@@ -1,5 +1,5 @@
 import { Page, Locator } from '@playwright/test';
-import { MEDIUM_WAIT } from '../../helpers/timeouts.helper';
+import { MEDIUM_WAIT, SHORT_WAIT } from '../../helpers/timeouts.helper';
 
 /**
  * TableComponent — Reusable component for interacting with grid tables.
@@ -15,27 +15,22 @@ export class TableComponent {
    * @param tableLocator - Locator targeting the root <table> element or scroll container containing rows.
    */
   constructor(
-    readonly page: Page,
-    readonly tableLocator: Locator
+    protected readonly page: Page,
+    protected readonly tableLocator: Locator
   ) { }
-
 
   /** Lazy locator for header cells. */
   private get headerCells(): Locator {
     return this.tableLocator.locator('thead th, thead td');
   }
 
-
   /** Lazy locator for table body rows. */
   get rows(): Locator {
     return this.tableLocator.locator('tbody tr');
   }
 
-
   /**
    * Parse headers and cache them in a map of (columnName -> index).
-   * @param forceRefresh - Force refresh the headers.
-   * @returns A Promise that resolves to the headers map.
    */
   async getHeaders(forceRefresh = false): Promise<Map<string, number>> {
     if (this.headerMap && !forceRefresh) {
@@ -57,21 +52,15 @@ export class TableComponent {
     return map;
   }
 
-
   /**
    * Get total row count inside tbody.
-   * @returns A Promise that resolves to the total number of rows in the table.
    */
   async getRowCount(): Promise<number> {
     return this.rows.count();
   }
 
-
   /**
    * Get Cell at specific row index and column name.
-   * @param rowIndex - The index of the row to get the value from.
-   * @param columnName - The name of the column to get the value from.
-   * @returns A Promise that resolves to the Locator of the cell in the columnName column.
    */
   async getCellByLocation(rowIndex: number, columnName: string): Promise<Locator> {
     const headers = await this.getHeaders();
@@ -89,31 +78,21 @@ export class TableComponent {
 
   /**
    * Get text value of a cell at specific row index and column name.
-   * @param rowIndex - The index of the row to get the value from.
-   * @param columnName - The name of the column to get the value from.
-   * @returns A Promise that resolves to the value of the cell in the columnName column.
    */
   async getCellValue(rowIndex: number, columnName: string): Promise<string> {
     const cell = await this.getCellByLocation(rowIndex, columnName);
     return (await cell.innerText()).trim();
   }
 
-
   /**
    * Get cell value for the first row under a column name.
-   * @param columnName - The name of the column to get the value from.
-   * @returns A Promise that resolves to the value of the cell in the columnName column.
    */
   async getFirstRowCellValue(columnName: string): Promise<string> {
     return this.getCellValue(0, columnName);
   }
 
-
   /**
    * Find row index where the cell under matchColumnName matches matchValue.
-   * @param matchColumnName - The name of the column to match.
-   * @param matchValue - The value to match in the matchColumnName column.
-   * @returns A Promise that resolves to the index of the row that matches the matchValue.
    */
   async findRowIndex(matchColumnName: string, matchValue: string): Promise<number> {
     const headers = await this.getHeaders();
@@ -133,25 +112,16 @@ export class TableComponent {
     return index;
   }
 
-
   /**
    * Get cell value from a row matched by another cell's value.
-   * @param matchColumnName - The name of the column to match.
-   * @param matchValue - The value to match in the matchColumnName column.
-   * @param targetColumnName - The name of the column to get the value from.
-   * @returns A Promise that resolves to the value of the cell in the targetColumnName column.
    */
   async getCellValueByMatch(matchColumnName: string, matchValue: string, targetColumnName: string): Promise<string> {
     const rowIndex = await this.findRowIndex(matchColumnName, matchValue);
     return this.getCellValue(rowIndex, targetColumnName);
   }
 
-
   /**
    * Find the LAST row index where the cell under matchColumnName matches matchValue.
-   * @param matchColumnName - The name of the column to match.
-   * @param matchValue - The value to match in the matchColumnName column.
-   * @returns A Promise that resolves to the index of the row that matches the matchValue.
    */
   async findLastRowIndex(matchColumnName: string, matchValue: string): Promise<number> {
     const headers = await this.getHeaders();
@@ -176,12 +146,8 @@ export class TableComponent {
     return lastIndex;
   }
 
-
   /**
    * Click an element (link, button, input) inside a cell, or the cell itself.
-   * @param rowIndex - The index of the row to click the link in.
-   * @param columnName - The name of the column to click the link in.
-   * @returns A Promise that resolves to void.
    */
   async clickCellLink(rowIndex: number, columnName: string): Promise<void> {
     const headers = await this.getHeaders();
@@ -204,13 +170,8 @@ export class TableComponent {
 
   }
 
-
   /**
    * Locate a row by matching cell value and click target column link.
-   * @param matchColumnName - The name of the column to match.
-   * @param matchValue - The value to match in the matchColumnName column.
-   * @param targetColumnName - The name of the column to click the link in.
-   * @returns A Promise that resolves to void.
    */
   async clickCellLinkByMatch(matchColumnName: string, matchValue: string, targetColumnName: string): Promise<void> {
     const rowIndex = await this.findRowIndex(matchColumnName, matchValue);
@@ -219,19 +180,27 @@ export class TableComponent {
 
 
   /**
-   * Get all text values in a column.
-   * @param columnName - The name of the column to get the values from.
-   * @returns A Promise that resolves to an array of strings containing all the values in the specified column.
+   * Input text in a cell identified by row index and column name.
    */
-  async getAllColumnValues(columnName: string): Promise<string[]> {
-    const headers = await this.getHeaders();
-    const colIndex = headers.get(columnName);
-    if (colIndex === undefined) {
-      throw new Error(`Column "${columnName}" not found. Available columns: ${[...headers.keys()].join(', ')}`);
-    }
-
-    const cellLocators = this.rows.locator(`td:nth-child(${colIndex + 1}), th:nth-child(${colIndex + 1})`);
-    const allCellTexts = await cellLocators.allTextContents();
-    return allCellTexts.map(text => text.trim());
+  async fillCellInput(rowIndex: number, columnName: string, value: string): Promise<void> {
+    const cell = await this.getCellByLocation(rowIndex, columnName);
+    const input = cell.locator('input');
+    await input.waitFor({ state: 'visible', timeout: MEDIUM_WAIT });
+    await input.fill(value);
   }
+
+  /**
+   * Select option from dropdown in a cell identified by rowIndex and columnName.
+   */
+  async selectCellOption(rowIndex: number, columnName: string, optionText: string): Promise<void> {
+    const cell = await this.getCellByLocation(rowIndex, columnName);
+
+    const selectControl = cell.locator('.custom-react-select__control').first();
+    await selectControl.click();
+
+    const option = this.page.locator('.custom-react-select__option').getByText(optionText, { exact: true });
+    await option.waitFor({ state: 'visible', timeout: MEDIUM_WAIT });
+    await option.click();
+  }
+
 }

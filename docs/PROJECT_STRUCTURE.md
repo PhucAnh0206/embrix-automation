@@ -3,7 +3,7 @@
 > **Project**: Automation Testing for Embrix O2X Platform
 > **Stack**: Playwright + TypeScript
 > **Goal**: Automate UI, API, and E2E testing for the entire Order-to-Cash business workflow
-> **Last updated**: 2026-06-13 | Version: 4.1
+> **Last updated**: 2026-06-11 | Version: 4.0
 
 ---
 
@@ -25,7 +25,21 @@ EmbrixAuto/
 │   └── 📄 PROJECT_STRUCTURE.md       ← This file — project structure documentation
 │
 ├── 📁 fixtures/                         ← Playwright Fixtures (Dependency Injection)
-│   └── 📄 page-factory.ts              ← ★ Centralized fixture — aggregates all page objects, helpers, components, and workflows
+│   ├── 📄 page-factory.ts              ← ★ Main fixture — aggregates all fixtures into a single test context
+│   ├── 📄 component-factory.ts          ← Fixture for Toast, ReactSelect components
+│   ├── 📄 logger.fixture.ts             ← Fixture for TestLogger (attaches log to report)
+│   ├── 📁 api-fixtures/                 ← Fixtures for API helpers
+│   │   ├── 📄 account-order-api.fixture.ts  ← Fixture for AccountOrderApiHelper
+│   │   └── 📄 server-api.fixture.ts         ← Fixture for ServerHelper
+│   └── 📁 pages-fixtures/              ← Fixtures for Page Objects
+│       ├── 📄 login.fixture.ts          ← Fixture for LoginPage
+│       └── 📁 customer-hub/
+│           ├── 📄 customer-manager.fixture.ts       ← Fixture for CustomerManagementPage
+│           ├── 📄 order-management.fixture.ts       ← Fixture for OrderManagementPage
+│           └── 📁 account-details/
+│               ├── 📄 account-data-account-info.fixture.ts  ← Fixture for AccountInfoPage
+│               └── 📄 billing-data-bills.fixture.ts         ← Fixture for BillsPage
+│
 ├── 📁 pages/                            ← Page Object Model (POM)
 │   ├── 📄 base.page.ts                 ← Abstract base class — nav, form, table helpers
 │   ├── 📄 login.page.ts                ← LoginPage — login to Embrix CoreUI
@@ -35,29 +49,28 @@ EmbrixAuto/
 │   │   ├── 📄 table.component.ts        ← TableComponent — read/find/click cells in tables
 │   │   └── 📄 sidebar.component.ts      ← SidebarComponent — reusable left sidebar navigation
 │   ├── 📁 customer-hub/                 ← Customer Hub pages
-│   │   ├── 📁 customer-management/
-│   │   │   ├── 📄 customer-management.page.ts   ← Search accounts, view list
-│   │   │       └── 📁 account-details/
-│   │   │           ├── 📁 account-data/
-│   │   │           │   └── 📄 account-info.page.ts          ← Customer Activity, modal view
-│   │   │           ├── 📁 billing-data/
-│   │   │           │   └── 📄 bills.page.ts                 ← Open/Closed Bills table
-│   │   │           └── 📁 subscription-data/
-│   │   │               └── 📄 services.page.ts              ← In-Complete Orders, Service Units
-│   │   └── 📁 order-management/
-│   │           └── 📄 order-management.page.ts      ← Create order, provisioning workflow
+│       ├── 📁 customer-management/
+│       │   ├── 📄 customer-management.page.ts   ← Search accounts, view list
+│       │   └── 📁 account-details/
+│       │       ├── 📄 account-details-sidebar.ts        ← 3-level sidebar navigation
+│       │       ├── 📁 account-data/
+│       │       │   └── 📄 account-info.page.ts          ← Customer Activity, modal view
+│       │       ├── 📁 billing-data/
+│       │       │   └── 📄 bills.page.ts                 ← Open/Closed Bills table
+│       │       └── 📁 subscription-data/
+│       │           └── 📄 services.page.ts              ← In-Complete Orders, Service Units
+│       └── 📁 order-management/
+│           └── 📄 order-management.page.ts      ← Create order, provisioning workflow
 │   └── 📁 operations-hub/              ← Operations Hub pages
 │       └── 📁 jobs-management/
 │           └── 📄 daily-schedule.page.ts         ← Daily Schedule — job cards, process, refresh
 │
 ├── 📁 helpers/                          ← Utilities & API helpers
 │   ├── 📁 db/                           ← Database specific helpers (encapsulating SQL)
-│   │   ├── 📄 job-schedule.db.ts        ← Job schedule database helper
-│   │   └── 📄 provisioning.db.ts        ← Provisioning database helper (handles bypassProvisioning via DB & GraphQL)
+│   │   └── 📄 job-schedule.db.ts        ← Job schedule database helper
 │   ├── 📄 database.helper.ts           ← Generic PostgreSQL client (SSL, statement timeout, retry)
 │   ├── 📄 screenshot.helper.ts         ← Screenshot capture and attach to HTML report
 │   ├── 📄 account-order-api.helper.ts   ← API helper: create account, pay invoice via REST API
-│   ├── 📄 daily-schedule-flow.helper.ts ← Workflow helper coordinating job runs
 │   ├── 📄 test-context.helper.ts        ← Test context helper: load, update, save test-context.json
 │   ├── 📄 server-api.helper.ts          ← API helper: GraphQL set/get CCP time
 │   ├── 📄 test-logger.ts               ← Structured logging (LOG/DATA/API/ERROR)
@@ -69,9 +82,7 @@ EmbrixAuto/
 │   │   └── 📄 health-check.spec.ts      ← SMOKE-01→04: login form, valid/invalid creds, page title
 │   └── 📁 regression/
 │       └── 📁 coopeguanacaste/          ← Regression tests for Coopeguanacaste customer
-│           ├── 📄 read-context.spec.ts  ← Reference guide for using E2E test-context
-│           ├── 📄 ts-01.spec.ts         ← TS-01: Account → Invoice → Provisioning (bypass via DB) → Verify
-│           └── 📄 leagcy.spec.ts        ← Legacy flow testing with normal provisioning process (before bypass DB decision)
+│           └── 📄 ts-01.spec.ts         ← TS-01: Account → Invoice → Provisioning → Verify
 │
 ├── 📁 test-data/                        ← Test data JSON (input for tests)
 │   ├── 📄 accounts.data.json           ← Account creation profile (RESIDENTIAL_DEFAULT)
@@ -84,8 +95,8 @@ EmbrixAuto/
 │       └── 📄 test-context.json        ← Shared data between tests (accountId, orderId, ...)
 │
 ├── 📁 playwright-report/               ← HTML report (auto-generated)
-│   └── 📁 test-results/                 ← Test artifacts, screenshots, videos
-│       └── 📁 logs/                     ← Log files from TestLogger
+└── 📁 test-results/                     ← Test artifacts, screenshots, videos
+    └── 📁 logs/                         ← Log files from TestLogger
 ```
 
 ---
@@ -207,8 +218,9 @@ Automated CI/CD pipeline on GitLab using Docker image `mcr.microsoft.com/playwri
 | `loginPage`              | `LoginPage`                                   | Page Object for login screen                         |
 | `customerManagementPage` | `CustomerManagementPage`                      | Page Object for account search                       |
 | `billsPage`              | `BillsPage`                                   | Page Object for Bills screen                         |
-| `OrderListingPage`    | `OrderListingPage`                         | Page Object for Order Management                     |
+| `orderManagementPage`    | `OrderManagementPage`                         | Page Object for Order Management                     |
 | `accountInfoPage`        | `AccountInfoPage`                             | Page Object for Account Info / Customer Activity     |
+| `accountDetailsSidebar`  | `AccountDetailsSidebar`                       | Legacy sidebar wrapper (delegates to SidebarComponent) |
 | `sidebar`              | `SidebarComponent`                            | Reusable left sidebar navigation                       |
 | `servicesPage`           | `ServicesPage`                                | Page Object for Services / In-Complete Orders        |
 | `serverHelper`           | `ServerHelper`                                | API helper: GraphQL set/get CCP time                 |
@@ -217,10 +229,8 @@ Automated CI/CD pipeline on GitLab using Docker image `mcr.microsoft.com/playwri
 | `toast`                  | `ToastComponent`                              | Assert Toastify success/error toasts                 |
 | `reactSelect`            | Factory `(container) => ReactSelectComponent` | Creates react-select scoped to container             |
 | `table`                  | Factory `(container) => TableComponent`       | Creates table component scoped to container          |
-| `testContext`            | Factory Object                                  | Context helper fixture (`load()`, `update()`, `save()`) |
-| `rerunDailyScheduleFlow` | Factory Flow Function                           | Coordinates daily job schedule runs in database/UI   |
 
-> **Note**: Legacy individual fixture files (previously located in `api-fixtures/` and `pages-fixtures/`) and redundant helper fixtures (like `component-factory.ts` and `logger.fixture.ts`) have been completely removed. All page objects, helpers, components, and custom flow fixtures are now centralized, maintained, and injected directly within [page-factory.ts](file:///d:/Works/EMBRIX/Automation/EmbrixAuto/fixtures/page-factory.ts).
+> Files in `api-fixtures/` and `pages-fixtures/` are separate fixture modules (legacy), currently not used directly as they are aggregated in `page-factory.ts`.
 
 ---
 
@@ -232,11 +242,11 @@ Automated CI/CD pipeline on GitLab using Docker image `mcr.microsoft.com/playwri
 BasePage (abstract)
     ↑ extends
 ├── LoginPage
-├── CustomerListingPage
+├── SearchAccountsPage
 ├── AccountInfoPage
 ├── BillsPage
 ├── ServicesPage
-├── OrderListingPage
+├── OrderManagementPage
 └── DailySchedulePage
 
 Standalone Components (do not inherit BasePage):
@@ -244,6 +254,9 @@ Standalone Components (do not inherit BasePage):
 ├── ReactSelectComponent
 ├── TableComponent
 └── SidebarComponent
+
+Legacy Wrappers:
+└── AccountDetailsSidebar  → delegates to SidebarComponent
 ```
 
 ---
@@ -278,7 +291,7 @@ Standalone Components (do not inherit BasePage):
 | `toast.component.ts`        | `ToastComponent`       | Asserts Toastify success/error toasts                                                                                            |
 | `react-select.component.ts` | `ReactSelectComponent` | Scoped to container, provides `select()` + `typeAndSelect()`                                                                 |
 | `table.component.ts`        | `TableComponent`       | `getHeaders()`, `getCellValue()`, `findRowIndex()`, `clickCellLink()` — lazy header parsing, bulk `allTextContents()` |
-| `sidebar.component.ts`      | `SidebarComponent`     | Reusable left sidebar navigation — `navigateTo()` supports 2-3 levels, uses element visibility as source of truth for stability |
+| `sidebar.component.ts`      | `SidebarComponent`     | Reusable left sidebar navigation — `navigateTo()` supports 2-3 levels, handles already-expanded menus                          |
 
 > **Critical Design Detail**: `TableComponent` loads all cell texts using `allTextContents()` (1 CDP request) instead of looping over `await cell.innerText()` (N requests) → 10x to 50x faster.
 
@@ -289,10 +302,11 @@ Standalone Components (do not inherit BasePage):
 | File                            | Class                      | Key Functionality                                                                                                       |
 | ------------------------------- | -------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
 | `customer-management.page.ts` | `CustomerManagementPage` | Searches account by Account ID, reads search results, clicks on account link                                            |
+| `account-details-sidebar.ts`  | `AccountDetailsSidebar`  | Legacy wrapper — delegates to `SidebarComponent` for backward compatibility                                            |
 | `account-info.page.ts`        | `AccountInfoPage`        | Navigates to Customer Activity, CLEAR/SEARCH, clicks View by Api Name, reads modal Request content                      |
 | `bills.page.ts`               | `BillsPage`              | Navigates to Bills via sidebar, reads Open/Closed Bills table                                                           |
 | `services.page.ts`            | `ServicesPage`           | Navigates to Services via sidebar, reads In-Complete Orders table                                                       |
-| `order-management.page.ts`    | `OrderListingPage`    | Full provisioning workflow: create order → search account → select reference order → add provisioning data → submit |
+| `order-management.page.ts`    | `OrderManagementPage`    | Full provisioning workflow: create order → search account → select reference order → add provisioning data → submit |
 
 ---
 
@@ -312,21 +326,6 @@ Dedicated directory for database helpers encapsulating SQL operations.
 | --- | --- |
 | `getJobSchedule(date)` | Retrieves all job schedules on a specific date. |
 | `deleteJobScheduleById(id)` | Deletes a job schedule and its list items by ID. |
-
----
-
-#### 📄 `helpers/db/provisioning.db.ts`
-
-**Purpose**: Bypasses the provisioning process using direct database updates and backend GraphQL API mutations.
-
-**Key Functions/Methods**:
-
-| Function/Method | Description |
-| --- | --- |
-| `disableProvisioning(logger)` | Disables provisioning in configuration properties table. |
-| `enableProvisioning(logger)` | Enables provisioning in configuration properties table. |
-| `setDummySerialAndModel(orderId)` | Sets dummy serial number and model for UI/backend submission validation. |
-| `bypassProvisioning(request, accountId, orderId, logger)` | Bypasses Nokia provisioning via GraphQL and direct status updates in DB. |
 
 ---
 
@@ -440,7 +439,7 @@ Auto-attached to Playwright HTML report via `testInfo.attach()`.
 
 ### 📁 `tests/regression/coopeguanacaste/ts-01.spec.ts`
 
-**Purpose**: Full regression test suite for **Coopeguanacaste** customer, checking the end-to-end Order-to-Cash workflow with database provisioning bypass.
+**Purpose**: Full regression test suite for **Coopeguanacaste** customer, checking the end-to-end Order-to-Cash workflow.
 
 **Pattern**: `test.describe.serial()` + shared mutable `state` object.
 
@@ -448,26 +447,10 @@ Auto-attached to Playwright HTML report via `testInfo.attach()`.
 | --------- | ------------------------------------------------------------------------------------------------------------------------- |
 | `TC-00` | **Suite Setup** — Generate random future date, set CCP time                                                        |
 | `TC-01` | **Residential Account Creation** — API creates account + UI verification                                           |
-| `TC-02` | **Successfully Provisioning An Order** — Bypasses Nokia provisioning via DB/GraphQL & verifies order completeness |
-| `TC-03` | **Recurring Billing Month 01** — Verify regular billing jobs and invoice generation |
-| `TC-04` | **Recurring Billing Month 02** — Verify next monthly billing jobs and invoice generation |
-
----
-
-### 📁 `tests/regression/coopeguanacaste/leagcy.spec.ts`
-
-**Purpose**: Legacy test suite showcasing the end-to-end workflow using the normal UI-based provisioning process, kept as reference before switching to the database-bypass method.
-
-**Pattern**: `test.describe.serial()` + shared mutable `state` object.
-
-| Test      | Description                                                                                                               |
-| --------- | ------------------------------------------------------------------------------------------------------------------------- |
-| `TC-00` | **Suite Setup** — Generate random future date, set CCP time                                                        |
-| `TC-01` | **Residential Account Creation** — API creates account + UI verification                                           |
-| `TC-03` | **Successfully Provisioning An Order** — Creates provisioning order via wizard, inputs provisioning data, submits, and polls Customer Activity for Nokia `FINALIZADO` status |
-| `TC-05` | **Recurring Billing Month 01** — Verify regular billing jobs and invoice generation |
-| `TC-06` | **Recurring Billing Month 02** — Verify next monthly billing jobs and invoice generation |
-| `TC-07` | **Collection Notification Month 02** — Verify invoice status transitions to `COLLECTION` and tests suspension |
+| `TC-02` | **Installation Invoice Payment** — Reads bill details, asserts values, pays via API, verifies CLOSED               |
+| `TC-03` | **Provisioning Order** — Creates provisioning order, verifies In-Complete Orders, waits 5 min, verifies FINALIZADO |
+| `TC-04` | **Grace Period Billing** — Navigate to Jobs Schedule, clear via DB, create & process jobs, poll until all complete |
+| `TC-05` | **Recurring Billing Month 01** — Verify recurring jobs processing and invoice generation |
 
 ---
 
@@ -519,6 +502,7 @@ npx playwright test --project=regression
 | API Helper      | `{name}.helper.ts`    | `account-order-api.helper.ts`             |
 | Fixture         | `{name}.fixture.ts`   | `logger.fixture.ts`                       |
 | Test data       | `{name}.data.json`    | `accounts.data.json`                      |
+| Sidebar         | `{name}-sidebar.ts`   | `account-details-sidebar.ts`              |
 | Fixture factory | `{name}-factory.ts`   | `page-factory.ts`                         |
 
 ### File & Folder Naming
@@ -610,4 +594,4 @@ npx playwright show-report
 
 ---
 
-*Document updated on 2026-06-13 | Version: 4.1 | Project: EmbrixAuto*
+*Document updated on 2026-06-11 | Version: 4.0 | Project: EmbrixAuto*

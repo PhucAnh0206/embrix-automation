@@ -10,11 +10,13 @@ import * as path from 'path';
  *   [API]   – API request/response details
  *   [ERROR] – Errors and warnings
  *
- * Each entry is appended to the log file in real-time via `appendFileSync`
- * and also printed to console for visibility in Terminal / Playwright UI Mode.
+ * The log file is created lazily on the first write and flushed at the end of
+ * each test via the logger fixture.
  */
 export class TestLogger {
+  private buffer: string[] = [];
   private filePath: string;
+  private flushed = false;
 
   constructor(testTitle: string) {
     const sanitized = testTitle
@@ -27,8 +29,6 @@ export class TestLogger {
       fs.mkdirSync(dir, { recursive: true });
     }
     this.filePath = path.join(dir, `${sanitized}_${timestamp}.log`);
-    // Initialize file to prevent ENOENT errors on Playwright attachment if no logs are written
-    fs.writeFileSync(this.filePath, '', 'utf-8');
   }
 
   // ── Public API ──────────────────────────────────────────────────────
@@ -70,9 +70,11 @@ export class TestLogger {
     this.write('ERROR', `${message}${extra}`);
   }
 
-  /** No-op — retained for backward compatibility with fixtures that call flush(). */
+  /** Flush buffer to disk. Safe to call multiple times. */
   flush(): void {
-    // Entries are appended to disk in real-time; no batch flush needed.
+    if (this.flushed || this.buffer.length === 0) return;
+    fs.writeFileSync(this.filePath, this.buffer.join('\n') + '\n', 'utf-8');
+    this.flushed = true;
   }
 
   /** Return the absolute path to the log file (for Playwright attachments). */
@@ -85,15 +87,19 @@ export class TestLogger {
   private write(category: string, message: string): void {
     const ts = new Date().toISOString().replace('T', ' ').replace('Z', '');
     const entry = `[${ts}] [${category}] ${message}`;
+    this.buffer.push(entry);
 
-    // Print to console for real-time visibility in Terminal and Playwright UI Mode
+    // 1. Print to console for real-time visibility in Terminal and Playwright UI Mode (Console tab)
     console.log(entry);
 
-    // Append directly to log file so it updates in real-time on disk
+    // 2. Append directly to log file so it updates in real-time on disk
     try {
       fs.appendFileSync(this.filePath, entry + '\n', 'utf-8');
-    } catch {
-      // Silently ignore if append fails (e.g., during teardown)
+    } catch (e) {
+      // Fallback if append fails
     }
+
+    // Reset flushed flag
+    this.flushed = false;
   }
 }

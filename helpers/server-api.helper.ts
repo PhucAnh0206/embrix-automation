@@ -25,18 +25,7 @@ export class ServerHelper {
      * 
      * @returns Object containing the start date, first date of next month, and first date of next two months.
      */
-    async generateRandomFutureDate(): Promise<{
-        startDate: string;
-        nextMonthFirstDate: string;
-        nextTwoMonthsFirstDate: string;
-        nextThreeMonthsFirstDate: string;
-        nextFourMonthsFirstDate: string;
-        nextFiveMonthsFirstDate: string;
-        nextSixMonthsFirstDate: string;
-        nextTwoMonthsSixteenth: string;
-        nextTwoMonthsSeventeenth: string;
-        nextTwoMonthsTwentyFirst: string;
-    }> {
+    async generateRandomFutureDate(): Promise<{ startDate: string; nextMonthFirstDate: string; nextTwoMonthsFirstDate: string; nextThreeMonthsFirstDate: string; nextFourMonthsFirstDate: string; nextFiveMonthsFirstDate: string; }> {
         // 1. Get new random year (from next year to next 4 years) to avoid testing in December of the current year
         const nextYear = new Date().getFullYear() + 1;
         const randomYear = nextYear + Math.floor(Math.random() * 3);
@@ -44,18 +33,20 @@ export class ServerHelper {
         const randomDay = Math.floor(Math.random() * 28) + 1; // 1 - 28 (apply for all month)
         const startDate = new Date(randomYear, randomMonth, randomDay);
 
-        // 2. Generate dates for billing cycles
-        const nextMonth = new Date(startDate.getFullYear(), startDate.getMonth() + 1, 1); // Get 1st date of the next month -> grace period billing
-        const nextTwoMonths = new Date(startDate.getFullYear(), startDate.getMonth() + 2, 1); // Get 1st date of the next 2 months -> recurring billing month 01
-        const nextThreeMonths = new Date(startDate.getFullYear(), startDate.getMonth() + 3, 1); // Get 1st date of the next 3 months -> recurring billing month 02
-        const nextFourMonths = new Date(startDate.getFullYear(), startDate.getMonth() + 4, 1); // Get 1st date of the next 4 months -> recurring billing month 03
-        const nextFiveMonths = new Date(startDate.getFullYear(), startDate.getMonth() + 5, 1); // Get 1st date of the next 5 months -> recurring billing month 04
-        const nextSixMonths = new Date(startDate.getFullYear(), startDate.getMonth() + 6, 1); // Get 1st date of the next 6 months -> recurring billing month 05
+        // 2. Get 1st date of the next month
+        const nextMonth = new Date(startDate.getFullYear(), startDate.getMonth() + 1, 1);
 
-        // 3. Generate dates for collections
-        const nextTwoMonthsSixteenth = new Date(startDate.getFullYear(), startDate.getMonth() + 3, 16); // Get 16th date of the next 3 months -> due date
-        const nextTwoMonthsSeventeenth = new Date(startDate.getFullYear(), startDate.getMonth() + 3, 17); // Get 17th date of the next 3 months -> collection date
-        const nextTwoMonthsTwentyFirst = new Date(startDate.getFullYear(), startDate.getMonth() + 3, 21); // Get 21th date of the next 3 months -> suspend date
+        // 3. Get 1st date of the next 2 months
+        const nextTwoMonths = new Date(startDate.getFullYear(), startDate.getMonth() + 2, 1);
+
+        // 3. Get 1st date of the next 3 months
+        const nextThreeMonths = new Date(startDate.getFullYear(), startDate.getMonth() + 3, 1);
+
+        // 3. Get 1st date of the next 4 months
+        const nextFourMonths = new Date(startDate.getFullYear(), startDate.getMonth() + 4, 1);
+
+        // 3. Get 1st date of the next 5 months
+        const nextFiveMonths = new Date(startDate.getFullYear(), startDate.getMonth() + 5, 1);
 
         // 4. Helper function to format date as yyyy-mm-dd
         const formatDate = (date: Date): string => {
@@ -72,11 +63,7 @@ export class ServerHelper {
             nextTwoMonthsFirstDate: formatDate(nextTwoMonths),
             nextThreeMonthsFirstDate: formatDate(nextThreeMonths),
             nextFourMonthsFirstDate: formatDate(nextFourMonths),
-            nextFiveMonthsFirstDate: formatDate(nextFiveMonths),
-            nextSixMonthsFirstDate: formatDate(nextSixMonths),
-            nextTwoMonthsSixteenth: formatDate(nextTwoMonthsSixteenth),
-            nextTwoMonthsSeventeenth: formatDate(nextTwoMonthsSeventeenth),
-            nextTwoMonthsTwentyFirst: formatDate(nextTwoMonthsTwentyFirst)
+            nextFiveMonthsFirstDate: formatDate(nextFiveMonths)
         };
 
         this.logger?.data('Generated Testing Dates', result);

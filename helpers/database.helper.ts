@@ -1,3 +1,4 @@
+// helpers/db.helper.ts
 import { Pool } from 'pg';
 import { EXTRA_LONG_WAIT } from './timeouts.helper';
 
@@ -5,6 +6,7 @@ import { EXTRA_LONG_WAIT } from './timeouts.helper';
 export class DatabaseHelper {
     private pool: Pool;
 
+    /** Constructor */
     constructor() {
         this.pool = new Pool({
             host: process.env.DB_HOST,
@@ -20,8 +22,9 @@ export class DatabaseHelper {
         });
     }
 
-    /** Execute a SQL query and return the result set. */
+    /** Execute a SQL query and return the result set */
     async executeQuery(sql: string, params: any[] = []): Promise<any[]> {
+        // Pool.query automatically checks out a client, executes, and releases it back to the pool
         const res = await this.pool.query(sql, params);
         return res.rows;
     }

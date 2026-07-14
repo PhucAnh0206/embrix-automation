@@ -1,9 +1,8 @@
 [
   {
     "name": "Create simple Residental account with simple services",
-    "bundleName": "INTERNET 50 MBPS CORPORATIVO",
     "services": {
-      "bundleId": "BDL_INT_50MBPS_CORP",
+      "bundleId": "BDL_INT_100MBPS",
       "packageId": "",
       "serviceType": "INTERNET",
       "action": "ADD",

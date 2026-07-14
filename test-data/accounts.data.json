@@ -23,7 +23,6 @@
       "identity": "502210226",
       "identityDocument": "CÉDULA DE IDENTIDAD",
       "phone": "89572382",
-      "collectionProfile": "Normal",
       "paymentProfiles": [
         {
           "paymentMethod": "CHECK"

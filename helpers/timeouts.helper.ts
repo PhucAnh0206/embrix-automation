@@ -4,11 +4,11 @@
  */
 export const Timeouts = {
 
-  // 1 second (e.g., waiting for dialogs, transitions, dropdown menus)
-  SHORT: 1000,
+  // 5 second (e.g., waiting for dialogs, transitions, dropdown menus)
+  SHORT: 5000,
 
-  // 5 seconds (e.g., standard page navigation, basic URL redirects, form validations)
-  MEDIUM: 5000,
+  // 10 seconds (e.g., standard page navigation, basic URL redirects, form validations)
+  MEDIUM: 10000,
 
   // 30 seconds (e.g., waiting for elements to render, typical toast messages)
   LONG: 30000,

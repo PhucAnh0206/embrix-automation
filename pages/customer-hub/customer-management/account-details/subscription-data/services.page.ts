@@ -1,8 +1,7 @@
-import { expect, Page } from '@playwright/test';
+import { Page, Locator } from '@playwright/test';
 import { BasePage } from '../../../../base.page';
-import { SidebarComponent } from '../../../../components/sidebar.component';
+import { AccountDetailsSidebar } from '../account-details-sidebar';
 import { TableComponent } from '../../../../components/table.component';
-import { MEDIUM_WAIT } from '../../../../../helpers/timeouts.helper';
 
 /**
  * ServicesPage — Page Object for the Subscription Data > Assets > Services screen.
@@ -10,7 +9,7 @@ import { MEDIUM_WAIT } from '../../../../../helpers/timeouts.helper';
  * Accessed via: Subscription Data sidebar → Assets → Services
  */
 export class ServicesPage extends BasePage {
-  readonly sidebar: SidebarComponent;
+  readonly sidebar: AccountDetailsSidebar;
 
   // Explicit, descriptive tables
   readonly incompleteOrdersTable: TableComponent;
@@ -21,7 +20,7 @@ export class ServicesPage extends BasePage {
    */
   constructor(page: Page) {
     super(page);
-    this.sidebar = new SidebarComponent(page);
+    this.sidebar = new AccountDetailsSidebar(page);
 
     // Robust selectors locating tables by their respective section headers, falling back to index if not found
     this.incompleteOrdersTable = new TableComponent(
@@ -35,41 +34,45 @@ export class ServicesPage extends BasePage {
     );
   }
 
+  private get searchButton() { return this.page.getByRole('button', { name: 'Search' }) }
+
 
   /**
    * Navigate to Services page via sidebar.
    * Clicks "Subscription Data" → "Assets" → "Services".
    */
   async navigateViaSideMenu(): Promise<string> {
-    return this.sidebar.navigateTo('Subscription Data', 'Assets', 'Services');
+    return this.sidebar.navigateToSubScreen('Subscription Data', 'Assets', 'Services');
   }
 
   /**
-   * Get a cell value from the Incomplete Orders table.
-   * @param rowIndex - The row index of the cell to get.
-   * @param columnName - The column name of the cell to get.
+   * Get the text content of a cell in the first row by column name (defaulting to In-Complete Orders).
    */
-  async getIncompleteOrderValue(rowIndex: number, columnName: string): Promise<string> {
-    return this.incompleteOrdersTable.getCellValue(rowIndex, columnName);
+  async getInCompleteOrdersFirstRowCellValue(columnName: string): Promise<string> {
+    return this.incompleteOrdersTable.getFirstRowCellValue(columnName);
+  }
+
+
+  /**
+  * Navigate to Subscription Data page via sidebar.
+  * Clicks "Subscription Data" → "Assets" → "Subscription View".
+  */
+  async navigateSubscriptionView(): Promise<string> {
+    return this.sidebar.navigateToSubScreen('Subscription Data', 'Assets', 'Subscription View');
   }
 
   /**
-   * Check if the row with the specified orderId is visible in the Incomplete Orders table.
-   * @param orderId - The ID of the order to check.
-   */
-  async isOrderAppearInIncompleteTableWithStatus(orderId: string, status: string): Promise<void> {
-    const rowIndex = await this.incompleteOrdersTable.findRowIndex('Id', orderId);
-    const statusValue = await this.incompleteOrdersTable.getCellValue(rowIndex, 'Status');
-    expect(statusValue).toBe(status);
+* Navigate to Offers page via sidebar.
+* Clicks " Offers" → "Assets" → "Offers".
+*/
+  async navigateToOffers(): Promise<string> {
+    return this.sidebar.navigateToSubScreen('Subscription Data', 'Assets', 'offers');
   }
 
-  /**
-   * Click on the Order ID link in the Incomplete Orders table.
-   * @param orderId - The ID of the order to click on.
-   */
-  async clickOnOrderIdLink(orderId: string): Promise<void> {
-    const rowIndex = await this.incompleteOrdersTable.findLastRowIndex('Id', orderId);
-    await this.incompleteOrdersTable.clickCellLink(rowIndex, 'Id')
-    await this.page.waitForLoadingToDisappear()
+  async clickSearchButton(): Promise<void> {
+    await this.page.waitForLoadState('networkidle')
+    await this.searchButton.click();
+    await this.page.waitForLoadingToDisappear();
+
   }
 }
