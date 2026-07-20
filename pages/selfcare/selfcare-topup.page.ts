@@ -53,6 +53,13 @@ export class SelfcareTopupPage extends BasePage {
     return this.historyTable.locator('tbody tr');
   }
 
+  /** History rows excluding the "No record has found!" empty-state placeholder. */
+  private get historyDataRows() {
+    return this.historyTable
+      .locator('tbody tr')
+      .filter({ hasNotText: /No\s*record\s*has\s*found/i });
+  }
+
   // ── Actions ─────────────────────────────────────────────────────────
 
   /** Assert we're on the Top Up view (Pay Now + Pay With PTP buttons visible). */
@@ -134,16 +141,18 @@ export class SelfcareTopupPage extends BasePage {
     });
   }
 
-  /** Assert a top-up succeeded — success toast or new history row. */
+  /** Assert a top-up succeeded — success toast or new history data row. */
   async assertPaymentSuccess(): Promise<void> {
     await this.waitForLoadingToDisappear();
 
     const toast = this.page.locator('.Toastify__toast--success').first();
-    const anyRow = this.historyRows.first();
+    const approvedHeading = this.page.getByRole('heading', { name: /Payment\s*approved/i }).first();
+    const firstDataRow = this.historyDataRows.first();
 
     await Promise.race([
       toast.waitFor({ state: 'visible', timeout: LONG_WAIT }),
-      anyRow.waitFor({ state: 'visible', timeout: LONG_WAIT }),
+      approvedHeading.waitFor({ state: 'visible', timeout: LONG_WAIT }),
+      firstDataRow.waitFor({ state: 'visible', timeout: LONG_WAIT }),
     ]).catch(() => { });
 
     await this.assertHistoryRowCountAtLeast(1);
@@ -170,11 +179,19 @@ export class SelfcareTopupPage extends BasePage {
     }
   }
 
-  /** Assert the history table has at least N rows. */
+  /**
+   * Assert the history table has at least N real data rows.
+   *
+   * Excludes the "No record has found!" empty-state placeholder — that row
+   * used to count as 1, giving false-positive success on failed top-ups.
+   *
+   * Polls until the count is reached (Pay Now flows show the row after the
+   * charge API completes, which can be several seconds after the click).
+   */
   async assertHistoryRowCountAtLeast(n: number): Promise<void> {
-    await this.page.waitForTimeout(1500);
-    const count = await this.historyRows.count();
-    expect(count).toBeGreaterThanOrEqual(n);
+    await expect
+      .poll(async () => this.historyDataRows.count(), { timeout: LONG_WAIT })
+      .toBeGreaterThanOrEqual(n);
   }
 
   /** Assert the history table is empty ("No record has found."). */
