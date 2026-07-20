@@ -10,7 +10,6 @@
  * so any team code depending on the base still works).
  */
 
-import { mergeTests } from '@playwright/test';
 import { test as base } from './page-factory';
 import { CreateAccountPage } from '../pages/customer-hub/customer-management/create-account.page';
 import { JasecOrderManagementPage } from '../pages/customer-hub/order-management/jasec-order-management.page';
@@ -20,6 +19,19 @@ import { SelfcareActivityPage } from '../pages/selfcare/selfcare-activity.page';
 import { SelfcareTopupPage } from '../pages/selfcare/selfcare-topup.page';
 import { PlaceToPayCheckoutPage } from '../pages/selfcare/placetopay-checkout.page';
 import { DbHelper } from '../helpers/db.helper';
+
+/**
+ * Baseline JASEC sandbox CCP (current-cycle-processing) time. The
+ * `jasecCcpBaseline` auto-fixture resets CCP to this value before every
+ * JASEC test, so no test inherits residual state (e.g. a month-B CCP
+ * from a cross-month test) from whichever test ran before it. Tests
+ * that need a specific CCP value just call
+ * `serverHelper.setAndVerifyCcpTime()` themselves — their explicit set
+ * overrides the baseline.
+ *
+ * Change here when JASEC's sandbox calendar shifts.
+ */
+export const JASEC_CCP_BASELINE = '2026-07-15';
 
 type JasecFixtures = {
   createAccountPage: CreateAccountPage;
@@ -32,6 +44,8 @@ type JasecFixtures = {
   selfcareTopupPage: SelfcareTopupPage;
   placeToPayCheckoutPage: PlaceToPayCheckoutPage;
   dbHelper: DbHelper;
+  /** Auto-fixture — resets CCP time before each test. Not destructured. */
+  jasecCcpBaseline: void;
 };
 
 export const test = base.extend<JasecFixtures>({
@@ -72,6 +86,20 @@ export const test = base.extend<JasecFixtures>({
       await db.disconnect();
     }
   },
+
+  // Auto-fixture: reset sandbox CCP time to the JASEC baseline before every
+  // test. Prevents state-bleed across tests that manipulate CCP (e.g. TS-03
+  // cross-month tests leaving CCP at month B, then a later test creating a
+  // fresh account under that CCP and failing "not effective until future").
+  // Tests that need a specific CCP override this by calling
+  // serverHelper.setAndVerifyCcpTime() themselves.
+  jasecCcpBaseline: [
+    async ({ serverHelper }, use) => {
+      await serverHelper.setAndVerifyCcpTime(JASEC_CCP_BASELINE);
+      await use();
+    },
+    { auto: true },
+  ],
 });
 
 export { expect } from '@playwright/test';
