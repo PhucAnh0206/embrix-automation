@@ -27,12 +27,12 @@ export class JasecOrderManagementPage extends OrderManagementPage {
   private get createNewOrderLink() { return this.page.getByRole('link', { name: 'Create new order' }); }
   private get accountIdSearchInput() { return this.page.locator('input[name="accountId"]'); }
   private get primarySubPanel() { return this.page.locator('//span[@class="panel__title"][contains(text(),"Subscription: Primary")]'); }
-  private get viewProvisioningModal() { return this.page.locator('//h5[@class="modal-title"][text()="View Provisioning Data"]/../..'); }
-  private get viewProvisioningModalAddBtn() { return this.viewProvisioningModal.getByRole('button', { name: /\+?\s*Add/i }); }
-  private get viewProvisioningModalProvisioningIDInput() { return this.viewProvisioningModal.locator("//input[@name='provisioningId']").last(); }
-  private get viewProvisioningModalMeterReadingInput() { return this.viewProvisioningModal.locator("//input[@name='flexAttr1']").last(); }
-  private get viewProvisioningModalSubmitButton() { return this.viewProvisioningModal.getByRole('button', { name: 'Submit' }); }
-  private get submitOrderButton() { return this.page.getByRole('button', { name: /^\s*(Submit\s*order|Enviar\s*orden)\s*$/i }).first(); }
+  private get jasecViewProvisioningModal() { return this.page.locator('//h5[@class="modal-title"][text()="View Provisioning Data"]/../..'); }
+  private get jasecViewProvisioningModalAddBtn() { return this.jasecViewProvisioningModal.getByRole('button', { name: /\+?\s*Add/i }); }
+  private get jasecViewProvisioningModalProvisioningIDInput() { return this.jasecViewProvisioningModal.locator("//input[@name='provisioningId']").last(); }
+  private get jasecViewProvisioningModalMeterReadingInput() { return this.jasecViewProvisioningModal.locator("//input[@name='flexAttr1']").last(); }
+  private get jasecViewProvisioningModalSubmitButton() { return this.jasecViewProvisioningModal.getByRole('button', { name: 'Submit' }); }
+  private get jasecSubmitOrderButton() { return this.page.getByRole('button', { name: /^\s*(Submit\s*order|Enviar\s*orden)\s*$/i }).first(); }
   private get addBundleButton() { return this.page.getByRole('button', { name: /ADD BUNDLE/i }); }
   private get nextButtonTop() { return this.page.getByRole('button', { name: /^NEXT$/i }).first(); }
   private get nextButtonBottom() { return this.page.getByRole('button', { name: /^NEXT$/i }).last(); }
@@ -117,27 +117,27 @@ export class JasecOrderManagementPage extends OrderManagementPage {
     await this.primarySubPanel.waitFor({ state: 'visible', timeout: MEDIUM_WAIT });
     await this.jasecServiceTable.clickCellLink(0, 'View');
     await this.page.waitForLoadingToDisappear();
-    await this.viewProvisioningModal.waitFor({ state: 'visible', timeout: MEDIUM_WAIT });
+    await this.jasecViewProvisioningModal.waitFor({ state: 'visible', timeout: MEDIUM_WAIT });
 
-    await this.viewProvisioningModalAddBtn.click();
-    await expect(this.viewProvisioningModalProvisioningIDInput).toHaveValue('');
+    await this.jasecViewProvisioningModalAddBtn.click();
+    await expect(this.jasecViewProvisioningModalProvisioningIDInput).toHaveValue('');
 
-    await this.viewProvisioningModalProvisioningIDInput.waitFor({ state: 'visible', timeout: SHORT_WAIT });
-    await this.viewProvisioningModalProvisioningIDInput.fill(provisioningId);
+    await this.jasecViewProvisioningModalProvisioningIDInput.waitFor({ state: 'visible', timeout: SHORT_WAIT });
+    await this.jasecViewProvisioningModalProvisioningIDInput.fill(provisioningId);
 
-    await this.viewProvisioningModalMeterReadingInput.waitFor({ state: 'visible', timeout: SHORT_WAIT });
-    await this.viewProvisioningModalMeterReadingInput.fill(String(lecturaInicialKwh));
+    await this.jasecViewProvisioningModalMeterReadingInput.waitFor({ state: 'visible', timeout: SHORT_WAIT });
+    await this.jasecViewProvisioningModalMeterReadingInput.fill(String(lecturaInicialKwh));
 
-    await this.viewProvisioningModalSubmitButton.click();
+    await this.jasecViewProvisioningModalSubmitButton.click();
     await this.page.waitForLoadingToDisappear();
-    await expect(this.viewProvisioningModal).not.toBeVisible({ timeout: MEDIUM_WAIT });
+    await expect(this.jasecViewProvisioningModal).not.toBeVisible({ timeout: MEDIUM_WAIT });
   }
 
   // ── SUBMIT / REFRESH (post-CREATE) ──────────────────────────────────
 
   async clickSubmitOrder(): Promise<void> {
-    await this.submitOrderButton.scrollIntoViewIfNeeded().catch(() => { });
-    await this.submitOrderButton.click();
+    await this.jasecSubmitOrderButton.scrollIntoViewIfNeeded().catch(() => { });
+    await this.jasecSubmitOrderButton.click();
     await this.page.waitForLoadingToDisappear();
     await this.page.waitForLoadState('networkidle', { timeout: 3000 }).catch(() => { });
   }
