@@ -37,7 +37,7 @@ test.describe(
         selfcareLoginPage, selfcareAccountSearchPage,
         selfcareActivityPage, selfcareTopupPage,
         placeToPayCheckoutPage,
-        serverHelper, dbHelper,
+        serverHelper, // dbHelper, TODO(balance-check): re-add when re-enabling DB verification
       }) => {
         const monthA = '2026-07-15';
         const monthB = '2026-08-15';
@@ -88,7 +88,7 @@ test.describe(
         selfcareLoginPage, selfcareAccountSearchPage,
         selfcareActivityPage, selfcareTopupPage,
         placeToPayCheckoutPage,
-        dbHelper,
+        // dbHelper, // TODO(balance-check): re-add when re-enabling DB verification
       }) => {
         const accountId = await setUpAccountInSelfCare({
           page, testLogger, searchAccountsPage, createAccountPage,
@@ -134,7 +134,7 @@ test.describe(
         selfcareLoginPage, selfcareAccountSearchPage,
         selfcareActivityPage, selfcareTopupPage,
         placeToPayCheckoutPage,
-        dbHelper,
+        // dbHelper, // TODO(balance-check): re-add when re-enabling DB verification
       }) => {
         const accountId = await setUpAccountInSelfCare({
           page, testLogger, searchAccountsPage, createAccountPage,
