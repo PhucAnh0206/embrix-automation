@@ -18,7 +18,7 @@ export class SelfcareAccountSearchPage extends BasePage {
     const tab = this.page.getByRole('link', { name: /Account Search/i }).first();
     await tab.waitFor({ state: 'visible', timeout: LONG_WAIT });
     await tab.click();
-    await this.waitForLoadingToDisappear();
+    await this.page.waitForLoadingToDisappear();
     await this.page.waitForLoadState('networkidle', { timeout: 3000 }).catch(() => { });
   }
 
@@ -47,7 +47,7 @@ export class SelfcareAccountSearchPage extends BasePage {
     await acctInput.fill(accountId);
 
     await this.page.getByRole('button', { name: /^\s*Search\s*$/i }).first().click();
-    await this.waitForLoadingToDisappear();
+    await this.page.waitForLoadingToDisappear();
     await this.page.waitForLoadState('networkidle', { timeout: 3000 }).catch(() => { });
 
     const row = this.page

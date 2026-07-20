@@ -13,7 +13,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { test, expect } from '../../../../fixtures/page-factory';
+import { test, expect } from '../../../../fixtures/jasec-fixtures';
 import {
   setUpAccountAndEnterManagePaymentProfile,
   type PrepaidAccountRow,

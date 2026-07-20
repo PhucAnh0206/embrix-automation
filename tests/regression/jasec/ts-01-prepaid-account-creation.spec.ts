@@ -1,6 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import { test, expect } from '../../../fixtures/page-factory';
+import { test, expect } from '../../../fixtures/jasec-fixtures';
 import type { PrepaidAccountPayload } from '../../../pages/customer-hub/customer-management/create-account.page';
 import type { PrepaidAccountWithOrderRow } from '../../../fixtures/create-prepaid-account.helper';
 

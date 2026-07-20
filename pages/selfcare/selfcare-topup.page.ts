@@ -64,7 +64,7 @@ export class SelfcareTopupPage extends BasePage {
 
   /** Assert we're on the Top Up view (Pay Now + Pay With PTP buttons visible). */
   async assertLoaded(): Promise<void> {
-    await this.waitForLoadingToDisappear();
+    await this.page.waitForLoadingToDisappear();
     await expect(this.payNowButton).toBeVisible({ timeout: LONG_WAIT });
     await expect(this.payWithPlaceToPayButton).toBeVisible({ timeout: LONG_WAIT });
   }
@@ -143,7 +143,7 @@ export class SelfcareTopupPage extends BasePage {
 
   /** Assert a top-up succeeded — success toast or new history data row. */
   async assertPaymentSuccess(): Promise<void> {
-    await this.waitForLoadingToDisappear();
+    await this.page.waitForLoadingToDisappear();
 
     const toast = this.page.locator('.Toastify__toast--success').first();
     const approvedHeading = this.page.getByRole('heading', { name: /Payment\s*approved/i }).first();

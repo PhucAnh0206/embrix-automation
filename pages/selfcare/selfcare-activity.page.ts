@@ -43,7 +43,7 @@ export class SelfcareActivityPage extends BasePage {
       .first();
     await item.waitFor({ state: 'visible', timeout: MEDIUM_WAIT });
     await item.click();
-    await this.waitForLoadingToDisappear();
+    await this.page.waitForLoadingToDisappear();
     await this.page.waitForLoadState('networkidle', { timeout: 3000 }).catch(() => { });
 
     await expect(this.saveWithPlaceToPayButton).toBeVisible({ timeout: LONG_WAIT });
@@ -56,7 +56,7 @@ export class SelfcareActivityPage extends BasePage {
       .or(this.page.getByText(/^\s*Make\s*Payment\s*$/i))
       .first()
       .click();
-    await this.waitForLoadingToDisappear();
+    await this.page.waitForLoadingToDisappear();
     await this.page.waitForLoadState('networkidle', { timeout: 3000 }).catch(() => { });
   }
 
@@ -67,7 +67,7 @@ export class SelfcareActivityPage extends BasePage {
       .or(this.page.getByText(/^\s*Top\s*Up\s*$/i))
       .first()
       .click();
-    await this.waitForLoadingToDisappear();
+    await this.page.waitForLoadingToDisappear();
     await this.page.waitForLoadState('networkidle', { timeout: 3000 }).catch(() => { });
   }
 
@@ -97,7 +97,7 @@ export class SelfcareActivityPage extends BasePage {
     await this.page.waitForURL(/selfcare-ui\..*embrix\.org/i, {
       timeout: EXTRA_LONG_WAIT,
     });
-    await this.waitForLoadingToDisappear();
+    await this.page.waitForLoadingToDisappear();
     await this.page.waitForLoadState('networkidle', { timeout: 5000 }).catch(() => { });
 
     const tokenInput = this.page.getByPlaceholder(/Card Number/i).first();
@@ -123,7 +123,7 @@ export class SelfcareActivityPage extends BasePage {
 
   /** Assert the Card On File section is empty (token and expiry cleared). */
   async assertCardOnFileEmpty(): Promise<void> {
-    await this.waitForLoadingToDisappear();
+    await this.page.waitForLoadingToDisappear();
 
     const tokenInput = this.page.getByPlaceholder(/Card Number/i).first();
     await expect(tokenInput).toHaveValue('', { timeout: LONG_WAIT });
@@ -160,7 +160,7 @@ export class SelfcareActivityPage extends BasePage {
     }
 
     await this.page.waitForTimeout(1500);
-    await this.waitForLoadingToDisappear();
+    await this.page.waitForLoadingToDisappear();
 
     await this.assertCardOnFileEmpty();
   }

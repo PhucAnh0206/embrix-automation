@@ -25,7 +25,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { test } from '../../../../fixtures/page-factory';
+import { test } from '../../../../fixtures/jasec-fixtures';
 import {
   setUpAccountInSelfCare,
   type PrepaidAccountWithOrderRow,

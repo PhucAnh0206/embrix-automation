@@ -15,7 +15,7 @@
 import { Page, expect } from '@playwright/test';
 import { SearchAccountsPage } from '../pages/customer-hub/customer-management/search-accounts.page';
 import { CreateAccountPage, PrepaidAccountPayload } from '../pages/customer-hub/customer-management/create-account.page';
-import { OrderManagementPage } from '../pages/customer-hub/order-management/order-management.page';
+import { JasecOrderManagementPage } from '../pages/customer-hub/order-management/jasec-order-management.page';
 import { SelfcareLoginPage } from '../pages/selfcare/selfcare-login.page';
 import { SelfcareAccountSearchPage } from '../pages/selfcare/selfcare-account-search.page';
 import { SelfcareActivityPage } from '../pages/selfcare/selfcare-activity.page';
@@ -52,7 +52,7 @@ export interface SetUpWithOrderFixtures {
   testLogger: TestLogger;
   searchAccountsPage: SearchAccountsPage;
   createAccountPage: CreateAccountPage;
-  orderManagementPage: OrderManagementPage;
+  orderManagementPage: JasecOrderManagementPage;
   screenshotHelper: ScreenshotHelper;
   selfcareLoginPage: SelfcareLoginPage;
   selfcareAccountSearchPage: SelfcareAccountSearchPage;
@@ -113,7 +113,7 @@ export async function createPrepaidAccountWithOrder(
   page: Page,
   searchAccountsPage: SearchAccountsPage,
   createAccountPage: CreateAccountPage,
-  orderManagementPage: OrderManagementPage,
+  orderManagementPage: JasecOrderManagementPage,
   screenshotHelper: ScreenshotHelper,
   baseRow: {
     accountInfo: PrepaidAccountPayload['accountInfo'];
