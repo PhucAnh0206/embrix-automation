@@ -14,72 +14,14 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { test } from '../../../../fixtures/page-factory';
-import { createPrepaidAccountWithOrder } from '../../../../fixtures/create-prepaid-account.helper';
-
-interface JasecAccountTestRow {
-  accountInfo: {
-    accountCategory: string;
-    customerSegment: string;
-    customerId: string;
-    legalEntity: string;
-    accountType: string;
-    currency?: string;
-    sellingCompany?: string;
-  };
-  contact: { firstName: string; lastName: string; email: string; useAsBilling: boolean };
-  address: {
-    street: string;
-    country: string;
-    state: string;
-    city: string;
-    postalCode: string;
-    useAsBilling: boolean;
-  };
-  paymentProfile: { paymentMethod: string; paymentTerm: string };
-  billingProfile: { billingDom: string | number };
-  meter: { provisioningId: string; lecturaInicialKwh: string };
-  bundleId: string;
-}
+import {
+  setUpAccountInSelfCare,
+  type PrepaidAccountWithOrderRow,
+} from '../../../../fixtures/create-prepaid-account.helper';
 
 const dataFile = path.join(process.cwd(), 'test-data', 'jasec-prepaid-accounts.data.json');
-const dataRows: JasecAccountTestRow[] = JSON.parse(fs.readFileSync(dataFile, 'utf-8'));
+const dataRows: PrepaidAccountWithOrderRow[] = JSON.parse(fs.readFileSync(dataFile, 'utf-8'));
 const baseRow = dataRows[0];
-
-const USERNAME = process.env.EMBRIX_USER ?? 'congeroadmin';
-const PASSWORD = process.env.EMBRIX_PASSWORD ?? 'congero@123';
-
-/** Create fresh account+order, log into Self Care, act as the account. */
-async function setUpAccountInSelfCare(fixtures: {
-  page: any;
-  testLogger: any;
-  searchAccountsPage: any;
-  createAccountPage: any;
-  orderManagementPage: any;
-  screenshotHelper: any;
-  selfcareLoginPage: any;
-  selfcareAccountSearchPage: any;
-}): Promise<string> {
-  const {
-    page, testLogger,
-    searchAccountsPage, createAccountPage, orderManagementPage, screenshotHelper,
-    selfcareLoginPage, selfcareAccountSearchPage,
-  } = fixtures;
-
-  const { accountId } = await createPrepaidAccountWithOrder(
-    page, searchAccountsPage, createAccountPage,
-    orderManagementPage, screenshotHelper,
-    baseRow, testLogger,
-  );
-
-  await selfcareLoginPage.goto();
-  await selfcareLoginPage.login(USERNAME, PASSWORD);
-  await selfcareLoginPage.assertLoginSuccess();
-
-  await selfcareAccountSearchPage.navigate();
-  await selfcareAccountSearchPage.searchAndSelectAccount(accountId);
-
-  return accountId;
-}
 
 test.describe(
   'TS-02 — Top-Up',
@@ -106,7 +48,7 @@ test.describe(
           page, testLogger, searchAccountsPage, createAccountPage,
           orderManagementPage, screenshotHelper,
           selfcareLoginPage, selfcareAccountSearchPage,
-        });
+        }, baseRow);
 
         // Top up in month A.
         await selfcareActivityPage.navigateToTopUp();
@@ -152,7 +94,7 @@ test.describe(
           page, testLogger, searchAccountsPage, createAccountPage,
           orderManagementPage, screenshotHelper,
           selfcareLoginPage, selfcareAccountSearchPage,
-        });
+        }, baseRow);
 
         // Precondition: save a card so Pay Now has a token.
         await selfcareActivityPage.navigateToManagePaymentProfile();
@@ -198,7 +140,7 @@ test.describe(
           page, testLogger, searchAccountsPage, createAccountPage,
           orderManagementPage, screenshotHelper,
           selfcareLoginPage, selfcareAccountSearchPage,
-        });
+        }, baseRow);
 
         await selfcareActivityPage.navigateToTopUp();
         await selfcareTopupPage.assertLoaded();
@@ -235,7 +177,7 @@ test.describe(
           page, testLogger, searchAccountsPage, createAccountPage,
           orderManagementPage, screenshotHelper,
           selfcareLoginPage, selfcareAccountSearchPage,
-        });
+        }, baseRow);
 
         await selfcareActivityPage.navigateToTopUp();
         await selfcareTopupPage.assertLoaded();

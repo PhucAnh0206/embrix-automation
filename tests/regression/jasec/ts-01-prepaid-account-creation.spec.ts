@@ -2,19 +2,10 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { test, expect } from '../../../fixtures/page-factory';
 import type { PrepaidAccountPayload } from '../../../pages/customer-hub/customer-management/create-account.page';
-
-interface JasecAccountTestRow {
-  accountInfo: PrepaidAccountPayload['accountInfo'];
-  contact: PrepaidAccountPayload['contact'];
-  address: PrepaidAccountPayload['address'];
-  paymentProfile: PrepaidAccountPayload['paymentProfile'];
-  billingProfile: PrepaidAccountPayload['billingProfile'];
-  meter: { provisioningId: string; lecturaInicialKwh: string };
-  bundleId: string;
-}
+import type { PrepaidAccountWithOrderRow } from '../../../fixtures/create-prepaid-account.helper';
 
 const dataFile = path.join(process.cwd(), 'test-data', 'jasec-prepaid-accounts.data.json');
-const rows: JasecAccountTestRow[] = JSON.parse(fs.readFileSync(dataFile, 'utf-8'));
+const rows: PrepaidAccountWithOrderRow[] = JSON.parse(fs.readFileSync(dataFile, 'utf-8'));
 const row = rows[0];
 
 test.describe('TS-01 — Prepaid Account Creation (Energia Prepago)', {

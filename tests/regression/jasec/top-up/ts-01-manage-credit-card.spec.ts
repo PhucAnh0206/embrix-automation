@@ -14,73 +14,18 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { test, expect } from '../../../../fixtures/page-factory';
-import { createPrepaidAccountOnly } from '../../../../fixtures/create-prepaid-account.helper';
-
-interface JasecAccountTestRow {
-  accountInfo: {
-    accountCategory: string;
-    customerSegment: string;
-    customerId: string;
-    legalEntity: string;
-    accountType: string;
-    currency?: string;
-    sellingCompany?: string;
-  };
-  contact: { firstName: string; lastName: string; email: string; useAsBilling: boolean };
-  address: {
-    street: string;
-    country: string;
-    state: string;
-    city: string;
-    postalCode: string;
-    useAsBilling: boolean;
-  };
-  paymentProfile: { paymentMethod: string; paymentTerm: string };
-  billingProfile: { billingDom: string | number };
-}
+import {
+  setUpAccountAndEnterManagePaymentProfile,
+  type PrepaidAccountRow,
+} from '../../../../fixtures/create-prepaid-account.helper';
 
 const dataFile = path.join(process.cwd(), 'test-data', 'jasec-prepaid-accounts.data.json');
-const dataRows: JasecAccountTestRow[] = JSON.parse(fs.readFileSync(dataFile, 'utf-8'));
+const dataRows: PrepaidAccountRow[] = JSON.parse(fs.readFileSync(dataFile, 'utf-8'));
 const baseRow = dataRows[0];
-
-const USERNAME = process.env.EMBRIX_USER ?? 'congeroadmin';
-const PASSWORD = process.env.EMBRIX_PASSWORD ?? 'congero@123';
-
-/** Create fresh account, log into Self Care, act as it, open Manage Payment Profile. */
-async function setUpAccountAndEnterManagePaymentProfile(fixtures: {
-  page: any;
-  testLogger: any;
-  searchAccountsPage: any;
-  createAccountPage: any;
-  selfcareLoginPage: any;
-  selfcareAccountSearchPage: any;
-  selfcareActivityPage: any;
-}): Promise<string> {
-  const {
-    page, testLogger,
-    searchAccountsPage, createAccountPage,
-    selfcareLoginPage, selfcareAccountSearchPage, selfcareActivityPage,
-  } = fixtures;
-
-  const accountId = await createPrepaidAccountOnly(
-    page, searchAccountsPage, createAccountPage, baseRow, testLogger,
-  );
-
-  await selfcareLoginPage.goto();
-  await selfcareLoginPage.login(USERNAME, PASSWORD);
-  await selfcareLoginPage.assertLoginSuccess();
-
-  await selfcareAccountSearchPage.navigate();
-  await selfcareAccountSearchPage.searchAndSelectAccount(accountId);
-
-  await selfcareActivityPage.navigateToManagePaymentProfile();
-
-  return accountId;
-}
 
 test.describe(
   'TS-01 — Manage Credit Card',
-  { tag: ['@regression', '@jasec', '@top-up', '@ts-01'] },
+  { tag: ['@regression', '@jasec', '@top-up', '@ts-topup-01'] },
   () => {
     // ── TC 1.1 — Save Card with PlaceToPay ────────────────────────────
     test(
@@ -95,7 +40,7 @@ test.describe(
         const accountId = await setUpAccountAndEnterManagePaymentProfile({
           page, testLogger, searchAccountsPage, createAccountPage,
           selfcareLoginPage, selfcareAccountSearchPage, selfcareActivityPage,
-        });
+        }, baseRow);
 
         await selfcareActivityPage.clickSaveWithPlaceToPay();
         await placeToPayCheckoutPage.completeTokenization('approve');
@@ -119,7 +64,7 @@ test.describe(
         const accountId = await setUpAccountAndEnterManagePaymentProfile({
           page, testLogger, searchAccountsPage, createAccountPage,
           selfcareLoginPage, selfcareAccountSearchPage, selfcareActivityPage,
-        });
+        }, baseRow);
 
         await selfcareActivityPage.clickSaveWithPlaceToPay();
         await placeToPayCheckoutPage.abandonCheckoutSession();
@@ -142,7 +87,7 @@ test.describe(
         const accountId = await setUpAccountAndEnterManagePaymentProfile({
           page, testLogger, searchAccountsPage, createAccountPage,
           selfcareLoginPage, selfcareAccountSearchPage, selfcareActivityPage,
-        });
+        }, baseRow);
 
         await selfcareActivityPage.clickSaveWithPlaceToPay();
         await placeToPayCheckoutPage.submitDeclinedCard();
@@ -165,7 +110,7 @@ test.describe(
         const accountId = await setUpAccountAndEnterManagePaymentProfile({
           page, testLogger, searchAccountsPage, createAccountPage,
           selfcareLoginPage, selfcareAccountSearchPage, selfcareActivityPage,
-        });
+        }, baseRow);
 
         // Precondition: save a card so we have something to delete.
         await selfcareActivityPage.clickSaveWithPlaceToPay();

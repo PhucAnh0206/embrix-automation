@@ -16,6 +16,9 @@ import { Page, expect } from '@playwright/test';
 import { SearchAccountsPage } from '../pages/customer-hub/customer-management/search-accounts.page';
 import { CreateAccountPage, PrepaidAccountPayload } from '../pages/customer-hub/customer-management/create-account.page';
 import { OrderManagementPage } from '../pages/customer-hub/order-management/order-management.page';
+import { SelfcareLoginPage } from '../pages/selfcare/selfcare-login.page';
+import { SelfcareAccountSearchPage } from '../pages/selfcare/selfcare-account-search.page';
+import { SelfcareActivityPage } from '../pages/selfcare/selfcare-activity.page';
 import { ScreenshotHelper } from '../helpers/screenshot.helper';
 import { TestLogger } from '../helpers/test-logger';
 
@@ -23,6 +26,47 @@ import { TestLogger } from '../helpers/test-logger';
 export interface JasecOrderData {
   bundleId: string;
   meter: { provisioningId: string; lecturaInicialKwh: string };
+}
+
+/**
+ * Shape of one JASEC test-data row (account only — no order).
+ * Loaded from `test-data/jasec-prepaid-accounts.data.json`.
+ */
+export type PrepaidAccountRow = {
+  accountInfo: PrepaidAccountPayload['accountInfo'];
+  contact: PrepaidAccountPayload['contact'];
+  address: PrepaidAccountPayload['address'];
+  paymentProfile: PrepaidAccountPayload['paymentProfile'];
+  billingProfile: PrepaidAccountPayload['billingProfile'];
+};
+
+/** Shape of one JASEC test-data row including order + meter data. */
+export type PrepaidAccountWithOrderRow = PrepaidAccountRow & JasecOrderData;
+
+const USERNAME = process.env.EMBRIX_USER ?? 'congeroadmin';
+const PASSWORD = process.env.EMBRIX_PASSWORD ?? 'congero@123';
+
+/** Fixture bundle required by setUpAccountInSelfCare (with-order setup). */
+export interface SetUpWithOrderFixtures {
+  page: Page;
+  testLogger: TestLogger;
+  searchAccountsPage: SearchAccountsPage;
+  createAccountPage: CreateAccountPage;
+  orderManagementPage: OrderManagementPage;
+  screenshotHelper: ScreenshotHelper;
+  selfcareLoginPage: SelfcareLoginPage;
+  selfcareAccountSearchPage: SelfcareAccountSearchPage;
+}
+
+/** Fixture bundle required by setUpAccountAndEnterManagePaymentProfile. */
+export interface SetUpAccountOnlyFixtures {
+  page: Page;
+  testLogger: TestLogger;
+  searchAccountsPage: SearchAccountsPage;
+  createAccountPage: CreateAccountPage;
+  selfcareLoginPage: SelfcareLoginPage;
+  selfcareAccountSearchPage: SelfcareAccountSearchPage;
+  selfcareActivityPage: SelfcareActivityPage;
 }
 
 /** Create a fresh JASEC prepaid account (no order) and return the accountId. */
@@ -135,4 +179,66 @@ export async function createPrepaidAccountWithOrder(
   await orderManagementPage.verifyOrderCompletedWithBundle('TARIFICACION ENERGIA PREAPGO');
 
   return { accountId, orderId, provisioningId };
+}
+
+/**
+ * Full setup: create a fresh account+order, log into Self Care, and act as
+ * the account. Used by TS-02 / TS-03 (any test that needs top-ups to persist).
+ */
+export async function setUpAccountInSelfCare(
+  fixtures: SetUpWithOrderFixtures,
+  baseRow: PrepaidAccountWithOrderRow,
+): Promise<string> {
+  const {
+    page, testLogger,
+    searchAccountsPage, createAccountPage,
+    orderManagementPage, screenshotHelper,
+    selfcareLoginPage, selfcareAccountSearchPage,
+  } = fixtures;
+
+  const { accountId } = await createPrepaidAccountWithOrder(
+    page, searchAccountsPage, createAccountPage,
+    orderManagementPage, screenshotHelper,
+    baseRow, testLogger,
+  );
+
+  await selfcareLoginPage.goto();
+  await selfcareLoginPage.login(USERNAME, PASSWORD);
+  await selfcareLoginPage.assertLoginSuccess();
+
+  await selfcareAccountSearchPage.navigate();
+  await selfcareAccountSearchPage.searchAndSelectAccount(accountId);
+
+  return accountId;
+}
+
+/**
+ * Lightweight setup: create an account-only (no order), log into Self Care,
+ * act as the account, and open Manage Payment Profile. Used by TS-01 card
+ * management tests where a subscription is not required.
+ */
+export async function setUpAccountAndEnterManagePaymentProfile(
+  fixtures: SetUpAccountOnlyFixtures,
+  baseRow: PrepaidAccountRow,
+): Promise<string> {
+  const {
+    page, testLogger,
+    searchAccountsPage, createAccountPage,
+    selfcareLoginPage, selfcareAccountSearchPage, selfcareActivityPage,
+  } = fixtures;
+
+  const accountId = await createPrepaidAccountOnly(
+    page, searchAccountsPage, createAccountPage, baseRow, testLogger,
+  );
+
+  await selfcareLoginPage.goto();
+  await selfcareLoginPage.login(USERNAME, PASSWORD);
+  await selfcareLoginPage.assertLoginSuccess();
+
+  await selfcareAccountSearchPage.navigate();
+  await selfcareAccountSearchPage.searchAndSelectAccount(accountId);
+
+  await selfcareActivityPage.navigateToManagePaymentProfile();
+
+  return accountId;
 }
