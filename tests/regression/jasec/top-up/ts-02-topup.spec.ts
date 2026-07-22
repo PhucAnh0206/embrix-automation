@@ -63,7 +63,10 @@ test.describe(
         await selfcareTopupPage.clickPayWithPlaceToPay();
         await placeToPayCheckoutPage.completePaymentFlow('approve');
 
-        await selfcareActivityPage.navigateToTopUp();
+        // Hard reload after returning from PlaceToPay — otherwise the Top Up
+        // view may serve a cached empty-history state and the freshly-posted
+        // row isn't visible for LONG_WAIT.
+        await selfcareTopupPage.reload(selfcareActivityPage);
         await selfcareTopupPage.assertPaymentSuccess();
         await selfcareTopupPage.assertHistoryRowCountAtLeast(1);
         // await dbHelper.assertTopUpApplied(accountId, topUp, balanceBefore);
@@ -154,7 +157,10 @@ test.describe(
         await selfcareTopupPage.clickPayWithPlaceToPay();
         await placeToPayCheckoutPage.completePaymentFlow('approve');
 
-        await selfcareActivityPage.navigateToTopUp();
+        // Hard reload after returning from PlaceToPay — otherwise the Top Up
+        // view may serve a cached empty-history state and the freshly-posted
+        // row isn't visible for LONG_WAIT.
+        await selfcareTopupPage.reload(selfcareActivityPage);
         await selfcareTopupPage.assertPaymentSuccess();
         // await dbHelper.assertTopUpApplied(accountId, topUp, balanceBefore);
 
