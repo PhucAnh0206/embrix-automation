@@ -10,20 +10,29 @@ import { ToastComponent } from '../../components/toast.component';
  * Accessed via: Revenue Hub → Configuration
  */
 export class GLSetupPage extends BasePage {
-  readonly table: TableComponent;
+  readonly tableGL: TableComponent;
   readonly toastComponent: ToastComponent;
+
 
   /**
    * @param page - Playwright's Page instance.
    */
   constructor(page: Page) {
     super(page);
-    this.table = new TableComponent(page, this.page.locator('table').first());
+    this.tableGL = new TableComponent(
+      page,
+      page.locator('.collapse__content.collapse.show')
+        .locator('table.center-aligned-table.mb-0.table-collapsible')
+        .first()
+    );
     this.toastComponent = new ToastComponent(page);
   }
 
   // DOM Elements
-  
+  private get addNewSegmentButton() { return this.page.getByRole('button', { name: '+Add New Segment' }) }
+  private get addNewGlAccountButton() { return this.page.getByRole('button', { name: '+Add New GL Account Range' }) }
+  private get saveConfigButton() { return this.page.getByRole('button', { name: 'Save config' }) }
+
 
   // Navigation
 
@@ -41,7 +50,7 @@ export class GLSetupPage extends BasePage {
    * Get the text content of a cell in the first row by column name.
    */
   async getFirstRowCellValue(columnName: string): Promise<string> {
-    return this.table.getFirstRowCellValue(columnName);
+    return this.tableGL.getFirstRowCellValue(columnName);
   }
 
   /**
@@ -50,10 +59,39 @@ export class GLSetupPage extends BasePage {
    */
   async clickFirstRowLink(columnName: string): Promise<string> {
     const currentUrl = this.page.url();
-    await this.table.clickCellLink(0, columnName);
+    await this.tableGL.clickCellLink(0, columnName);
     await this.page.waitForFunction((oldUrl) => window.location.href !== oldUrl, currentUrl, { timeout: MEDIUM_WAIT }).catch(() => { });
     await this.page.waitForLoadState('networkidle')
     return this.page.url();
   }
+
+  async addGlSegment(): Promise<void> {
+    await this.page.locator('[role="button"]', { hasText: 'GL Segments' }).click();
+
+  }
+
+  async clickaddNewSegButton(): Promise<void> {
+    await this.page.waitForLoadState('networkidle')
+    await this.addNewSegmentButton.click();
+    await this.page.waitForLoadingToDisappear();
+
+  }
+
+
+  async clickaddNewGlAccButton(): Promise<void> {
+    await this.page.waitForLoadState('networkidle')
+    await this.addNewGlAccountButton.click();
+    await this.page.waitForLoadingToDisappear();
+
+  }
+
+  async clickSaveButton(): Promise<void> {
+    await this.page.waitForLoadState('networkidle')
+    await this.saveConfigButton.click();
+    await this.page.waitForLoadingToDisappear();
+
+  }
+
+
 
 }

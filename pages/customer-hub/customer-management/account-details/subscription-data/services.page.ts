@@ -2,6 +2,7 @@ import { Page, Locator } from '@playwright/test';
 import { BasePage } from '../../../../base.page';
 import { AccountDetailsSidebar } from '../account-details-sidebar';
 import { TableComponent } from '../../../../components/table.component';
+import { SHORT_WAIT } from '../../../../../helpers/timeouts.helper';
 
 /**
  * ServicesPage — Page Object for the Subscription Data > Assets > Services screen.
@@ -14,6 +15,7 @@ export class ServicesPage extends BasePage {
   // Explicit, descriptive tables
   readonly incompleteOrdersTable: TableComponent;
   readonly servicesTable: TableComponent;
+  readonly subscriptionTable: TableComponent;
 
   /**
    * @param page - Playwright's Page instance.
@@ -27,12 +29,19 @@ export class ServicesPage extends BasePage {
       page,
       this.page.locator('//h5[contains(text(), "In-complete Orders")]/following::table')
     );
+    this.subscriptionTable = new TableComponent(
+      page,
+      this.page.locator('//h5[contains(text(), "Subscription")]/following::table').first()
+    );
+
 
     this.servicesTable = new TableComponent(
       page,
       this.page.locator('//h5[contains(text(), "Service Units")]/following::table[1]')
     );
   }
+
+  private get startDateInput() { return this.page.locator(`//input[@name='orderStartDate']`).first(); }
 
   private get searchButton() { return this.page.getByRole('button', { name: 'Search' }) }
 
@@ -50,6 +59,21 @@ export class ServicesPage extends BasePage {
    */
   async getInCompleteOrdersFirstRowCellValue(columnName: string): Promise<string> {
     return this.incompleteOrdersTable.getFirstRowCellValue(columnName);
+  }
+
+
+  /**
+ * Get the text content of a cell in the first row by column name (defaulting to subscription).
+ */
+  async getSubscriptionFirstRowCellValue(columnName: string): Promise<string> {
+    return this.subscriptionTable.getFirstRowCellValue(columnName);
+  }
+
+  /**
+  * Get the text content of a cell in the first row by column name (defaulting to subscription).
+  */
+  async getServiceUnitFirstRowCellValue(columnName: string): Promise<string> {
+    return this.servicesTable.getFirstRowCellValue(columnName);
   }
 
 
@@ -75,4 +99,15 @@ export class ServicesPage extends BasePage {
     await this.page.waitForLoadingToDisappear();
 
   }
+
+  async navigatetoBillableService(): Promise<string> {
+    return this.sidebar.navigateToSubScreen('Subscription Data', 'Assets', 'Billable Services');
+  }
+
+  async searchByDate(startDate: string): Promise<void> {
+    await this.startDateInput.waitFor({ state: 'visible', timeout: SHORT_WAIT });
+    await this.startDateInput.fill(startDate);
+
+  }
+
 }

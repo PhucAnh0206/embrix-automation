@@ -62,7 +62,7 @@ export class InvoicePage extends BasePage {
     await this.endDateInput.waitFor({ state: 'visible', timeout: SHORT_WAIT });
     await this.endDateInput.fill('2026-06-09');
     await this.accountIdInput.waitFor({ state: 'visible', timeout: SHORT_WAIT });
-    await this.accountIdInput.fill('ACT-20269');
+    await this.accountIdInput.fill(accountId);
 
   }
 
