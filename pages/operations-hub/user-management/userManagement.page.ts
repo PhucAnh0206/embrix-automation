@@ -20,6 +20,7 @@ export class UserManagementPage extends BasePage {
     readonly toastComponent: ToastComponent;
     readonly popup: Locator;
     readonly selectRoleModalTable: TableComponent;
+    private username: string;
 
     constructor(page: Page) {
         super(page);
@@ -74,9 +75,14 @@ export class UserManagementPage extends BasePage {
         await this.page.waitForTimeout(MEDIUM_WAIT);
     }
 
+
+
     async addDetailsForUser(): Promise<void> {
+        const randomSuffix = Math.floor(Math.random() * 1000000);
+        //const username = `testUserTest${randomSuffix}`;
+        this.username = `testUserTest${randomSuffix}`;
         await this.userIdInput.waitFor({ state: 'visible', timeout: SHORT_WAIT });
-        await this.page.locator('input[name="userId"]').fill('test1User', { force: true });
+        await this.page.locator('input[name="userId"]').fill(this.username, { force: true });
         const userType = this.page.locator('div.form-group.select-group', { hasText: 'User Type' });
         await userType.locator('.custom-react-select__control').click();
         await this.page.locator('.custom-react-select__option')
@@ -156,7 +162,7 @@ export class UserManagementPage extends BasePage {
 
     async searchUser(): Promise<void> {
         await this.userIdInput.waitFor({ state: 'visible', timeout: SHORT_WAIT });
-        await this.page.locator('input[name="userId"]').fill('test1User', { force: true });
+        await this.page.locator('input[name="userId"]').fill(this.username, { force: true });
         await this.searchButton.click();
         await this.page.waitForLoadingToDisappear();
         await this.page.waitForLoadState('networkidle').catch(() => { });

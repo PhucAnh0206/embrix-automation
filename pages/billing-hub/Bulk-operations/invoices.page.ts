@@ -57,10 +57,10 @@ export class InvoicePage extends BasePage {
   }
 
   async searchBystartDateandEndDateAccount(accountId: string): Promise<void> {
-    await this.startDateInput.waitFor({ state: 'visible', timeout: SHORT_WAIT });
-    await this.startDateInput.fill('2026-06-01');
-    await this.endDateInput.waitFor({ state: 'visible', timeout: SHORT_WAIT });
-    await this.endDateInput.fill('2026-06-09');
+    // await this.startDateInput.waitFor({ state: 'visible', timeout: SHORT_WAIT });
+    // await this.startDateInput.fill('2026-06-01');
+    // await this.endDateInput.waitFor({ state: 'visible', timeout: SHORT_WAIT });
+    // await this.endDateInput.fill('2026-06-09');
     await this.accountIdInput.waitFor({ state: 'visible', timeout: SHORT_WAIT });
     await this.accountIdInput.fill(accountId);
 

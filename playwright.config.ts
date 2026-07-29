@@ -30,6 +30,7 @@ const BASE_URLS: Record<string, string> = {
 
 const GraphQL_URLS: Record<string, string> = {
   'coopeg-sandbox': 'https://transactional.coopeg.embrix.org/graphql',
+  'congero-sandbox': 'https://service-transactional.congero.embrix.org/graphql',
 };
 
 const CRM_GATEWAY_URLS: Record<string, string> = {
