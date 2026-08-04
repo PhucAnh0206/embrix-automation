@@ -85,6 +85,8 @@ export class CreateOrderPage extends BasePage {
 
     const targetRow = this.popup.locator('table tr').filter({
       hasText: 'PO_FR'
+      // hasText: 'PO-20GB'
+
     });
     await targetRow.click();
   }
