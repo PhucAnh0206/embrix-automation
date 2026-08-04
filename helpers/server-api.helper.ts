@@ -9,6 +9,7 @@ export class ServerHelper {
     private request: APIRequestContext;
     private graphqlUrl = process.env.GRAPH_URLS ?? 'https://transactional.coopeg.embrix.org/graphql';
     private logger?: TestLogger;
+    private static cachedToken: string | null = null;
 
     /**
      * @param request - Playwright's APIRequestContext for making API requests.
@@ -17,6 +18,49 @@ export class ServerHelper {
     constructor(request: APIRequestContext, logger?: TestLogger) {
         this.request = request;
         this.logger = logger;
+    }
+
+    /**
+     * Get (and cache) a Bearer token by calling the userLogin GraphQL mutation.
+     * Since 2026-07 the core GraphQL endpoint requires authentication for every
+     * call — including previously-anonymous ones like setCcpTime. Credentials
+     * come from EMBRIX_USER / EMBRIX_PASSWORD (same as the browser login).
+     * Token is cached per-process; the sandbox session lives long enough for
+     * a full test run.
+     */
+    private async getToken(): Promise<string> {
+        if (ServerHelper.cachedToken) return ServerHelper.cachedToken;
+
+        const username = process.env.EMBRIX_USER;
+        const password = process.env.EMBRIX_PASSWORD;
+        if (!username || !password) {
+            throw new Error('EMBRIX_USER / EMBRIX_PASSWORD env vars are required for API auth.');
+        }
+
+        // Mirror the shape the Core UI sends: plain `{ userLogin(input: {...}) { ... } }`
+        // query (not a mutation), input field is `userName` (not `userId`), values inlined.
+        const response = await this.request.post(this.graphqlUrl, {
+            headers: { 'content-type': 'application/json' },
+            data: {
+                query: `{ userLogin(input: {userName: "${username}", password: "${password}"}) { token } }`,
+            },
+        });
+
+        if (!response.ok()) {
+            throw new Error(`userLogin failed with HTTP ${response.status()}: ${await response.text()}`);
+        }
+        const body = await response.json();
+        const token = body?.data?.userLogin?.token;
+        if (!token) {
+            throw new Error(`userLogin returned no token: ${JSON.stringify(body.errors || body)}`);
+        }
+        ServerHelper.cachedToken = token;
+        this.logger?.log('ServerHelper: acquired Bearer token via userLogin');
+        return token;
+    }
+
+    private async authHeaders(): Promise<Record<string, string>> {
+        return { Authorization: `Bearer ${await this.getToken()}` };
     }
 
     /**
@@ -78,6 +122,7 @@ export class ServerHelper {
         this.logger?.log('GraphQL query: getCcpDateTime');
 
         const response = await this.request.post(this.graphqlUrl, {
+            headers: await this.authHeaders(),
             data: {
                 query: `
           query {
@@ -110,6 +155,7 @@ export class ServerHelper {
         this.logger?.log(`GraphQL mutation: setCcpTime → ${targetDate}`);
 
         const response = await this.request.post(this.graphqlUrl, {
+            headers: await this.authHeaders(),
             data: {
                 query: `
           mutation {
@@ -143,11 +189,30 @@ export class ServerHelper {
         const setTimeResult = await this.setCcpTime(targetDate);
         expect(setTimeResult).toBe(targetDate);
 
-        // 2. Call API Get time independently to verify directly from server
-        const currentServerTime = await this.getCcpTime();
-
-        // 3. Compare the results to double check the Set action
-        expect(currentServerTime).toBe(setTimeResult);
-        this.logger?.log(`CCP time verified: ${currentServerTime}`);
+        // 2. Verify with a small retry loop.
+        // Post-security-patch (2026-07), jasec-dev's setCcpTime is occasionally
+        // eventually-consistent: the mutation returns the target date but a
+        // very-quick follow-up getCcpDateTime can return a stale value for
+        // ~1-2 seconds before stabilizing. Retry a few times before failing.
+        const maxAttempts = 5;
+        for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+            const currentServerTime = await this.getCcpTime();
+            if (currentServerTime === setTimeResult) {
+                this.logger?.log(
+                    `CCP time verified: ${currentServerTime}` +
+                    (attempt > 1 ? ` (attempt ${attempt}/${maxAttempts})` : '')
+                );
+                return;
+            }
+            if (attempt === maxAttempts) {
+                // Final attempt — let expect throw with full mismatch details
+                expect(currentServerTime).toBe(setTimeResult);
+            }
+            this.logger?.log(
+                `CCP time not yet consistent (got ${currentServerTime}, want ${setTimeResult}); ` +
+                `retrying (attempt ${attempt}/${maxAttempts - 1})…`
+            );
+            await new Promise(resolve => setTimeout(resolve, 500));
+        }
     }
 }

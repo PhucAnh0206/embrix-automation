@@ -8,6 +8,13 @@ const dataFile = path.join(process.cwd(), 'test-data', 'jasec-prepaid-accounts.d
 const rows: PrepaidAccountWithOrderRow[] = JSON.parse(fs.readFileSync(dataFile, 'utf-8'));
 const row = rows[0];
 
+// Calc-validation mode: forces lecturaInicialKwh=0 so the bash calc scripts
+// (which read cumulative from mediation history only, not the provisioning
+// initial reading) start from a matching baseline. Also emits a handoff JSON
+// so the PowerShell wrapper can pass the freshly-created meter into the
+// remote bash calc script via the METER env var.
+const isCalcMode = process.env.JASEC_CALC_MODE === 'true';
+
 test.describe('TS-01 — Prepaid Account Creation (Energia Prepago)', {
   tag: ['@regression', '@jasec', '@ts-01', '@tc-c01'],
 }, () => {
@@ -73,9 +80,10 @@ test.describe('TS-01 — Prepaid Account Creation (Energia Prepago)', {
     await orderManagementPage.clickNextBelowSubscription();
 
     // 2d.v–vii. Override Options → View → +ADD → meter data → Submit
+    const lecturaInicialKwh = isCalcMode ? '0' : row.meter.lecturaInicialKwh;
     await orderManagementPage.addMeterProvisioningData(
       provisioningId,
-      row.meter.lecturaInicialKwh,
+      lecturaInicialKwh,
     );
 
     // 2d.viii. NEXT at the top of the screen
@@ -100,5 +108,15 @@ test.describe('TS-01 — Prepaid Account Creation (Energia Prepago)', {
     await orderManagementPage.verifyOrderCompletedWithBundle('TARIFICACION ENERGIA PREAPGO');
 
     testLogger.log(`✓ TS-01 completed — account ${accountId}, order ${orderId} (SUBMITTED, meter ${provisioningId})`);
+
+    if (isCalcMode) {
+      const handoffPath = path.join(process.cwd(), 'test-results', 'jasec-latest-meter.json');
+      fs.mkdirSync(path.dirname(handoffPath), { recursive: true });
+      fs.writeFileSync(
+        handoffPath,
+        JSON.stringify({ accountId, provisioningId, orderId, lecturaInicialKwh: '0' }, null, 2),
+      );
+      testLogger.log(`↳ Calc-mode handoff written: ${handoffPath}`);
+    }
   });
 });

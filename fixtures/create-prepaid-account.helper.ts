@@ -213,6 +213,29 @@ export async function setUpAccountInSelfCare(
 }
 
 /**
+ * Log into Self Care and navigate to an EXISTING account (no creation).
+ * Companion to setUpAccountInSelfCare — use when a shared account was
+ * created by an earlier test and this test just needs a fresh page
+ * attached to it.
+ */
+export async function attachToAccountInSelfCare(
+  fixtures: {
+    selfcareLoginPage: SelfcareLoginPage;
+    selfcareAccountSearchPage: SelfcareAccountSearchPage;
+  },
+  accountId: string,
+): Promise<void> {
+  const { selfcareLoginPage, selfcareAccountSearchPage } = fixtures;
+
+  await selfcareLoginPage.goto();
+  await selfcareLoginPage.login(USERNAME, PASSWORD);
+  await selfcareLoginPage.assertLoginSuccess();
+
+  await selfcareAccountSearchPage.navigate();
+  await selfcareAccountSearchPage.searchAndSelectAccount(accountId);
+}
+
+/**
  * Lightweight setup: create an account-only (no order), log into Self Care,
  * act as the account, and open Manage Payment Profile. Used by TS-01 card
  * management tests where a subscription is not required.
