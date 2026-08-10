@@ -80,6 +80,7 @@ test.describe.serial('REGRESSION: Test Suite - 02', () => {
     await page.waitForTimeout(SHORT_WAIT);
 
     await customerManagementPage.clickCreateButton();
+
     await page.locator('.panel__title', { hasText: 'Create Contact' }).click();
 
     await customerManagementPage.quickCreateAccount('lisalog2026@gmail.com', 'Lisa', 'Nuevo');
@@ -105,13 +106,12 @@ test.describe.serial('REGRESSION: Test Suite - 02', () => {
     await createOrderPage.clickTopNextButton();
     await createOrderPage.clickBottomNextButton();
     await createOrderPage.clickAddAlaCarteButton();
-    //  const alaCrteSelect = "PO-20GB";
+
     const alaCrteSelect = "PO_FR";
     await createOrderPage.searchByName(alaCrteSelect);
     await createOrderPage.clickRadioButtonById();
     await createOrderPage.clickSelectButton();
     await createOrderPage.clickBottomNextButton();
-    // await page.locator('input[name="provisioningId"]').fill('PO_' + state.accountId);
 
     await expect(page.locator('h5.card-title.title-form.font-weight-normal')).toHaveText('Service Type: INTERNET');
     await page.waitForTimeout(SHORT_WAIT);
@@ -155,7 +155,7 @@ test.describe.serial('REGRESSION: Test Suite - 02', () => {
   }) => {
     const date = state.nextMonthFirstDate!;
     await serverHelper.setAndVerifyCcpTime(date);
-    //await page.goto('https://core-ui.congero.embrix.org/customers/ACT-100135/info');
+
     await page.goto(state.quickAccUrl!);
     await page.waitForTimeout(SHORT_WAIT);
 
@@ -197,7 +197,6 @@ test.describe.serial('REGRESSION: Test Suite - 02', () => {
       .locator('td').nth(4).innerText();
     state.endDate = endDate;
   });
-
 
   test('TC-38: Account Data / Account Information – Customer Segment Modification', async ({
     page, accountInfoPage, contactPage, customerManagementPage, screenshotHelper, testLogger
@@ -274,6 +273,7 @@ test.describe.serial('REGRESSION: Test Suite - 02', () => {
     await page.mouse.click(10, 10);
     await page.waitForTimeout(SHORT_WAIT);
     await customerManagementPage.clickCreateButton();
+
     await page.locator('.panel__title', { hasText: 'Create Contact' }).click();
 
     await customerManagementPage.quickCreateAccount('lisalog2026@gmail.com', 'Lisa', 'Nuevo');
@@ -281,8 +281,7 @@ test.describe.serial('REGRESSION: Test Suite - 02', () => {
     await customerManagementPage.addressDetails('CallePrincipal', 'Alajuela', 'Grecia', '102333');
     const accountNumber = await page.locator('#year-tab').textContent() ?? undefined;
     const trimAccount = accountNumber?.trim().match(/ACT-\d+/)?.[0] ?? undefined!;
-    // const accountNumber = '100123';
-    //await page.goto('https://core-ui.congero.embrix.org/customers/ACT-100101/info');
+
     await page.goto(state.quickAccUrl!);
     await accountInfoPage.navigateToHierarchy();
     await page.locator('#toAccount input').click();
@@ -304,7 +303,9 @@ test.describe.serial('REGRESSION: Test Suite - 02', () => {
     const modifyHierarchy = await customerManagementPage.moveAccountSuccessfully(screenshotHelper);
     testLogger.data('Modify Hierarchy on account URL', modifyHierarchy);
     await page.waitForTimeout(SHORT_WAIT);
-    await page.goto('https://core-ui.congero.embrix.org/customers/' + trimAccount + '/info');
+
+    await page.goto(process.env.EMBRIX_BASE_URL + '/customers/' + trimAccount + '/info');
+
     await accountInfoPage.navigateToHierarchy();
     const rowAccId = await accountInfoPage.getFirstRowCellValue('ACCT No');
     expect(state.accountId!).toBe(rowAccId);
@@ -316,7 +317,6 @@ test.describe.serial('REGRESSION: Test Suite - 02', () => {
     page, accountInfoPage, customerManagementPage, screenshotHelper, testLogger
   }) => {
 
-    //await page.goto('https://core-ui.congero.embrix.org/customers/ACT-100115/info');
     await page.goto(state.quickAccUrl!);
     await accountInfoPage.navigateToPaymentInstallment();
     await accountInfoPage.clickAddInstallmemtButton();
@@ -337,12 +337,15 @@ test.describe.serial('REGRESSION: Test Suite - 02', () => {
 
     await accountInfoPage.navigateToXchangeRates();
     await accountInfoPage.clickAddNewXchangeButton();
+
     await accountInfoPage.activityTable.selectCellOption(0, 'Xchange Currency', 'USD (USD)');
     await accountInfoPage.clickSaveConfig();
     //  const createPaymentInstallation = await accountInfoPage.createPaymentInstallmentSuccessfully(screenshotHelper);
     //  testLogger.data('Create Payment Installation on account URL', createPaymentInstallation);
 
   });
+
+
 
   test('TC-47: Subscription Data / Subscription View – Active Subscription Detail', async ({
     page, servicesPage, screenshotHelper, testLogger
@@ -392,7 +395,7 @@ test.describe.serial('REGRESSION: Test Suite - 02', () => {
   test('TC-48: Subscription Data / Services – Service Creation and Order Approval', async ({
     page, servicesPage, screenshotHelper, testLogger
   }) => {
-    //await page.goto('https://core-ui.congero.embrix.org/customers/ACT-100206/info');
+
     await page.goto(state.quickAccUrl!);
 
     await page.waitForTimeout(SHORT_WAIT);
@@ -414,7 +417,7 @@ test.describe.serial('REGRESSION: Test Suite - 02', () => {
     page, servicesPage, accountInfoPage, screenshotHelper, testLogger
   }) => {
     await page.goto(state.quickAccUrl!);
-    //await page.goto('https://core-ui.congero.embrix.org/customers/ACT-100101/info');
+
     await servicesPage.navigateToOffers();
     await page.waitForTimeout(SHORT_WAIT);
 
@@ -437,7 +440,7 @@ test.describe.serial('REGRESSION: Test Suite - 02', () => {
     page, accountInfoPage, billsPage, screenshotHelper, testLogger
   }) => {
 
-    //await page.goto('https://core-ui.congero.embrix.org/customers/ACT-100129/info');
+
     await page.goto(state.quickAccUrl!);
     await page.waitForTimeout(SHORT_WAIT);
     const value = await page.locator('.m-b-0[style*="color: rgb(62, 193, 211)"]').innerText();
@@ -451,7 +454,6 @@ test.describe.serial('REGRESSION: Test Suite - 02', () => {
     testLogger.data('Billing data balance', amountValue);
 
   });
-
 
   test('TC-24: Pricing Center – Basic Configurations (Currency)', async ({
     page, testLogger, currencyPage, screenshotHelper,
@@ -491,7 +493,6 @@ test.describe.serial('REGRESSION: Test Suite - 02', () => {
     testLogger.data('productFamilyUrl', productFamilyUrl);
     updateTestContext({ productFamilyUrl });
   });
-
 
 
 
@@ -557,6 +558,10 @@ test.describe.serial('REGRESSION: Test Suite - 02', () => {
     const firstRowText = await page.locator('table tbody tr:first-child td:nth-child(1)').innerText();
     expect(firstRowText.trim()).toBe('TelconectService');
   });
+
+
+
+
 
 
   test('TC-32: Operations Center / User Management – Successful Creation and Modification', async ({
@@ -643,7 +648,7 @@ test.describe.serial('REGRESSION: Test Suite - 02', () => {
   test('TC-57: Billing Data / Rated Usage Inquiry – Filter Rated Usage Transactions', async ({
     page, billsPage, screenshotHelper, testLogger
   }) => {
-    //await page.goto('https://core-ui.congero.embrix.org/customers/ACT-100129/info');
+
     await page.goto(state.quickAccUrl!);
     await page.waitForTimeout(SHORT_WAIT);
 
@@ -678,7 +683,7 @@ test.describe.serial('REGRESSION: Test Suite - 02', () => {
   test('TC-58: Billing Data / Usage Records – Filter and Export Usage Data', async ({
     page, billsPage, screenshotHelper, testLogger
   }) => {
-    //await page.goto('https://core-ui.congero.embrix.org/customers/ACT-100129/info');
+
     await page.goto(state.quickAccUrl!);
     await page.waitForTimeout(SHORT_WAIT);
 
@@ -695,7 +700,7 @@ test.describe.serial('REGRESSION: Test Suite - 02', () => {
   test('TC-59: Subscription & Billing Data / AR Request Log – Filter AR Requests', async ({
     page, billsPage, screenshotHelper, testLogger
   }) => {
-    // await page.goto('https://core-ui.congero.embrix.org/customers/ACT-100129/info');
+
     await page.goto(state.quickAccUrl!);
     await page.waitForTimeout(SHORT_WAIT);
 
@@ -729,7 +734,7 @@ test.describe.serial('REGRESSION: Test Suite - 02', () => {
   test('TC-56: Billing Data / Transactions – View Transaction Detail and Recurring Data', async ({
     page, billsPage, screenshotHelper, testLogger
   }) => {
-    //await page.goto('https://core-ui.congero.embrix.org/customers/ACT-100101/info');
+
     await page.goto(state.quickAccUrl!);
     await page.waitForTimeout(SHORT_WAIT);
 
@@ -761,7 +766,7 @@ test.describe.serial('REGRESSION: Test Suite - 02', () => {
   test('TC-64: Billing Data / Account Statement – Filter, Export and View Notes', async ({
     page, billsPage, screenshotHelper, testLogger
   }) => {
-    //await page.goto('https://core-ui.congero.embrix.org/customers/ACT-100101/info');
+
     await page.goto(state.quickAccUrl!);
     await page.waitForTimeout(SHORT_WAIT);
 
@@ -783,7 +788,7 @@ test.describe.serial('REGRESSION: Test Suite - 02', () => {
   test('TC-65: Billing Data / Shared Charge Configuration – Create New Shared Charge', async ({
     page, billsPage, screenshotHelper, testLogger
   }) => {
-    //await page.goto('https://core-ui.congero.embrix.org/customers/ACT-100101/info');
+
     await page.goto(state.quickAccUrl!);
     await page.waitForTimeout(SHORT_WAIT);
 
@@ -800,7 +805,6 @@ test.describe.serial('REGRESSION: Test Suite - 02', () => {
     const sharingGroupUrl = await billsPage.modifySharingChargeSuccessfully(screenshotHelper);
     testLogger.data('sharing group url', sharingGroupUrl);
   });
-
 
 
   test('TC-28: View Invoice Units in Collections', async ({
@@ -875,8 +879,6 @@ test.describe.serial('REGRESSION: Test Suite - 02', () => {
   });
 
 
-
-
   test('TC-29: A/R Center Flow Validation', async ({
     page, collectionPage
   }) => {
@@ -938,7 +940,7 @@ test.describe.serial('REGRESSION: Test Suite - 02', () => {
     //Payment is successfully!
 
     await page.goto(state.quickAccUrl!);
-    //await page.goto('https://core-ui.congero.embrix.org/customers/ACT-100175/info');
+
     await page.waitForTimeout(SHORT_WAIT);
     await billsPage.navigateToPayments();
     await billsPage.searchByInvoiceId(state.invoiceId!);
@@ -970,7 +972,7 @@ test.describe.serial('REGRESSION: Test Suite - 02', () => {
   test('TC-60: Billing Data / AR Operation Units – Filter by Item ID', async ({
     page, billsPage, screenshotHelper, testLogger
   }) => {
-    //await page.goto('https://core-ui.congero.embrix.org/customers/ACT-100101/info');
+
     await page.goto(state.quickAccUrl!);
     await page.waitForTimeout(SHORT_WAIT);
 
@@ -1076,7 +1078,7 @@ test.describe.serial('REGRESSION: Test Suite - 02', () => {
     page, billsPage
   }) => {
     await page.goto(state.quickAccUrl!);
-    //await page.goto('https://coreui.coopeg.embrix.org/customers/162721/info');
+
     await page.waitForTimeout(SHORT_WAIT);
     await billsPage.navigateToCreditDebitNotes();
     const today = new Date();
@@ -1087,12 +1089,15 @@ test.describe.serial('REGRESSION: Test Suite - 02', () => {
 
   });
 
+
   test('TC-35: Operations Center / Reports – Accounts Report Validation', async ({
     page, reportsPage
   }) => {
     await page.navigateToHome();
     await reportsPage.navigateViaNav();
+    await page.mouse.click(10, 10);
     await page.waitForTimeout(SHORT_WAIT);
+
     const today = new Date();
     const formattedDate = today.toISOString().split('T')[0];
     reportsPage.searchByDate('2024-01-01', formattedDate);
@@ -1109,6 +1114,7 @@ test.describe.serial('REGRESSION: Test Suite - 02', () => {
   }) => {
     await page.navigateToHome();
     await revenuePage.navigateViaNav();
+    await page.mouse.click(10, 10);
     await page.waitForTimeout(SHORT_WAIT);
     const today = new Date();
     const formattedDate = today.toISOString().split('T')[0];
@@ -1124,8 +1130,8 @@ test.describe.serial('REGRESSION: Test Suite - 02', () => {
   test('TC-50: Subscription Data / Billable Services – Filter and Export', async ({
     page, servicesPage, screenshotHelper, testLogger
   }) => {
-    await page.goto('https://core-ui.congero.embrix.org/customers/ACT-100101/info');
-    //await page.goto(state.quickAccUrl!);
+
+    await page.goto(state.quickAccUrl!);
     await page.waitForTimeout(SHORT_WAIT);
     await servicesPage.navigatetoBillableService();
     await servicesPage.searchByDate('2024-01-01');
