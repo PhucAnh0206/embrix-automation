@@ -1,0 +1,38 @@
+[
+  {
+    "accountInfo": {
+      "accountCategory": "PREPAID",
+      "customerSegment": "B2C",
+      "customerId": "TEST_ID-001",
+      "legalEntity": "Jasec",
+      "accountType": "RESIDENTIAL",
+      "currency": "CRC"
+    },
+    "contact": {
+      "firstName": "Anh",
+      "lastName": "Tran",
+      "email": "anh.tran@congerotechnology.com",
+      "useAsBilling": true
+    },
+    "address": {
+      "street": "Colon 111",
+      "country": "Costa Rica",
+      "state": "Cartago",
+      "city": "Cartago",
+      "postalCode": "30101",
+      "useAsBilling": true
+    },
+    "paymentProfile": {
+      "paymentMethod": "CHECK",
+      "paymentTerm": "NET_30"
+    },
+    "billingProfile": {
+      "billingDom": 1
+    },
+    "meter": {
+      "provisioningId": "002100",
+      "lecturaInicialKwh": "12300"
+    },
+    "bundleId": "B-100000-E"
+  }
+]

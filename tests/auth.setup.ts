@@ -29,6 +29,12 @@ setup('authenticate', async ({ page, baseURL }) => {
   // Navigate to login
   await page.goto(baseURL!, { waitUntil: 'domcontentloaded', timeout: Timeouts.EXTRA_LONG_WAIT * 2 });
 
+  // Wait for SPA to fully hydrate before touching the form.
+  // Without this, Apollo Client's mutation onCompleted handler that persists
+  // the auth token to localStorage isn't wired yet — the login succeeds server-side
+  // but the token is dropped, subsequent calls 401, and the app bounces back to /login.
+  await page.waitForLoadState('networkidle', { timeout: Timeouts.EXTRA_LONG_WAIT }).catch(() => {});
+
   // Fill credentials
   await page.getByPlaceholder(/username/i).fill(username);
   await page.getByPlaceholder(/password/i).fill(password);

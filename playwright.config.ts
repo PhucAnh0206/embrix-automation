@@ -27,16 +27,19 @@ const BASE_URLS: Record<string, string> = {
   'coopeg-sandbox': 'https://coreui.coopeg.embrix.org/',
   'embrix-sandbox': 'https://core-ui.congero.embrix.org/',
   'congero-sandbox': 'http://embrix.157.151.130.59.nip.io/',
+  'jasec-dev': 'https://core-ui.jasec-dev.embrix.org/',
 };
 
 const GraphQL_URLS: Record<string, string> = {
   'coopeg-sandbox': 'https://transactional.coopeg.embrix.org/graphql',
   'embrix-sandbox': 'https://service-transactional.congero.embrix.org/graphql',
   'congero-sandbox': 'http://graphiql.embrix.157.151.130.59.nip.io/graphiql',
+  'jasec-dev': 'https://service-transactional.jasec-dev.embrix.org/graphql',
 };
 
 const CRM_GATEWAY_URLS: Record<string, string> = {
   'coopeg-sandbox': 'https://crm-gateway.coopegsbx.embrix.org',
+  'jasec-dev': 'https://crm-gateway.jasec-dev.embrix.org',
 };
 
 const baseURL = process.env.EMBRIX_BASE_URL ?? BASE_URLS[ENV] ?? BASE_URLS['coopeg-sandbox'];
@@ -99,6 +102,28 @@ export default defineConfig({
       testMatch: [
         '**/regression/embrixPlatform/*.spec.ts'
       ],
+      dependencies: ['setup'],
+      use: {
+        ...devices['Desktop Chrome'],
+        storageState: 'playwright/.auth/user.json',
+      },
+    },
+
+    // ── JASEC regression: prepaid account creation + JASEC-specific flows
+    {
+      name: 'jasec-regression',
+      testMatch: ['**/regression/jasec/*.spec.ts'],
+      dependencies: ['setup'],
+      use: {
+        ...devices['Desktop Chrome'],
+        storageState: 'playwright/.auth/user.json',
+      },
+    },
+
+    // ── JASEC top-up: Self Care card mgmt, top-up, Min Amount business logic
+    {
+      name: 'jasec-top-up',
+      testMatch: ['**/regression/jasec/top-up/*.spec.ts'],
       dependencies: ['setup'],
       use: {
         ...devices['Desktop Chrome'],

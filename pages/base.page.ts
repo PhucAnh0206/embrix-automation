@@ -36,7 +36,9 @@ export abstract class BasePage {
   /** Click a nav link and wait for URL to match. */
   async clickNavLink(linkName: string | RegExp, expectedUrlPattern: RegExp): Promise<void> {
     const link = this.page.getByRole('link', { name: linkName }).first();
-    await link.waitFor({ state: 'visible', timeout: SHORT_WAIT });
+    // MEDIUM_WAIT (was SHORT_WAIT): jasec-dev sidebar can take >5s to hydrate
+    // after navigateToHome, especially on the first nav after auth.
+    await link.waitFor({ state: 'visible', timeout: MEDIUM_WAIT });
     await link.click();
     await this.page.waitForURL(expectedUrlPattern, { timeout: MEDIUM_WAIT });
     await this.page.waitForLoadingToDisappear();
