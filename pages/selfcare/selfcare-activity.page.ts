@@ -1,6 +1,7 @@
 import { Page, expect } from '@playwright/test';
 import { BasePage } from '../base.page';
 import { MEDIUM_WAIT, LONG_WAIT, EXTRA_LONG_WAIT } from '../../helpers/timeouts.helper';
+import { selfcareHostRe } from './selfcare-login.page';
 
 /**
  * SelfcareActivityPage — the Activity dropdown in Self Care's top nav.
@@ -94,7 +95,7 @@ export class SelfcareActivityPage extends BasePage {
    * returning from PlaceToPay, re-navigate to force a fresh fetch.
    */
   async assertCardOnFilePopulated(): Promise<void> {
-    await this.page.waitForURL(/selfcare-ui\..*embrix\.org/i, {
+    await this.page.waitForURL(selfcareHostRe(), {
       timeout: EXTRA_LONG_WAIT,
     });
     await this.page.waitForLoadingToDisappear();

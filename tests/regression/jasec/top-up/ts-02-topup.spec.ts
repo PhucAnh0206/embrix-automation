@@ -27,10 +27,10 @@
  *     TC 2.9 — a stable single-row history so `nth(0)` refers to the
  *     same top-up on both clicks).
  *
- * TC 2.6–2.10 require topupReceiptsEnabled = true on the target env.
- *
- * TC 2.10 — Known open product defects at time of authoring:
- *   • Currency unit (CRC / ₡) is missing next to Monto de Recarga.
+ * TC 2.6–2.10 require the Self Care `topupReceiptsEnabled` feature flag to be
+ * on. It isn't readable at runtime, so it's declared via the
+ * TOPUP_RECEIPTS_ENABLED env var — set it to `false` on an environment
+ * without the feature and those five tests skip instead of failing.
  */
 
 import * as fs from 'fs';
@@ -47,6 +47,24 @@ import {
 const dataFile = path.join(process.cwd(), 'test-data', 'jasec-prepaid-accounts.data.json');
 const dataRows: PrepaidAccountWithOrderRow[] = JSON.parse(fs.readFileSync(dataFile, 'utf-8'));
 const baseRow = dataRows[0];
+
+/**
+ * TC 2.6-2.10 exercise the Top-Up receipt feature, which is behind the
+ * `topupReceiptsEnabled` flag on the Self Care frontend. The flag is not
+ * exposed via GraphQL, so it cannot be probed at runtime — it has to be
+ * declared here.
+ *
+ * Defaults to enabled, matching every environment where these tests were
+ * written. Set TOPUP_RECEIPTS_ENABLED=false in .env when running against an
+ * environment that has the feature off, so the five receipt tests SKIP with a
+ * clear reason instead of failing on missing Receipt columns and buttons —
+ * which reads like a product defect but isn't.
+ */
+const RECEIPTS_ENABLED =
+  (process.env.TOPUP_RECEIPTS_ENABLED ?? 'true').trim().toLowerCase() !== 'false';
+
+const RECEIPTS_SKIP_REASON =
+  'Top-Up receipts are disabled on this environment (TOPUP_RECEIPTS_ENABLED=false)';
 
 // ── Shared-account plumbing for Group A (2.2, 2.3a, 2.6, 2.7, 2.8) ─────
 // Module-level cache. First Group A test to run does the full setup and
@@ -107,7 +125,7 @@ test.describe(
         selfcareLoginPage, selfcareAccountSearchPage,
         selfcareActivityPage, selfcareTopupPage,
         placeToPayCheckoutPage,
-        serverHelper, // dbHelper, TODO(balance-check): re-add when re-enabling DB verification
+        serverHelper,
       }) => {
         const monthA = '2026-07-15';
         const monthB = '2026-08-15';
@@ -124,9 +142,6 @@ test.describe(
         await selfcareActivityPage.navigateToTopUp();
         await selfcareTopupPage.assertLoaded();
 
-        // TODO(balance-check): re-enable DB balance verification when we're
-        // ready to enforce it.
-        // const balanceBefore = await dbHelper.getAccountBalance(accountId);
         const topUp = 500;
 
         await selfcareTopupPage.enterAmount(topUp);
@@ -139,7 +154,6 @@ test.describe(
         await selfcareTopupPage.reload(selfcareActivityPage);
         await selfcareTopupPage.assertPaymentSuccess();
         await selfcareTopupPage.assertHistoryRowCountAtLeast(1);
-        // await dbHelper.assertTopUpApplied(accountId, topUp, balanceBefore);
 
         // Advance to month B; history should be empty. Reload so the Top Up
         // view fetches the new-month state (the view doesn't auto-refresh).
@@ -161,7 +175,6 @@ test.describe(
         selfcareLoginPage, selfcareAccountSearchPage,
         selfcareActivityPage, selfcareTopupPage,
         placeToPayCheckoutPage,
-        // dbHelper, // TODO(balance-check): re-add when re-enabling DB verification
       }) => {
         const accountId = await ensureSharedAccountAndAttach({
           page, testLogger, searchAccountsPage, createAccountPage,
@@ -175,9 +188,6 @@ test.describe(
         await selfcareTopupPage.assertLoaded();
         await selfcareTopupPage.reload(selfcareActivityPage);
 
-        // TODO(balance-check): re-enable DB balance verification when we're
-        // ready to enforce it.
-        // const balanceBefore = await dbHelper.getAccountBalance(accountId);
         const topUp = 5000;
 
         await selfcareTopupPage.enterAmount(topUp);
@@ -198,7 +208,6 @@ test.describe(
         selfcareLoginPage, selfcareAccountSearchPage,
         selfcareActivityPage, selfcareTopupPage,
         placeToPayCheckoutPage,
-        // dbHelper, // TODO(balance-check): re-add when re-enabling DB verification
       }) => {
         const accountId = await ensureSharedAccountAndAttach({
           page, testLogger, searchAccountsPage, createAccountPage,
@@ -305,29 +314,30 @@ test.describe(
       },
     );
 
-    // TC 2.5 — Backend idempotency via `reference` key (spec TC 3.5).
+    // TC 2.5 — Backend idempotency via the `reference` key (spec TC 3.5).
     //
-    // Contract per Embrix dev Tri Do (2026-08-03):
-    //   • Backend dedupes on the `reference` field in the payload
-    //     (frontend uses format `TU-<accountId>-<hex>`; UUIDs also work).
-    //   • Two POSTs with the SAME reference → second must be rejected.
-    //   • `reference` currently NOT required — kept optional so CoopeG
-    //     (different payment merchant) is unaffected.
-    //   • `status: "FAILED"` on the dup response;
-    //     the semantic `DUPLICATE_TRANSACTION` status lives at a
-    //     different layer (`/transaction/capture` in the payment
-    //     gateway — separate endpoint, out of TS-02 scope).
+    // Two identical top-up POSTs are fired in parallel with the same
+    // `reference`. The backend dedupes on that field, enforced by the unique
+    // constraint `ux_subscription_topup_acct_payref` on
+    // (accountId, paymentrefid), so exactly one must succeed and the other
+    // must be rejected — and only one top-up may reach the account.
     //
-    // Current behavior: dedup IS enforced by a DB unique constraint
-    // `ux_subscription_topup_acct_payref` on (accountId, paymentrefid).
-    // But the service does NOT catch the constraint violation — it
-    // leaks the raw PSQLException string in `errorMsg`. That's still a
-    // product defect (implementation-detail leak).
+    // Asserts:
+    //   • exactly one SUCCESS and one non-SUCCESS response
+    //   • the rejection exposes no SQL or constraint internals
+    //   • the history table shows exactly one row
     //
-    // Assertions below are split:
-    //   • Hard  — exactly one request was rejected (proves dedup works)
-    //   • Soft  — response body doesn't leak raw SQL / constraint names
-    //             (currently FAILS — separate ticket)
+    // Caveats:
+    //   • Rejection may take ANY non-SUCCESS form; the response carries
+    //     `status: "FAILED"` rather than a semantic duplicate code. The
+    //     `DUPLICATE_TRANSACTION` status belongs to the payment gateway's
+    //     `/transaction/capture` endpoint, which is outside TS-02's scope.
+    //   • `reference` is optional on the API, so its absence is not an
+    //     error — omitting it simply skips dedup. The frontend always sends
+    //     `TU-<accountId>-<hex>`; any UUID works here.
+    //   • This posts directly to the CRM gateway, bypassing the UI, so it
+    //     depends on CRM_GATEWAY_URL pointing at the same environment the
+    //     UI assertions read.
     test(
       '2.5: Duplicate transaction blocked — parallel POSTs with same reference UUID (backend idempotency)',
       { tag: ['@tc-2-5'] },
@@ -353,8 +363,17 @@ test.describe(
         await selfcareTopupPage.assertLoaded();
         await selfcareTopupPage.reload(selfcareActivityPage);
 
-        const crmGatewayUrl = process.env.CRM_GATEWAY_URL
-          ?? 'https://crm-gateway.jasec-dev.embrix.org';
+        // No default: a hardcoded fallback would POST at one environment
+        // while the UI assertions below read another, producing a false
+        // "dedup is broken" failure. Fail loudly instead.
+        const crmGatewayUrl = process.env.CRM_GATEWAY_URL;
+        if (!crmGatewayUrl) {
+          throw new Error(
+            'CRM_GATEWAY_URL is not set. TC 2.5 posts directly to the CRM gateway and '
+            + 'must target the same environment as the UI under test — set it in .env '
+            + '(playwright.config.ts derives it from TEST_ENV for known environments).',
+          );
+        }
         const url = `${crmGatewayUrl}/prepaidTopUp`;
         const topUp = 75;
         const reference = crypto.randomUUID();
@@ -380,19 +399,17 @@ test.describe(
         const successes = statuses.filter((s) => s === 'SUCCESS').length;
         const rejections = statuses.filter((s) => s !== 'SUCCESS').length;
 
-        // ── Hard contract — dedup must work ───────────────────────────
-        // Exactly one request succeeded and exactly one was rejected
-        // (in ANY non-SUCCESS form — FAILED is acceptable per dev).
-        // If BOTH return SUCCESS, dedup is broken and the test fails hard.
+        // ── Dedup must work ───────────────────────────────────────────
+        // Both returning SUCCESS means dedup is broken and the account was
+        // charged twice.
         expect(successes, `expected exactly 1 SUCCESS, got statuses=${JSON.stringify(statuses)}`).toBe(1);
         expect(rejections, `expected exactly 1 non-SUCCESS rejection, got statuses=${JSON.stringify(statuses)}`).toBe(1);
 
-        // ── Soft polish — clean error surface ─────────────────────────
-        // Raw PSQLException / constraint names should NOT be exposed in
-        // the response body. Currently FAILS — separate defect ticket
-        // covers the error-shaping polish. Do not soften.
+        // ── Clean error surface ───────────────────────────────────────
+        // The rejection must surface as an application error, not a raw
+        // PostgreSQL exception bubbling up from the constraint.
         const combinedErrorMsg = `${json1.errorMsg ?? ''} ${json2.errorMsg ?? ''}`;
-        expect.soft(
+        expect(
           combinedErrorMsg,
           'response should NOT leak raw PostgreSQL exception details (constraint names, column names, SQL text)',
         ).not.toMatch(/PSQLException|duplicate\s+key\s+value|unique\s+constraint|ux_[a-z_]+/i);
@@ -417,6 +434,8 @@ test.describe(
         selfcareActivityPage, selfcareTopupPage,
         placeToPayCheckoutPage,
       }) => {
+        test.skip(!RECEIPTS_ENABLED, RECEIPTS_SKIP_REASON);
+
         const accountId = await ensureSharedAccountAndAttach({
           page, testLogger, searchAccountsPage, createAccountPage,
           orderManagementPage, screenshotHelper,
@@ -450,6 +469,8 @@ test.describe(
         selfcareActivityPage, selfcareTopupPage,
         placeToPayCheckoutPage,
       }) => {
+        test.skip(!RECEIPTS_ENABLED, RECEIPTS_SKIP_REASON);
+
         const accountId = await ensureSharedAccountAndAttach({
           page, testLogger, searchAccountsPage, createAccountPage,
           orderManagementPage, screenshotHelper,
@@ -491,6 +512,8 @@ test.describe(
         selfcareActivityPage, selfcareTopupPage,
         placeToPayCheckoutPage,
       }) => {
+        test.skip(!RECEIPTS_ENABLED, RECEIPTS_SKIP_REASON);
+
         const accountId = await ensureSharedAccountAndAttach({
           page, testLogger, searchAccountsPage, createAccountPage,
           orderManagementPage, screenshotHelper,
@@ -512,12 +535,16 @@ test.describe(
     );
 
     // TC 2.9 — Cached re-download [GROUP B: ISOLATED]
-    // Cannot share the account with Group A — the assertion "clicking row 0
-    // twice returns the same PDF" is only reliable when there is exactly
-    // ONE row in history. In shared mode, other tests' top-ups accumulate
-    // and async propagation can shift which top-up is at row 0 between
-    // the two clicks (observed: TOPUP_103117 on first click, TOPUP_103119
-    // on second — different top-ups).
+    //
+    // Clicking the same history row twice must return the same PDF: the S3
+    // key is `{topupId}_{uuid}.pdf`, so a stable UUID across both fetches
+    // proves the receipt was cached rather than regenerated.
+    //
+    // Caveat: needs its own account. The assertion pins row 0, which only
+    // refers to the same top-up on both clicks when history holds exactly
+    // one row. On the Group A shared account other tests' top-ups
+    // accumulate, and async propagation can shift which one sits at row 0
+    // between the two clicks.
     test(
       '2.9: Re-clicking View / Download Receipt returns the same cached PDF',
       { tag: ['@tc-2-9'] },
@@ -528,6 +555,8 @@ test.describe(
         selfcareActivityPage, selfcareTopupPage,
         placeToPayCheckoutPage,
       }) => {
+        test.skip(!RECEIPTS_ENABLED, RECEIPTS_SKIP_REASON);
+
         const accountId = await setUpAccountInSelfCare({
           page, testLogger, searchAccountsPage, createAccountPage,
           orderManagementPage, screenshotHelper,
@@ -567,10 +596,19 @@ test.describe(
     );
 
     // TC 2.10 — Receipt PDF content (Comprobante de Recarga)
-    // Strategy: read values we know from setup (amount, ccpTime date, accountId),
-    // then assert the PDF text "must contain" each required field via regex.
-    // PDF is Spanish regardless of UI language toggle — assertions target
-    // Spanish labels.
+    //
+    // Extracts the PDF's text and checks each required field by regex against
+    // values fixed during setup: the top-up amount, the frozen ccpTime date,
+    // and the account id.
+    //
+    // Caveats:
+    //   • The PDF renders in Spanish regardless of the UI language toggle, so
+    //     assertions target Spanish labels.
+    //   • Field checks are soft so one run reports every missing field rather
+    //     than stopping at the first. The two structural checks — extractable
+    //     text, and the document title — stay hard, since a broken PDF makes
+    //     the field results meaningless.
+    //   • The clock is frozen first so the printed date is deterministic.
     test(
       '2.10: Receipt PDF contains required fields (Company, Customer, Meter ID, Amount+Currency, Date, Transaction ID)',
       { tag: ['@tc-2-10'] },
@@ -582,6 +620,8 @@ test.describe(
         placeToPayCheckoutPage,
         serverHelper,
       }) => {
+        test.skip(!RECEIPTS_ENABLED, RECEIPTS_SKIP_REASON);
+
         // Freeze the clock so the PDF date is deterministic.
         const testDate = '2026-07-15';
         await serverHelper.setAndVerifyCcpTime(testDate);
@@ -606,7 +646,6 @@ test.describe(
         await selfcareTopupPage.clickPayNow();
         await selfcareTopupPage.assertPaymentSuccess();
 
-        // Fetch + parse PDF.
         const receiptUrl = await selfcareTopupPage.clickReceiptButtonForRow(0);
         const text = await fetchAndExtractPdfText(receiptUrl);
 
@@ -626,17 +665,16 @@ test.describe(
         expect.soft(text, 'Nombre del Cliente label with non-empty value')
           .toMatch(/Nombre\s+del\s+Cliente[\.\s:]*[A-Za-zÁÉÍÓÚÑáéíóúñ][A-Za-zÁÉÍÓÚÑáéíóúñ\s]{1,}/i);
 
-        // Meter ID — [KNOWN DEFECT: field missing from PDF]. Ticket
-        // requires "Medidor". Fails until dev adds it; do not soften.
-        expect.soft(text, 'Meter ID (Medidor) present in PDF')
+        // Meter ID — regex requires the "Medidor" label followed by a
+        // non-empty value (\S+). Catches "label present but value blank".
+        expect.soft(text, 'Meter ID (Medidor) present in PDF with non-empty value')
           .toMatch(/Medidor[\.\s:]*\S+/i);
 
         // Amount — accepts 5000, 5000.00, 5,000, 5.000 for locale flex.
         expect.soft(text, `Monto de Recarga contains ${topUpAmount}`)
           .toMatch(new RegExp(`Monto\\s+de\\s+Recarga[\\.\\s:]*\\D*${topUpAmount}([.,]\\d{2})?`, 'i'));
 
-        // Currency unit — 
-        // Structural check: any JASEC-configured currency (CRC / CAD / USD)
+        // Currency unit — structural check: any JASEC-configured currency (CRC / CAD / USD)
         // within 60 chars after "Monto" label. Symbol variants accepted for
         // CRC (₡) and USD ($) — CAD has no distinct symbol in these PDFs.
         expect.soft(text, 'A currency unit is displayed alongside amount')

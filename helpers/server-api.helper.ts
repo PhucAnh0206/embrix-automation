@@ -184,7 +184,37 @@ export class ServerHelper {
      * Set new CCP time and verify it matches
      * @param targetDate String format "YYYY-MM-DD"
      */
+    /**
+     * Warn loudly when a caller rewinds the clock.
+     *
+     * The CCP clock is TENANT-GLOBAL and frozen, and the runbook is explicit that
+     * moving it backward can corrupt billing-cycle state. Several specs set fixed
+     * past dates on purpose (ts-03 wants 2026-07-15), so this does NOT throw —
+     * but a silent rewind is how a shared clock parked at 2026-11-09 ends up back
+     * in July midway through someone else's session, which is very hard to
+     * attribute after the fact.
+     *
+     * If you are writing a new spec: derive the target from the CURRENT clock and
+     * only move forward.
+     */
+    private async warnIfBackward(targetDate: string): Promise<void> {
+        try {
+            const current = (await this.getCcpTime()).slice(0, 10);
+            if (targetDate < current) {
+                const msg =
+                    `CCP REWIND: ${current} -> ${targetDate}. The clock is tenant-global and ` +
+                    `moving it backward can corrupt cycle state. If this is not deliberate, ` +
+                    `derive the target from the current clock instead.`;
+                console.warn(`\n[ServerHelper] ${msg}\n`);
+                this.logger?.log(msg);
+            }
+        } catch {
+            // Never let the guard break the operation it is guarding.
+        }
+    }
+
     async setAndVerifyCcpTime(targetDate: string): Promise<void> {
+        await this.warnIfBackward(targetDate);
         // 1. Call API to set new CCP time for server
         const setTimeResult = await this.setCcpTime(targetDate);
         expect(setTimeResult).toBe(targetDate);

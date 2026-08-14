@@ -1,8 +1,27 @@
+/**
+ * TS-01 — Prepaid Account Creation (Energía Prepago)
+ *
+ * Walks the full contract-creation path for a residential prepaid customer:
+ * create the account, raise a NEW order against it, add the prepaid bundle,
+ * attach the meter's provisioning data, submit, and confirm the order reaches
+ * COMPLETED carrying the expected bundle.
+ *
+ * This is the setup path the rest of the JASEC suites depend on — TS-02 and
+ * TS-03 reach it through createPrepaidAccountWithOrder — so a failure here
+ * blocks them too.
+ *
+ * Caveats:
+ *   • Attaching the meter needs the tenant's ELECTRICITY provisioning type
+ *     configured. Without it the "View Provisioning Data" modal never opens
+ *     and the order cannot be completed.
+ *   • The account, order and meter are left in place; there is no teardown.
+ */
+
 import * as fs from 'fs';
 import * as path from 'path';
 import { test, expect } from '../../../fixtures/jasec-fixtures';
 import type { PrepaidAccountPayload } from '../../../pages/customer-hub/customer-management/create-account.page';
-import type { PrepaidAccountWithOrderRow } from '../../../fixtures/create-prepaid-account.helper';
+import { uniqueRunSuffix, type PrepaidAccountWithOrderRow } from '../../../fixtures/create-prepaid-account.helper';
 
 const dataFile = path.join(process.cwd(), 'test-data', 'jasec-prepaid-accounts.data.json');
 const rows: PrepaidAccountWithOrderRow[] = JSON.parse(fs.readFileSync(dataFile, 'utf-8'));
@@ -26,10 +45,10 @@ test.describe('TS-01 — Prepaid Account Creation (Energia Prepago)', {
     orderManagementPage,
     screenshotHelper,
   }) => {
-    // Append a per-run random suffix so reruns don't collide on
-    // customerId (unique constraint) and meter provisioningId
-    // (also unique in order_service_provisions).
-    const suffix = Date.now().toString().slice(-5);
+    // Suffix both ids so reruns don't collide: customerId is unique, and
+    // provisioningId is unique in order_service_provisions across all
+    // historical rows.
+    const suffix = uniqueRunSuffix();
     const customerId = `${row.accountInfo.customerId}-${suffix}`;
     const provisioningId = `${row.meter.provisioningId}${suffix}`;
 
@@ -57,7 +76,7 @@ test.describe('TS-01 — Prepaid Account Creation (Energia Prepago)', {
     await orderManagementPage.navigateViaNav();
     await orderManagementPage.clickCreateNewOrder();
 
-    // Select the account we just created
+    // 2a. Select the account created in step 1
     await orderManagementPage.searchAccountById(accountId);
     const orderAcctNo = await orderManagementPage.getFirstRowCellValue('ACCT No');
     expect(orderAcctNo).toBe(accountId);

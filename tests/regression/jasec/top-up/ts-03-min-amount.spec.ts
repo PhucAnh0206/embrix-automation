@@ -14,13 +14,18 @@
  * Post-top-up refresh: Min Amount doesn't auto-refresh. Every post-top-up
  * assertion reloads the Top Up view first.
  *
- * Tests:
- *   3.1  Visibility on a non-1st day (2920)
- *   3.2  Account in debt — month A = 3420, month B = 3800 (via DbHelper)
- *   3.3  Partial credit — top up 1000 → Min = 1920
- *   3.4  Fully covered credit — top up 5000 → Min hidden
- *   3.5  Cross-month base — month A = 2920, month B = 3300 (no top-up)
- *   3.6  Base transition after top-up — month A = 2920, month B = 3300 − credit
+ * Tests (expected values all derive from MIN_AMOUNT_BASE — see the constant
+ * rather than hardcoding figures here):
+ *   3.1  Visible on a mid-month day — shows the firstMonth base
+ *   3.2  Account in debt, set directly via DbHelper — base + debt, asserted in
+ *        both the first and a later month
+ *   3.3  Partial credit — a top-up smaller than the base leaves base − credit
+ *   3.4  Fully covered credit — a top-up above the base hides the section
+ *   3.5  Cross-month base flip with no top-up — firstMonth then ongoing
+ *   3.6  Cross-month base flip with credit carried over — ongoing − credit
+ *
+ * Debt is injected through the DB because JASEC only produces a positive CRC
+ * balance through kWh consumption, which this suite does not drive.
  */
 
 import * as fs from 'fs';
@@ -108,7 +113,7 @@ test.describe(
         await selfcareTopupPage.assertLoaded();
         await selfcareTopupPage.assertMinimumAmountVisible(MIN_AMOUNT_BASE.firstMonth);
 
-        // Put the account into +debt CRC debt via direct UPDATE.
+        // Positive CRC = debt (JASEC inverted sign convention).
         await dbHelper.setAccountBalance(accountId, debt);
 
         // Month A check: Min = firstMonth base + debt.
@@ -137,7 +142,6 @@ test.describe(
         selfcareLoginPage, selfcareAccountSearchPage,
         selfcareActivityPage, selfcareTopupPage,
         placeToPayCheckoutPage,
-        // dbHelper, // TODO(balance-check): re-add when re-enabling DB verification
       }) => {
         const accountId = await setUpAccountInSelfCare({
           page, testLogger, searchAccountsPage, createAccountPage,
@@ -149,9 +153,6 @@ test.describe(
         await selfcareTopupPage.assertLoaded();
         await selfcareTopupPage.assertMinimumAmountVisible(MIN_AMOUNT_BASE.firstMonth);
 
-        // TODO(balance-check): re-enable DB balance verification when we're
-        // ready to enforce it.
-        // const balanceBefore = await dbHelper.getAccountBalance(accountId);
         const topUp = 1000;
 
         await selfcareTopupPage.enterAmount(topUp);
@@ -160,7 +161,6 @@ test.describe(
 
         await selfcareTopupPage.reload(selfcareActivityPage);
         await selfcareTopupPage.assertMinimumAmountVisible(MIN_AMOUNT_BASE.firstMonth - topUp);
-        // await dbHelper.assertTopUpApplied(accountId, topUp, balanceBefore);
 
         testLogger.log(
           `✓ TC 3.3 — account ${accountId}: Min = ${MIN_AMOUNT_BASE.firstMonth - topUp} ` +
@@ -179,7 +179,6 @@ test.describe(
         selfcareLoginPage, selfcareAccountSearchPage,
         selfcareActivityPage, selfcareTopupPage,
         placeToPayCheckoutPage,
-        // dbHelper, // TODO(balance-check): re-add when re-enabling DB verification
       }) => {
         const accountId = await setUpAccountInSelfCare({
           page, testLogger, searchAccountsPage, createAccountPage,
@@ -191,9 +190,6 @@ test.describe(
         await selfcareTopupPage.assertLoaded();
         await selfcareTopupPage.assertMinimumAmountVisible(MIN_AMOUNT_BASE.firstMonth);
 
-        // TODO(balance-check): re-enable DB balance verification when we're
-        // ready to enforce it.
-        // const balanceBefore = await dbHelper.getAccountBalance(accountId);
         const topUp = 5000;
 
         await selfcareTopupPage.enterAmount(topUp);
@@ -202,7 +198,6 @@ test.describe(
 
         await selfcareTopupPage.reload(selfcareActivityPage);
         await selfcareTopupPage.assertMinimumAmountHidden();
-        // await dbHelper.assertTopUpApplied(accountId, topUp, balanceBefore);
 
         testLogger.log(`✓ TC 3.4 — account ${accountId}: Min hidden after fully-covered top-up`);
       },
@@ -255,7 +250,7 @@ test.describe(
         selfcareLoginPage, selfcareAccountSearchPage,
         selfcareActivityPage, selfcareTopupPage,
         placeToPayCheckoutPage,
-        serverHelper, // dbHelper, TODO(balance-check): re-add when re-enabling DB verification
+        serverHelper,
       }) => {
         const monthA = '2026-07-05';
         const monthB = '2026-08-05';
@@ -271,9 +266,6 @@ test.describe(
         await selfcareActivityPage.navigateToTopUp();
         await selfcareTopupPage.assertLoaded();
 
-        // TODO(balance-check): re-enable DB balance verification when we're
-        // ready to enforce it.
-        // const balanceBefore = await dbHelper.getAccountBalance(accountId);
         const topUp = 500;
 
         await selfcareTopupPage.enterAmount(topUp);
@@ -282,7 +274,6 @@ test.describe(
 
         await selfcareTopupPage.reload(selfcareActivityPage);
         await selfcareTopupPage.assertHistoryRowCountAtLeast(1);
-        // await dbHelper.assertTopUpApplied(accountId, topUp, balanceBefore);
 
         await serverHelper.setAndVerifyCcpTime(monthB);
         await selfcareTopupPage.reload(selfcareActivityPage);

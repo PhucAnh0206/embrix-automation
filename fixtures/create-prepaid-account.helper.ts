@@ -9,7 +9,8 @@
  *     subscription so top-ups appear successful in the UI but don't persist.
  *
  * Both variants suffix customerId (and provisioningId, for the WithOrder
- * variant) with a per-run timestamp to keep the DB's unique constraints happy.
+ * variant) with a unique value so reruns don't hit the DB's unique
+ * constraints — see uniqueRunSuffix below.
  */
 
 import { Page, expect } from '@playwright/test';
@@ -45,6 +46,36 @@ export type PrepaidAccountWithOrderRow = PrepaidAccountRow & JasecOrderData;
 
 const USERNAME = process.env.EMBRIX_USER ?? 'congeroadmin';
 const PASSWORD = process.env.EMBRIX_PASSWORD ?? 'congero@123';
+
+/**
+ * Unique suffix appended to customerId and provisioningId.
+ *
+ * Both carry DB unique constraints that span every row ever created, not
+ * just the current run — provisioningId via
+ * `order_service_provisions (provisioningid, servicetype, action)` — so the
+ * suffix has to stay unique against historical data, not only against other
+ * accounts in this process.
+ *
+ * Format is 11 numeric chars: 8 digits of ms timestamp plus 3 random. The
+ * timestamp keeps values loosely ordered and readable in logs; the random
+ * tail separates accounts created within the same millisecond.
+ * `issuedSuffixes` additionally guarantees no repeat inside one run.
+ */
+const issuedSuffixes = new Set<string>();
+
+export function uniqueRunSuffix(): string {
+  const build = () => {
+    const stamp = String(Date.now()).slice(-8);
+    const rand = String(Math.floor(Math.random() * 1000)).padStart(3, '0');
+    return stamp + rand;
+  };
+  let candidate = build();
+  while (issuedSuffixes.has(candidate)) {
+    candidate = build();
+  }
+  issuedSuffixes.add(candidate);
+  return candidate;
+}
 
 /** Fixture bundle required by setUpAccountInSelfCare (with-order setup). */
 export interface SetUpWithOrderFixtures {
@@ -83,7 +114,7 @@ export async function createPrepaidAccountOnly(
   },
   testLogger?: TestLogger,
 ): Promise<string> {
-  const suffix = Date.now().toString().slice(-5);
+  const suffix = uniqueRunSuffix();
   const customerId = `${baseRow.accountInfo.customerId}-${suffix}`;
 
   await page.navigateToHome();
@@ -124,7 +155,7 @@ export async function createPrepaidAccountWithOrder(
   } & JasecOrderData,
   testLogger?: TestLogger,
 ): Promise<{ accountId: string; orderId: string; provisioningId: string }> {
-  const suffix = Date.now().toString().slice(-5);
+  const suffix = uniqueRunSuffix();
   const customerId = `${baseRow.accountInfo.customerId}-${suffix}`;
   const provisioningId = `${baseRow.meter.provisioningId}${suffix}`;
 

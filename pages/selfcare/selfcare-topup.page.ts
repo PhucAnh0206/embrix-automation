@@ -223,8 +223,9 @@ export class SelfcareTopupPage extends BasePage {
   /**
    * Assert the history table has at least N real data rows.
    *
-   * Excludes the "No record has found!" empty-state placeholder — that row
-   * used to count as 1, giving false-positive success on failed top-ups.
+   * Excludes the "No record has found!" empty-state placeholder, which is
+   * rendered as a table row and would otherwise count as 1 — turning a failed
+   * top-up into a false pass.
    *
    * Polls until the count is reached (Pay Now flows show the row after the
    * charge API completes, which can be several seconds after the click).
@@ -292,14 +293,11 @@ export class SelfcareTopupPage extends BasePage {
   }
 
   /**
-   * Click the receipt button on the top-up row at `rowIndex` (0 = first row).
-   * The receipt opens in a new tab; waits for that tab and returns its Page.
-   */
-  /**
-   * Click the receipt button on the given row and return the URL Chrome
-   * actually navigated the new tab to. Uses network-response interception
-   * instead of newPage.url() because headless Chromium never populates the
-   * PDF tab's URL — the request completes but the tab stays at ":".
+   * Click the receipt button on the row at `rowIndex` (0 = first row) and
+   * return the URL Chrome actually navigated the new tab to. Uses
+   * network-response interception instead of newPage.url() because headless
+   * Chromium never populates the PDF tab's URL — the request completes but
+   * the tab stays at ":".
    */
   async clickReceiptButtonForRow(rowIndex = 0): Promise<string> {
     const btn = this.receiptButtons.nth(rowIndex);

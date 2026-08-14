@@ -1,6 +1,7 @@
 import { Page, expect } from '@playwright/test';
 import { BasePage } from '../base.page';
 import { EXTRA_LONG_WAIT, LONG_WAIT, MEDIUM_WAIT, SHORT_WAIT } from '../../helpers/timeouts.helper';
+import { selfcareHostRe } from './selfcare-login.page';
 
 /**
  * Shared test data for PlaceToPay flows.
@@ -139,7 +140,7 @@ export class PlaceToPayCheckoutPage extends BasePage {
    * leave-confirmation modal, and land back on Self Care.
    */
   async returnToSelfCare(): Promise<void> {
-    if (/selfcare-ui\..*embrix\.org/i.test(this.page.url())) return;
+    if (selfcareHostRe().test(this.page.url())) return;
 
     await this.page.waitForURL(/checkout-test\.placetopay\.com\/spa\/state/i, {
       timeout: EXTRA_LONG_WAIT,
@@ -169,7 +170,7 @@ export class PlaceToPayCheckoutPage extends BasePage {
       await leaveConfirmButton.click();
     }
 
-    await this.page.waitForURL(/selfcare-ui\..*embrix\.org/i, {
+    await this.page.waitForURL(selfcareHostRe(), {
       timeout: EXTRA_LONG_WAIT,
     });
   }
@@ -203,7 +204,7 @@ export class PlaceToPayCheckoutPage extends BasePage {
       await leaveConfirmButton.click();
     }
 
-    await this.page.waitForURL(/selfcare-ui\..*embrix\.org/i, {
+    await this.page.waitForURL(selfcareHostRe(), {
       timeout: EXTRA_LONG_WAIT,
     });
   }
