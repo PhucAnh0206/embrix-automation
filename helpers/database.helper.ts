@@ -14,7 +14,7 @@ export class DatabaseHelper {
             database: process.env.DB_NAME,
             user: process.env.DB_USER,
             password: process.env.DB_PASSWORD,
-            ssl: {
+               ssl: {
                 rejectUnauthorized: false,
             },
             statement_timeout: EXTRA_LONG_WAIT,

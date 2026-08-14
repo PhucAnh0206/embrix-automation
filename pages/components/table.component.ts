@@ -65,6 +65,7 @@ export class TableComponent {
   async getCellByLocation(rowIndex: number, columnName: string): Promise<Locator> {
     const headers = await this.getHeaders();
     const colIndex = headers.get(columnName);
+
     if (colIndex === undefined) {
       throw new Error(`Column "${columnName}" not found. Available columns: ${[...headers.keys()].join(', ')}`);
     }

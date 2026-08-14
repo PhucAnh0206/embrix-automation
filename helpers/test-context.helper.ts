@@ -22,12 +22,15 @@ export interface SavedContext {
   provisioningOrderUrl?: string;
   provisioningOrderId?: string;
   requestContent?: string;
-  quickAccUrl? : string;
-  incompleteOrderId? :string;
-  orderUrl? :string;
-  currencyUrl? :string;
-  productFamilyUrl? :string;
-  taxationUrl? :string;
+  quickAccUrl?: string;
+  incompleteOrderId?: string;
+  orderUrl?: string;
+  currencyUrl?: string;
+  productFamilyUrl?: string;
+  taxationUrl?: string;
+  amount?: string;
+  endDate?: string;
+  subscriptionId?: string;
 }
 
 const CONTEXT_FILE = path.join(process.cwd(), 'playwright', '.auth', 'test-context.json');

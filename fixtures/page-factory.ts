@@ -27,12 +27,15 @@ import { TableComponent } from '../pages/components/table.component';
 import { PaymentHistoryPage } from '../pages/ar-hub/payment/paymentHistory.page';
 import { SearchQuote } from '../pages/customer-hub/quote-management/search-quote.page';
 import { BundlePage } from '../pages/pricing-hub/Basic-configuration/bundle.page';
+import { ManualPaymentPage } from '../pages/ar-hub/payment/payments.page';
 import { UserManagementPage } from '../pages/operations-hub/user-management/userManagement.page';
 import { ContactPage } from '../pages/customer-hub/customer-management/account-details/account-data/contact.page';
 import { CollectionPage } from '../pages/ar-hub/collections/accountInCollection.page';
 import { UsagePage } from '../pages/billing-hub/Bulk-operations/usage.page';
 import { NewQuote } from '../pages/customer-hub/quote-management/new-quote.page';
 import { GLSetupPage } from '../pages/revenue-hub/configuration/glSetup.page';
+import { ReportsPage } from '../pages/operations-hub/reports/reports.page';
+import { RevenuePage } from '../pages/revenue-hub/revenue/revenue.page';
 import { GLAccountsPage } from '../pages/revenue-hub/configuration/glAccounts.page';
 import { CurrencyPage } from '../pages/pricing-hub/Basic-configuration/currency.page';
 import { TaxationPage } from '../pages/billing-hub/Bulk-operations/taxation.page';
@@ -72,8 +75,10 @@ type AllFixtures = {
   taskManagementPage: TaskManagementPage;
   serverHelper: ServerHelper;
   searchQuote: SearchQuote;
+  reportsPage: ReportsPage;
   newQuote: NewQuote;
   usagePage: UsagePage;
+  revenuePage: RevenuePage;
   contactPage: ContactPage;
   bundlePage: BundlePage;
   currencyPage: CurrencyPage;
@@ -83,6 +88,7 @@ type AllFixtures = {
   paymentHistoryPage: PaymentHistoryPage;
   invoicePage: InvoicePage;
   corrspondencePage: CorrspondencePage;
+  manualPaymentPage: ManualPaymentPage;
   collectionPage: CollectionPage;
   productFamilyPage: ProductFamilyPage;
   createOrderPage: CreateOrderPage;
@@ -164,8 +170,20 @@ export const test = base.extend<AllFixtures>({
     await use(new TaskManagementPage(page));
   },
 
+  revenuePage: async ({ page }, use) => {
+    await use(new RevenuePage(page));
+  },
+
+  reportsPage: async ({ page }, use) => {
+    await use(new ReportsPage(page));
+  },
+
   userManagementPage: async ({ page }, use) => {
     await use(new UserManagementPage(page));
+  },
+
+  manualPaymentPage: async ({ page }, use) => {
+    await use(new ManualPaymentPage(page));
   },
 
   gLAccountsPage: async ({ page }, use) => {

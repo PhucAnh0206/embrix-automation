@@ -1,8 +1,11 @@
 import { Page, Locator } from '@playwright/test';
 import { BasePage } from '../../../../base.page';
-import { SHORT_WAIT } from '../../../../../helpers/timeouts.helper';
+import { test, expect } from '../../../../../fixtures/page-factory';
+import { SHORT_WAIT, EXTRA_LONG_WAIT } from '../../../../../helpers/timeouts.helper';
 import { AccountDetailsSidebar } from '../account-details-sidebar';
 import { TableComponent } from '../../../../components/table.component';
+import { ToastComponent } from '../../../../components/toast.component';
+import { ScreenshotHelper } from '../../../../../helpers/screenshot.helper';
 
 /**
  * BillsPage — Page Object for the Billing Data > Bills screen.
@@ -15,6 +18,8 @@ export class BillsPage extends BasePage {
   readonly pendingBillsTable: TableComponent;
   readonly resultsTable: Locator;
   readonly tableRows: Locator;
+  readonly toastComponent: ToastComponent;
+
 
   /**
    * @param page - Playwright's Page instance.
@@ -32,6 +37,7 @@ export class BillsPage extends BasePage {
       page,
       this.page.locator('//h5[contains(text(), "Pending Bills")]/following::table[1]')
     );
+    this.toastComponent = new ToastComponent(page);
   }
 
   private get startDateInput() { return this.page.locator(`//input[@name='startDate']`).first(); }
@@ -40,8 +46,10 @@ export class BillsPage extends BasePage {
   private get downloadButton() { return this.page.getByRole('button', { name: 'Download' }) }
   private get backButton() { return this.page.getByRole('button', { name: 'Back' }) }
   private get billPendingButton() { return this.page.getByRole('button', { name: 'Bill Pending charges' }) }
-
+  private get addNewButton() { return this.page.getByRole('button', { name: '+Add New' }) }
   private get quickNotesButton() { return this.page.getByRole('button', { name: 'Quick Notes' }) }
+  private get invoiceInput() { return this.page.locator(`//input[@name='invoiceUnitId']`).first(); }
+
 
 
   /**
@@ -224,5 +232,111 @@ export class BillsPage extends BasePage {
   async clickRadioButtonById(): Promise<void> {
     const radioButton = await this.table.getCellByLocation(0, 'Select')
     await radioButton.click();
+  }
+
+  /**
+* Navigate to Charge Share via the left sidebar.
+* Clicks "Billing Data" section → "Charge Share" option.
+* Returns the Bills page URL.
+*/
+  async navigateToChargeShare(): Promise<string> {
+    await this.sidebar.navigateToSubScreen('Sharing', 'Charge Share');
+    return this.page.url();
+  }
+
+  async clickAddNewButton(): Promise<void> {
+    await this.page.waitForLoadState('networkidle')
+    await this.addNewButton.click();
+    await this.page.waitForLoadingToDisappear();
+
+  }
+
+
+  async modifySharingChargeSuccessfully(screenshotHelper?: ScreenshotHelper): Promise<string> {
+    const successToast = this.toastComponent.successToast;
+    const errorToast = this.toastComponent.errorToast;
+
+    // Race between success toast and error toast (use VERY_LONG_WAIT for slow API responses)
+    const winner = await Promise.race([
+      successToast.waitFor({ state: 'visible', timeout: 2 * EXTRA_LONG_WAIT }).then(() => 'success' as const),
+      errorToast.waitFor({ state: 'visible', timeout: 2 * EXTRA_LONG_WAIT }).then(() => 'error' as const)
+    ]).catch(() => 'timeout' as const);
+
+    if (winner === 'success') {
+      await expect(successToast).toContainText('Create Sharing Group Successfully');
+      await this.page.waitForLoadState('networkidle')
+      return this.page.url();
+    } else if (winner === 'error') {
+      // Capture the screen WHILE the error toast is still visible
+      if (screenshotHelper) {
+        await screenshotHelper.captureAndAttach('error-toast-visible');
+        await screenshotHelper.captureElementAndAttach(
+          'error-toast-detail',
+          '.Toastify__toast--error',
+        );
+      }
+      const errorMsg = await this.toastComponent.getErrorMessage();
+      console.log('===ShARING CHARGE CREATION FAILED ===');
+      console.log('Error toast message:', errorMsg);
+      throw new Error(`Sharing charge create Failed: ${errorMsg}`);
+    } else {
+      // Capture whatever is on screen when timeout occurs
+      if (screenshotHelper) {
+        await screenshotHelper.captureAndAttach('toast-timeout-screen-state');
+      }
+      throw new Error('Timeout: Neither success toast nor error toast appeared within the expected time.');
+    }
+  }
+
+  async navigateToPayments(): Promise<string> {
+    await this.sidebar.navigateToSubScreen('Billing Data', 'Payments');
+    return this.page.url();
+  }
+
+
+  async searchByInvoiceId(invoiceId: string): Promise<void> {
+    await this.invoiceInput.waitFor({ state: 'visible', timeout: SHORT_WAIT });
+    await this.invoiceInput.fill(invoiceId);
+    await this.page.waitForLoadState('networkidle')
+    await this.searchButton.click();
+    await this.page.waitForLoadingToDisappear();
+
+  }
+
+  async getFirstRowCellValueNew(columnHeader: string): Promise<string> {
+    const table = this.page.locator('div#scrollableDiv table');
+
+    await table.waitFor({ state: 'visible' });
+
+    // Find column index by label text
+    const headers = table.locator('thead tr.text-dark th');
+    const count = await headers.count();
+
+    let colIndex = -1;
+    for (let i = 0; i < count; i++) {
+      const label = headers.nth(i).locator('label.label-header');
+      if (await label.count() > 0) {
+        const text = await label.innerText();
+        if (text.trim() === columnHeader) {
+          colIndex = i;
+          break;
+        }
+      }
+    }
+
+    if (colIndex === -1) throw new Error(`Column "${columnHeader}" not found`);
+
+    // Get first row value
+    const value = await table.locator('tbody tr').first()
+      .locator('td').nth(colIndex)
+      .innerText();
+
+    return value.trim();
+  }
+
+
+  async navigateToCreditDebitNotes(): Promise<string> {
+    await this.sidebar.navigateToSubScreen('Billing Data', 'Credit/Debit Notes');
+    return this.page.url();
   }
 }

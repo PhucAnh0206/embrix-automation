@@ -26,11 +26,14 @@ const ENV = process.env.TEST_ENV ?? 'sandbox';
 const BASE_URLS: Record<string, string> = {
   'coopeg-sandbox': 'https://coreui.coopeg.embrix.org/',
   'embrix-sandbox': 'https://core-ui.congero.embrix.org/',
+  'congero-sandbox': 'http://embrix.157.151.130.59.nip.io/',
   'jasec-dev': 'https://core-ui.jasec-dev.embrix.org/',
 };
 
 const GraphQL_URLS: Record<string, string> = {
   'coopeg-sandbox': 'https://transactional.coopeg.embrix.org/graphql',
+  'embrix-sandbox': 'https://service-transactional.congero.embrix.org/graphql',
+  'congero-sandbox': 'http://graphiql.embrix.157.151.130.59.nip.io/graphiql',
   'jasec-dev': 'https://service-transactional.jasec-dev.embrix.org/graphql',
 };
 
