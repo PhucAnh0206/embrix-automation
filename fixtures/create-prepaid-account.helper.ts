@@ -22,6 +22,8 @@ import { SelfcareAccountSearchPage } from '../pages/selfcare/selfcare-account-se
 import { SelfcareActivityPage } from '../pages/selfcare/selfcare-activity.page';
 import { ScreenshotHelper } from '../helpers/screenshot.helper';
 import { TestLogger } from '../helpers/test-logger';
+import { embrixCredentials } from '../helpers/credentials.helper';
+import { AccountOrderApiHelper } from '../helpers/account-order-api.helper';
 
 /** Data needed for the order + meter portion of the setup. */
 export interface JasecOrderData {
@@ -44,8 +46,6 @@ export type PrepaidAccountRow = {
 /** Shape of one JASEC test-data row including order + meter data. */
 export type PrepaidAccountWithOrderRow = PrepaidAccountRow & JasecOrderData;
 
-const USERNAME = process.env.EMBRIX_USER ?? 'congeroadmin';
-const PASSWORD = process.env.EMBRIX_PASSWORD ?? 'congero@123';
 
 /**
  * Unique suffix appended to customerId and provisioningId.
@@ -233,8 +233,9 @@ export async function setUpAccountInSelfCare(
     baseRow, testLogger,
   );
 
+  const { username, password } = embrixCredentials();
   await selfcareLoginPage.goto();
-  await selfcareLoginPage.login(USERNAME, PASSWORD);
+  await selfcareLoginPage.login(username, password);
   await selfcareLoginPage.assertLoginSuccess();
 
   await selfcareAccountSearchPage.navigate();
@@ -258,8 +259,9 @@ export async function attachToAccountInSelfCare(
 ): Promise<void> {
   const { selfcareLoginPage, selfcareAccountSearchPage } = fixtures;
 
+  const { username, password } = embrixCredentials();
   await selfcareLoginPage.goto();
-  await selfcareLoginPage.login(USERNAME, PASSWORD);
+  await selfcareLoginPage.login(username, password);
   await selfcareLoginPage.assertLoginSuccess();
 
   await selfcareAccountSearchPage.navigate();
@@ -285,8 +287,9 @@ export async function setUpAccountAndEnterManagePaymentProfile(
     page, searchAccountsPage, createAccountPage, baseRow, testLogger,
   );
 
+  const { username, password } = embrixCredentials();
   await selfcareLoginPage.goto();
-  await selfcareLoginPage.login(USERNAME, PASSWORD);
+  await selfcareLoginPage.login(username, password);
   await selfcareLoginPage.assertLoginSuccess();
 
   await selfcareAccountSearchPage.navigate();
@@ -295,4 +298,129 @@ export async function setUpAccountAndEnterManagePaymentProfile(
   await selfcareActivityPage.navigateToManagePaymentProfile();
 
   return accountId;
+}
+
+/**
+ * FAST PATH — create the account through the CRM gateway instead of the Core UI
+ * wizard, then log into Self Care against it.
+ *
+ * Drop-in for `setUpAccountInSelfCare` for tests that need an account with a
+ * working subscription but NOT a meter. Measured on jasec-dev 2026-08-21:
+ * the gateway returns in ~3s where the Core UI wizard takes ~95s (41s account
+ * + 53s order across ~15 sequential clicks).
+ *
+ * USE FOR    top-up, saved-card and Min-Amount tests — anything that only needs
+ *            balance to move.
+ * DO NOT USE for MDR / tariff / tax-tier work, or notification Events 3 and 5.
+ *
+ * Why not for those: the gateway accepts `services[].provisioningId` and
+ * `meterReading` and then SILENTLY IGNORES them, returning HTTP 200 with
+ * status SUCCESS. No `core_engine.service_provision` type=METER row is created,
+ * so the account can never be rated. The meter is attached by a separate
+ * provisioning step, not by the NEW order. An un-rateable account that reports
+ * SUCCESS is a trap, which is why this helper does not send those fields at all.
+ *
+ * Also note `legalEntity` is ignored (stored as 'US'), and the credit profile is
+ * not guaranteed by this path — assert it if the test depends on it.
+ */
+export async function setUpAccountInSelfCareViaGateway(
+  fixtures: {
+    testLogger: TestLogger;
+    accountOrderApiHelper: AccountOrderApiHelper;
+    selfcareLoginPage: SelfcareLoginPage;
+    selfcareAccountSearchPage: SelfcareAccountSearchPage;
+  },
+  row?: PrepaidAccountWithOrderRow,
+): Promise<string> {
+  const { testLogger, accountOrderApiHelper } = fixtures;
+
+  const started = Date.now();
+  // Mirrors test-data/jasec-prepaid-accounts.data.json, minus the meter. The
+  // template merged in underneath is CoopeG-shaped (Guanacaste), so every
+  // address field is overridden here rather than inherited.
+  const { accountId } = await accountOrderApiHelper.createAccountAndOrder({
+    orderType: 'NEW',
+    // Taken from the row when supplied. This MATTERS: callers deep-copy the row
+    // and rewrite contact.email to route correspondence to the monitored
+    // mailbox (see ts-01-topup-confirmation). Hardcoding it would send the
+    // confirmation email to the wrong address -- failing the assertion, and
+    // mailing a real person on every run.
+    firstName: row?.contact?.firstName ?? 'Anh',
+    lastName: row?.contact?.lastName ?? 'Tran',
+    email: row?.contact?.email ?? 'anh.tran@congerotechnology.com',
+    accounttype: 'RESIDENTIAL',
+    accountCategory: 'PREPAID',
+    accountSubType: 'PREPAID',
+    customerSegment: 'B2C',
+    currency: 'CRC',
+    legalEntity: 'Jasec',
+    country: 'Costa Rica',
+    state: 'Cartago',
+    city: 'Cartago',
+    district: 'Cartago',
+    neighbourhood: 'Centro',
+    street: 'Colon 111',
+    postalCode: '30101',
+    landmark: '',
+    extraLine: '',
+    billingOnlyFlag: 'false',
+    billingFrequency: 'MONTHLY',
+    billingDom: '1',
+    paymentProfiles: [{ paymentMethod: 'CHECK', paymentTerm: 'NET_30' }],
+    services: [{
+      bundleId: 'B-100000-E',
+      packageId: '',
+      serviceType: 'ELECTRICITY',
+      action: 'ADD',
+      quantity: '1',
+    }],
+  });
+  testLogger.log(`gateway created ${accountId} in ${((Date.now() - started) / 1000).toFixed(1)}s`);
+
+  await attachToAccountInSelfCare(fixtures, accountId);
+  return accountId;
+}
+
+/**
+ * Fixture bundle for `setUpAccountForTopUp` — the UI set plus the API helper,
+ * so EITHER path can run without the call site changing.
+ */
+export interface SwitchableSetupFixtures extends SetUpWithOrderFixtures {
+  accountOrderApiHelper: AccountOrderApiHelper;
+}
+
+/**
+ * Account setup for the top-up suites, switchable at RUN TIME.
+ *
+ *   default            → CRM gateway  (fast: ~2.2s to create)
+ *   JASEC_ACCOUNT_SETUP=ui → Core UI wizard (original: ~95s to create)
+ *
+ * Measured on jasec-preprod 2026-08-25, same test (TC 3.3) both ways:
+ * gateway 1.7 min vs UI 4.9 min — about 3.2 minutes per test.
+ *
+ * Why a switch and not commented-out code: reverting has to be instant and
+ * total. One env var puts every call site back on the Core UI path with no
+ * edit, no redeploy and nothing to un-comment, and both paths stay compiled so
+ * neither can silently rot.
+ *
+ *   npx playwright test --project=jasec-top-up          # gateway (default)
+ *   JASEC_ACCOUNT_SETUP=ui npx playwright test ...      # back to the UI path
+ *
+ * DO NOT route a test through here if it needs a METER. The gateway cannot
+ * attach one — both provisioning endpoints were tested on 2026-08-25 and are
+ * closed for this tenant, so the account is created without a meter and can
+ * never be rated. TC 2.10 asserts "Medidor" on the receipt PDF and must keep
+ * calling setUpAccountInSelfCare directly. Same for anything that rates:
+ * MDR, tariff, tax tiers, notification Events 3 and 5.
+ */
+export async function setUpAccountForTopUp(
+  fixtures: SwitchableSetupFixtures,
+  baseRow: PrepaidAccountWithOrderRow,
+): Promise<string> {
+  const mode = (process.env.JASEC_ACCOUNT_SETUP ?? 'gateway').trim().toLowerCase();
+  if (mode === 'ui') {
+    fixtures.testLogger.log('account setup: UI wizard (JASEC_ACCOUNT_SETUP=ui)');
+    return setUpAccountInSelfCare(fixtures, baseRow);
+  }
+  return setUpAccountInSelfCareViaGateway(fixtures, baseRow);
 }

@@ -50,17 +50,6 @@ export class SelfcareActivityPage extends BasePage {
     await expect(this.saveWithPlaceToPayButton).toBeVisible({ timeout: LONG_WAIT });
   }
 
-  async navigateToMakePayment(): Promise<void> {
-    await this.openActivityDropdown();
-    await this.page
-      .getByRole('link', { name: /^\s*Make\s*Payment\s*$/i })
-      .or(this.page.getByText(/^\s*Make\s*Payment\s*$/i))
-      .first()
-      .click();
-    await this.page.waitForLoadingToDisappear();
-    await this.page.waitForLoadState('networkidle', { timeout: 3000 }).catch(() => { });
-  }
-
   async navigateToTopUp(): Promise<void> {
     await this.openActivityDropdown();
     await this.page

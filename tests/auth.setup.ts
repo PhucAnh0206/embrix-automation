@@ -35,6 +35,16 @@ setup('authenticate', async ({ page, baseURL }) => {
   // but the token is dropped, subsequent calls 401, and the app bounces back to /login.
   await page.waitForLoadState('networkidle', { timeout: Timeouts.EXTRA_LONG_WAIT }).catch(() => {});
 
+  // The FIRST page load of a run pays for the main bundle on a cold cache:
+  // measured 10,960,918 bytes taking 67s from jasec-dev on 2026-08-25. The
+  // networkidle wait above is best-effort (.catch), so without an explicit wait
+  // the fill below dies on the 30s actionTimeout while the SPA is still
+  // painting -- a blank screenshot and "waiting for getByPlaceholder(/username/i)".
+  // Waiting on the field itself is the honest signal that hydration finished,
+  // and it costs a fast environment nothing.
+  await page.getByPlaceholder(/username/i)
+    .waitFor({ state: 'visible', timeout: Timeouts.EXTRA_LONG_WAIT });
+
   // Fill credentials
   await page.getByPlaceholder(/username/i).fill(username);
   await page.getByPlaceholder(/password/i).fill(password);

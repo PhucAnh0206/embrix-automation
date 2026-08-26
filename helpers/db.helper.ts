@@ -6,7 +6,7 @@ import { TestLogger } from './test-logger';
  *
  * Used by tests that need to seed or manipulate DB state that isn't
  * reachable via the UI or public APIs — e.g. simulating an account-in-debt
- * balance for TC 4.2 (JASEC only exposes UPDATE-able balance via kWh
+ * balance for TS-03 TC 3.2 (JASEC only produces positive CRC via kWh
  * consumption, which we don't automate).
  *
  * Connection is via env vars (see .env.example). Requires VPN + SSL.
@@ -76,6 +76,18 @@ export class DbHelper {
       throw new Error('DbHelper: pool not connected. Call connect() first.');
     }
     return this.pool;
+  }
+
+  /**
+   * Run arbitrary parameterised SQL against the pool.
+   *
+   * Exposed so helpers that need queries beyond the balance operations above
+   * (NotificationDbHelper) can reuse this connection handling instead of
+   * opening a second pool. Prefer a named method here for anything reused.
+   */
+  async query<T = any>(sql: string, params: any[] = []): Promise<T[]> {
+    const result = await this.requirePool().query(sql, params);
+    return result.rows as T[];
   }
 
   /**

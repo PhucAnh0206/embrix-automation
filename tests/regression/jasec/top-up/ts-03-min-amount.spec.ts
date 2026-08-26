@@ -26,19 +26,52 @@
  *
  * Debt is injected through the DB because JASEC only produces a positive CRC
  * balance through kWh consumption, which this suite does not drive.
+ *
+ * Account-setup strategy: 3.1 and 3.5 share one pristine account (see
+ * `pristineAccount` below) — 3.1's only assertion is 3.5's first one, so they
+ * were building the same account twice. 3.2, 3.3, 3.4 and 3.6 each still need
+ * their own, because each one dirties it in a different way.
  */
 
 import * as fs from 'fs';
 import * as path from 'path';
 import { test } from '../../../../fixtures/jasec-fixtures';
 import {
-  setUpAccountInSelfCare,
+  setUpAccountForTopUp,
+  attachToAccountInSelfCare,
   type PrepaidAccountWithOrderRow,
 } from '../../../../fixtures/create-prepaid-account.helper';
+import { SharedAccount } from '../../../../fixtures/shared-account.helper';
 
 const dataFile = path.join(process.cwd(), 'test-data', 'jasec-prepaid-accounts.data.json');
 const dataRows: PrepaidAccountWithOrderRow[] = JSON.parse(fs.readFileSync(dataFile, 'utf-8'));
 const baseRow = dataRows[0];
+
+/** The clock both PRISTINE-account tests run their first assertion at. */
+const PRISTINE_MONTH_A = '2026-07-15';
+const PRISTINE_MONTH_B = '2026-08-15';
+
+/**
+ * Shared by 3.1 and 3.5 — the only two tests here that need a PRISTINE account
+ * (no top-up, no debt) and never dirty it. 3.1's single assertion, "Min = the
+ * first-month base at a mid-month date", is literally 3.5's first assertion, so
+ * the two were creating identical accounts and paying twice: 126s + 146s on the
+ * 2026-08-20 run. One account covers both.
+ *
+ * Safe to reuse across the intervening tests (3.2-3.4) because those act on
+ * their OWN accounts: 3.2 writes a balance, 3.3 and 3.4 top up, and none of them
+ * touch this one. They do move the shared CCP clock, which is why 3.5 re-pins it
+ * to PRISTINE_MONTH_A before asserting rather than trusting where it was left.
+ *
+ * The other four tests cannot join: 3.2 needs an injected debt, 3.3 and 3.4 need
+ * a zero-credit starting balance they then spend, and 3.6 carries a top-up
+ * across the month boundary.
+ */
+const pristineAccount = new SharedAccount<Parameters<typeof setUpAccountForTopUp>[0]>({
+  label: 'TS-03 pristine (3.1, 3.5)',
+  create: (fixtures) => setUpAccountForTopUp(fixtures, baseRow),
+  attach: (fixtures, accountId) => attachToAccountInSelfCare(fixtures, accountId),
+});
 
 /**
  * JASEC minimum-top-up base amounts (CRC). Regulated by ARESEP.
@@ -59,19 +92,19 @@ test.describe(
       '3.1: Min Amount box IS visible on a mid-month day when value > 0',
       { tag: ['@tc-3-1'] },
       async ({
-        page, testLogger,
+        page, testLogger, accountOrderApiHelper,
         searchAccountsPage, createAccountPage, orderManagementPage, screenshotHelper,
         selfcareLoginPage, selfcareAccountSearchPage,
         selfcareActivityPage, selfcareTopupPage,
         serverHelper,
       }) => {
-        await serverHelper.setAndVerifyCcpTime('2026-07-15');
+        await serverHelper.setAndVerifyCcpTime(PRISTINE_MONTH_A);
 
-        const accountId = await setUpAccountInSelfCare({
-          page, testLogger, searchAccountsPage, createAccountPage,
+        const accountId = await pristineAccount.ensure({
+          page, testLogger, accountOrderApiHelper, searchAccountsPage, createAccountPage,
           orderManagementPage, screenshotHelper,
           selfcareLoginPage, selfcareAccountSearchPage,
-        }, baseRow);
+        });
 
         await selfcareActivityPage.navigateToTopUp();
         await selfcareTopupPage.assertLoaded();
@@ -89,7 +122,7 @@ test.describe(
       '3.2: Account in debt — month A Min = 3420, month B Min = 3800',
       { tag: ['@tc-3-2'] },
       async ({
-        page, testLogger,
+        page, testLogger, accountOrderApiHelper,
         searchAccountsPage, createAccountPage, orderManagementPage, screenshotHelper,
         selfcareLoginPage, selfcareAccountSearchPage,
         selfcareActivityPage, selfcareTopupPage,
@@ -100,8 +133,8 @@ test.describe(
 
         await serverHelper.setAndVerifyCcpTime(monthA);
 
-        const accountId = await setUpAccountInSelfCare({
-          page, testLogger, searchAccountsPage, createAccountPage,
+        const accountId = await setUpAccountForTopUp({
+          page, testLogger, accountOrderApiHelper, searchAccountsPage, createAccountPage,
           orderManagementPage, screenshotHelper,
           selfcareLoginPage, selfcareAccountSearchPage,
         }, baseRow);
@@ -137,14 +170,14 @@ test.describe(
       '3.3: Partial credit — top up 1000 on fresh account → Min = 1920',
       { tag: ['@tc-3-3'] },
       async ({
-        page, testLogger,
+        page, testLogger, accountOrderApiHelper,
         searchAccountsPage, createAccountPage, orderManagementPage, screenshotHelper,
         selfcareLoginPage, selfcareAccountSearchPage,
         selfcareActivityPage, selfcareTopupPage,
         placeToPayCheckoutPage,
       }) => {
-        const accountId = await setUpAccountInSelfCare({
-          page, testLogger, searchAccountsPage, createAccountPage,
+        const accountId = await setUpAccountForTopUp({
+          page, testLogger, accountOrderApiHelper, searchAccountsPage, createAccountPage,
           orderManagementPage, screenshotHelper,
           selfcareLoginPage, selfcareAccountSearchPage,
         }, baseRow);
@@ -174,14 +207,14 @@ test.describe(
       '3.4: Fully covered credit — top up 5000 → Min box HIDDEN',
       { tag: ['@tc-3-4'] },
       async ({
-        page, testLogger,
+        page, testLogger, accountOrderApiHelper,
         searchAccountsPage, createAccountPage, orderManagementPage, screenshotHelper,
         selfcareLoginPage, selfcareAccountSearchPage,
         selfcareActivityPage, selfcareTopupPage,
         placeToPayCheckoutPage,
       }) => {
-        const accountId = await setUpAccountInSelfCare({
-          page, testLogger, searchAccountsPage, createAccountPage,
+        const accountId = await setUpAccountForTopUp({
+          page, testLogger, accountOrderApiHelper, searchAccountsPage, createAccountPage,
           orderManagementPage, screenshotHelper,
           selfcareLoginPage, selfcareAccountSearchPage,
         }, baseRow);
@@ -208,22 +241,26 @@ test.describe(
       '3.5: Cross-month base — month A = 2920, month B = 3300 (no top-up)',
       { tag: ['@tc-3-5'] },
       async ({
-        page, testLogger,
+        page, testLogger, accountOrderApiHelper,
         searchAccountsPage, createAccountPage, orderManagementPage, screenshotHelper,
         selfcareLoginPage, selfcareAccountSearchPage,
         selfcareActivityPage, selfcareTopupPage,
         serverHelper,
       }) => {
-        const monthA = '2026-07-05';
-        const monthB = '2026-08-05';
+        // Same dates as 3.1 so the pristine account can be shared. The day of the
+        // month is not what this test is about — the base flip between the first
+        // effective month and every month after it is — so 15th works exactly as
+        // the old 5th did.
+        const monthA = PRISTINE_MONTH_A;
+        const monthB = PRISTINE_MONTH_B;
 
         await serverHelper.setAndVerifyCcpTime(monthA);
 
-        const accountId = await setUpAccountInSelfCare({
-          page, testLogger, searchAccountsPage, createAccountPage,
+        const accountId = await pristineAccount.ensure({
+          page, testLogger, accountOrderApiHelper, searchAccountsPage, createAccountPage,
           orderManagementPage, screenshotHelper,
           selfcareLoginPage, selfcareAccountSearchPage,
-        }, baseRow);
+        });
 
         await selfcareActivityPage.navigateToTopUp();
         await selfcareTopupPage.assertLoaded();
@@ -245,7 +282,7 @@ test.describe(
       '3.6: Cross-month base with top-up — month B uses 3300 − credit',
       { tag: ['@tc-3-6'] },
       async ({
-        page, testLogger,
+        page, testLogger, accountOrderApiHelper,
         searchAccountsPage, createAccountPage, orderManagementPage, screenshotHelper,
         selfcareLoginPage, selfcareAccountSearchPage,
         selfcareActivityPage, selfcareTopupPage,
@@ -257,8 +294,8 @@ test.describe(
 
         await serverHelper.setAndVerifyCcpTime(monthA);
 
-        const accountId = await setUpAccountInSelfCare({
-          page, testLogger, searchAccountsPage, createAccountPage,
+        const accountId = await setUpAccountForTopUp({
+          page, testLogger, accountOrderApiHelper, searchAccountsPage, createAccountPage,
           orderManagementPage, screenshotHelper,
           selfcareLoginPage, selfcareAccountSearchPage,
         }, baseRow);

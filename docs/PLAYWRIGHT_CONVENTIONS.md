@@ -235,3 +235,31 @@ export class MyNewPage extends BasePage {
   }
 }
 ```
+
+## 10. Native Dialog Convention
+
+Playwright **auto-dismisses** `alert()`, `confirm()` and `prompt()` — but only while no listener is attached to the page. That default silently discarded every native message the app raised, and worse, let a test pass *through* an action a dialog had actually blocked (the click fires, the dialog is dismissed, the action never happens, the test continues).
+
+The shared `page` fixture in `fixtures/page-factory.ts` now attaches a single `DialogCollector` (`helpers/dialog-collector.ts`) to every browser test, so the messages are recorded and assertable.
+
+### Usage Rules
+1. **Never call `page.on('dialog', ...)` in a test or page object.** The collector is registered first and will already have settled the dialog; a second `accept()`/`dismiss()` on the same dialog throws.
+2. **Dismiss is the default**, matching Playwright's own auto-handler exactly. For `confirm()` that means Cancel. Do not change this — every existing test depends on it.
+3. **To accept a dialog, call `dialogs.acceptNext()` before the click** that raises it. It is one-shot; the following dialog falls back to dismiss.
+4. **Dialogs are reported, not failed.** Any dialog seen during a test is added as a `native-dialog` annotation plus a `native-dialogs` attachment, so an unexpected one is visible in the HTML report without turning green tests red. Assert explicitly when you want strictness.
+5. The contract is pinned by `tests/smoke/dialog-fixture.spec.ts` — it runs against `about:blank`, needs no app or auth, and must stay green.
+
+### Example
+```typescript
+test('PAY NOW without a saved card warns the user', async ({ page, dialogs, activity }) => {
+  await activity.clickPayNow();
+
+  // The app's own native warning is now assertable.
+  expect(dialogs.sawMessage(/add a card first/i)).toBe(true);
+});
+
+test('deleting a card requires confirmation', async ({ page, dialogs }) => {
+  dialogs.acceptNext();          // BEFORE the click — OK instead of Cancel
+  await page.click('#delete-card');
+});
+```
