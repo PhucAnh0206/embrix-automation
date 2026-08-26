@@ -49,10 +49,6 @@ export class SelfcareTopupPage extends BasePage {
       .first();
   }
 
-  private get historyRows() {
-    return this.historyTable.locator('tbody tr');
-  }
-
   /** History rows excluding the "No record has found!" empty-state placeholder. */
   private get historyDataRows() {
     return this.historyTable
@@ -199,27 +195,6 @@ export class SelfcareTopupPage extends BasePage {
     await this.assertHistoryRowCountAtLeast(1);
   }
 
-  /** Assert an error indication after Pay Now (e.g. no saved card token). */
-  async assertPaymentError(expectedText?: string | RegExp): Promise<void> {
-    const errorToast = this.page.locator('.Toastify__toast--error, .alert-danger').first();
-    const alertText = this.page
-      .getByText(/Missing\s*saved\s*card\s*token|Please\s*add\s*a\s*card\s*first/i)
-      .first();
-
-    const winner = await Promise.race([
-      errorToast.waitFor({ state: 'visible', timeout: LONG_WAIT }).then(() => 'toast' as const),
-      alertText.waitFor({ state: 'visible', timeout: LONG_WAIT }).then(() => 'text' as const),
-    ]).catch(() => 'timeout' as const);
-
-    if (winner === 'timeout') {
-      throw new Error('No error indication appeared after Pay Now.');
-    }
-
-    if (expectedText && winner === 'toast') {
-      await expect(errorToast).toContainText(expectedText);
-    }
-  }
-
   /**
    * Assert the history table has at least N real data rows.
    *
@@ -247,13 +222,6 @@ export class SelfcareTopupPage extends BasePage {
     await expect(
       this.page.getByText(/No\s*record\s*has\s*found/i).first(),
     ).toBeVisible({ timeout: LONG_WAIT });
-  }
-
-  /** Get the amount from the first history row. */
-  async getFirstHistoryRowAmount(): Promise<string> {
-    await this.historyRows.first().waitFor({ state: 'visible', timeout: LONG_WAIT });
-    const cell = this.historyRows.first().locator('td').nth(1);
-    return (await cell.innerText()).trim();
   }
 
   /**

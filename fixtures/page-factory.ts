@@ -13,6 +13,11 @@ import { CustomerManagementPage } from '../pages/customer-hub/customer-managemen
 import { BillsPage } from '../pages/customer-hub/customer-management/account-details/billing-data/bills.page';
 import { DailySchedulePage } from '../pages/operations-hub/jobs-management/daily-schedule.page';
 import { DatabaseHelper } from '../helpers/database.helper';
+import {
+  DialogCollector,
+  attachDialogCollector,
+  getDialogCollector,
+} from '../helpers/dialog-collector';
 import { JobScheduleDbHelper } from '../helpers/db/job-schedule.db';
 import { LoginPage } from '../pages/login.page';
 import { OrderManagementPage } from '../pages/customer-hub/order-management/order-management.page';
@@ -66,6 +71,8 @@ type AllFixtures = {
   billsPage: BillsPage;
   dailySchedulePage: DailySchedulePage;
   databaseHelper: DatabaseHelper;
+  /** Native alert()/confirm()/prompt() messages raised during the test. */
+  dialogs: DialogCollector;
   jobScheduleDbHelper: JobScheduleDbHelper;
   loginPage: LoginPage;
   orderManagementPage: OrderManagementPage;
@@ -105,7 +112,17 @@ type AllFixtures = {
 };
 
 export const test = base.extend<AllFixtures>({
-  page: async ({ page }, use) => {
+  page: async ({ page }, use, testInfo) => {
+    // Capture native dialogs for EVERY test that uses a browser.
+    //
+    // Playwright auto-dismisses alert()/confirm()/prompt() only while no
+    // listener is attached, so until now every native message the app raised was
+    // thrown away before a test could see it — and a test could pass through an
+    // action a dialog had actually blocked. The collector dismisses by default,
+    // which is exactly what the auto-handler did, so no existing test changes
+    // behaviour. See helpers/dialog-collector.ts.
+    const dialogs = attachDialogCollector(page);
+
     page.navigateToHome = async () => {
       await page.goto(process.env.EMBRIX_BASE_URL ?? '/');
       await page.waitForLoadState('networkidle');
@@ -122,6 +139,37 @@ export const test = base.extend<AllFixtures>({
     };
 
     await use(page);
+
+    // Surface anything that appeared, so an unexpected dialog can never pass
+    // unnoticed again. Annotation + attachment only — deliberately NOT a
+    // failure, because turning currently-green tests red is a separate decision
+    // from making the dialogs visible. Tests that want strictness assert on the
+    // `dialogs` fixture.
+    if (dialogs.records.length) {
+      const summary = dialogs.records
+        .map((r) => `${r.type}: "${r.message}" -> ${r.action}`)
+        .join('\n');
+      testInfo.annotations.push({
+        type: 'native-dialog',
+        description: `${dialogs.records.length} native dialog(s): ${dialogs.messages.join(' | ')}`,
+      });
+      await testInfo.attach('native-dialogs', {
+        body: summary,
+        contentType: 'text/plain',
+      }).catch(() => { });
+    }
+  },
+
+  /**
+   * Native dialogs raised during the test. Same instance the `page` fixture
+   * attached — destructure it to assert on the app's own alert()/confirm()
+   * messages, or to accept one via `acceptNext()`.
+   *
+   * Do NOT call `page.on('dialog', ...)` in a test: the collector is registered
+   * first and will already have settled the dialog, so a second handler throws.
+   */
+  dialogs: async ({ page }, use) => {
+    await use(getDialogCollector(page));
   },
 
   // Logger

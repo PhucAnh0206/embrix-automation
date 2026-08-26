@@ -4,6 +4,13 @@ import * as path from 'path';
 import { TestLogger } from './test-logger';
 import { EXTRA_LONG_WAIT } from './timeouts.helper';
 import { SavedContext, updateTestContext } from './test-context.helper';
+// NOTE: SavedContext is imported from test-context.helper above, NOT declared here.
+// A stale duplicate used to live in this file, which made TypeScript fail with
+// TS2440 (import declaration conflicts with local declaration) on every build.
+// The local copy was also WRONG: its testingDateObj carried 3 date fields where
+// the real one carries 6, and it lacked incompleteOrderId and orderUrl. Nothing
+// imported it -- page-factory.ts and read-context.spec.ts both take SavedContext
+// from test-context.helper -- so it only ever shadowed the real type in here.
 
 /**
  * Represents a service service payload structure for CRM Gateway account setup.
@@ -57,30 +64,19 @@ export interface AccountAndOrderPayload {
   paymentProfiles?: PaymentProfilePayload[];
   billingFrequency?: string;
   billingDom?: string | number;
+
+  // ── JASEC prepaid fields ──────────────────────────────────────────────
+  // Verified honoured by POST /processAccountAndOrder on jasec-dev 2026-08-21.
+  // Without accountCategory the gateway does NOT produce a prepaid account.
+  accountCategory?: string;
+  accountSubType?: string;
+  customerSegment?: string;
+  currency?: string;
+  // Accepted but SILENTLY IGNORED - the account is stored with legalEntity 'US'
+  // regardless of what is sent. Kept so the payload can mirror the UI row.
+  legalEntity?: string;
   services?: ServicePayload[];
 }
-
-/**
- * Mapped interface for storing test session IDs and configuration contexts.
- */
-export interface SavedContext {
-  testingDateObj?: {
-    startDate: string;
-    nextMonthFirstDate: string;
-    nextTwoMonthsFirstDate: string;
-  };
-  accountId: string;
-  orderId: string;
-  accountInfoPageUrl?: string;
-  billsPageUrl?: string;
-  invoiceId?: string;
-  totalAmount?: string;
-  provisioningOrderUrl?: string;
-  provisioningOrderId?: string;
-  requestContent?: string;
-  quickAccUrl? : string;
-}
-
 
 /**
  * AccountOrderApiHelper — A helper class for managing API requests related to account and order creation/billing.

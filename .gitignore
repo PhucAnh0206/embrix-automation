@@ -6,10 +6,22 @@ playwright/.auth/
 
 # Environment variables — contains secrets
 #.env
+# Per-env sources of truth for switch-env.ps1 (contain real credentials).
+# The active one gets copied to .env by the switcher.
+.env.dev
+.env.preprod
+.env.staging
+.env.local
+.env.bak
 
 # Test output
 test-results/
 playwright-report/
+# Captured console output from local runs (full-run.log, verify-*.log, etc.)
+*.log
+
+# Scratch space for ad-hoc transpiled helpers used while debugging.
+.tmpx/
 
 # OS files
 .DS_Store
@@ -20,3 +32,8 @@ tests/examples/
 
 # documents
 #docs/personals/
+# Working backups (*.bak-YYYY-MM-DD). Never commit these - this repo is public,
+# and git history is the real backup anyway.
+*.bak
+*.bak-*
+*.orig

@@ -11,18 +11,36 @@
     "test:smoke:coopeg:headed": "playwright test --project=smoke --env=coopeg-sandbox --headed",
     "test:regression:coopeg": "playwright test --project=regression --env=coopeg-sandbox",
     "test:regression:coopeg:headed": "playwright test --project=regression --env=coopeg-sandbox --headed",
+    "test:unit": "playwright test --project=unit",
+    "typecheck": "tsc --noEmit",
+    "test:jasec:regression": "playwright test --project=jasec-regression",
+    "test:jasec:top-up": "playwright test --project=jasec-top-up",
+    "test:jasec:billing:explore": "playwright test --project=jasec-billing-explore",
+    "test:notification:jasec": "playwright test --project=jasec-notification",
+    "test:notification:content": "playwright test --project=jasec-notification-content",
+    "test:notification:live": "playwright test --project=jasec-notification-live",
+    "test:notification:reconnect": "playwright test --project=jasec-notification-reconnect",
+    "test:notification:tiers": "playwright test --project=jasec-notification-tiers",
+    "test:notification:all": "npm run test:unit && npm run test:notification:content && npm run test:notification:jasec && npm run test:notification:reconnect && npm run test:notification:tiers && npm run test:notification:live",
+    "test:notification:jasec:headed": "playwright test --project=jasec-notification --headed",
     "report": "playwright show-report",
-    "postinstall": "playwright install"
+    "postinstall": "playwright install",
+    "test:notification:safe": "npm run test:unit && npm run test:notification:content",
+    "test:jasec:billing:read": "playwright test --project=jasec-billing-read"
   },
   "devDependencies": {
     "@playwright/test": "^1.49.0",
+    "@types/mailparser": "^3.4.6",
     "@types/node": "^20.10.0",
     "@types/pdf-parse": "^1.1.5",
     "@types/pg": "^8.20.0",
     "dotenv": "^16.4.5",
-    "exceljs": "^4.4.0"
+    "exceljs": "^4.4.0",
+    "typescript": "^5.9.3"
   },
   "dependencies": {
+    "imapflow": "^1.6.5",
+    "mailparser": "^3.9.14",
     "pdf-parse": "^2.4.5",
     "pg": "^8.21.0"
   }

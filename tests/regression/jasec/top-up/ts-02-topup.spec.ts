@@ -15,17 +15,21 @@
  *   2.10 Receipt PDF contains required fields                     
  *
  * Account-setup strategy:
- *   • Group A — SHARED account (2.2, 2.3a, 2.6, 2.7, 2.8). The first Group
- *     A test to run creates ONE account with saved card + one seed top-up
- *     (~4 min); the remaining Group A tests attach a fresh page to that
- *     same account (~20 sec each). Saves ~10 min per full-suite run.
- *     Running any single Group A test independently still works — the
- *     `ensureSharedAccountAndAttach` helper bootstraps state on demand.
+ *   • Group A — SHARED account (2.2, 2.3a, 2.6, 2.7, 2.8). The first Group A
+ *     test to run creates ONE account with a saved card and one seed top-up;
+ *     the rest attach a fresh page to it. Measured on the 2026-08-20 run:
+ *     205s for the creating test vs 61-70s for each attaching one, so the
+ *     sharing is worth roughly 7 minutes across the group. Running a single
+ *     Group A test on its own still works — whichever runs first creates.
+ *     Caveat: the cache is per WORKER, so a failure anywhere in the file
+ *     restarts the worker and the next Group A test pays full price again.
+ *     See fixtures/shared-account.helper.ts.
  *   • Group B — ISOLATED (2.1, 2.3b, 2.4, 2.5, 2.9, 2.10). Each creates
  *     its own fresh account because it needs a controlled initial state
  *     (empty history, exact row counts, ccpTime-driven dates, or — for
  *     TC 2.9 — a stable single-row history so `nth(0)` refers to the
- *     same top-up on both clicks).
+ *     same top-up on both clicks). These are the remaining runtime cost of
+ *     this file and cannot be shared without weakening the assertions.
  *
  * TC 2.6–2.10 require the Self Care `topupReceiptsEnabled` feature flag to be
  * on. It isn't readable at runtime, so it's declared via the
@@ -40,9 +44,14 @@ import { LONG_WAIT } from '../../../../helpers/timeouts.helper';
 import { fetchAndExtractPdfText } from '../../../../helpers/pdf.helper';
 import {
   setUpAccountInSelfCare,
+  setUpAccountForTopUp,
   attachToAccountInSelfCare,
   type PrepaidAccountWithOrderRow,
 } from '../../../../fixtures/create-prepaid-account.helper';
+import { SharedAccount } from '../../../../fixtures/shared-account.helper';
+import type { SelfcareActivityPage } from '../../../../pages/selfcare/selfcare-activity.page';
+import type { SelfcareTopupPage } from '../../../../pages/selfcare/selfcare-topup.page';
+import type { PlaceToPayCheckoutPage } from '../../../../pages/selfcare/placetopay-checkout.page';
 
 const dataFile = path.join(process.cwd(), 'test-data', 'jasec-prepaid-accounts.data.json');
 const dataRows: PrepaidAccountWithOrderRow[] = JSON.parse(fs.readFileSync(dataFile, 'utf-8'));
@@ -67,49 +76,43 @@ const RECEIPTS_SKIP_REASON =
   'Top-Up receipts are disabled on this environment (TOPUP_RECEIPTS_ENABLED=false)';
 
 // ── Shared-account plumbing for Group A (2.2, 2.3a, 2.6, 2.7, 2.8) ─────
-// Module-level cache. First Group A test to run does the full setup and
-// stores the accountId; subsequent Group A tests attach a fresh page to
-// the cached accountId. Running one test in isolation still works —
-// `sharedAccountId` is null at file-load time, so whichever test fires
-// first triggers the setup.
-let sharedAccountId: string | null = null;
+// Backed by the shared SharedAccount helper rather than a bespoke module-level
+// cache, so this file and the notification TS-01 suite — which had grown two
+// slightly different copies of the same idea — now share one implementation and
+// one set of documented caveats (see fixtures/shared-account.helper.ts).
+type GroupAFixtures = Parameters<typeof setUpAccountForTopUp>[0] & {
+  selfcareActivityPage: SelfcareActivityPage;
+  selfcareTopupPage: SelfcareTopupPage;
+  placeToPayCheckoutPage: PlaceToPayCheckoutPage;
+};
 
-async function ensureSharedAccountAndAttach(fixtures: Parameters<typeof setUpAccountInSelfCare>[0] & {
-  selfcareActivityPage: import('../../../../pages/selfcare/selfcare-activity.page').SelfcareActivityPage;
-  selfcareTopupPage: import('../../../../pages/selfcare/selfcare-topup.page').SelfcareTopupPage;
-  placeToPayCheckoutPage: import('../../../../pages/selfcare/placetopay-checkout.page').PlaceToPayCheckoutPage;
-}): Promise<string> {
-  const {
-    selfcareActivityPage, selfcareTopupPage, placeToPayCheckoutPage,
-    testLogger,
-  } = fixtures;
+const groupAAccount = new SharedAccount<GroupAFixtures>({
+  label: 'TS-02 Group A',
+  create: async (fixtures) => {
+    const { selfcareActivityPage, selfcareTopupPage, placeToPayCheckoutPage } = fixtures;
+    const accountId = await setUpAccountForTopUp(fixtures, baseRow);
 
-  if (sharedAccountId !== null) {
-    testLogger.log(`Reusing shared account ${sharedAccountId}`);
-    await attachToAccountInSelfCare(fixtures, sharedAccountId);
-    return sharedAccountId;
-  }
+    // Save a card so downstream Pay Now tests have a token.
+    await selfcareActivityPage.navigateToManagePaymentProfile();
+    await selfcareActivityPage.clickSaveWithPlaceToPay();
+    await placeToPayCheckoutPage.completeTokenization('approve');
+    await selfcareActivityPage.assertCardOnFilePopulated();
 
-  testLogger.log('Creating shared Group A account (first shared test in this run)');
-  const accountId = await setUpAccountInSelfCare(fixtures, baseRow);
+    // Seed one top-up so receipt tests have a history row to click.
+    await selfcareActivityPage.navigateToTopUp();
+    await selfcareTopupPage.assertLoaded();
+    await selfcareTopupPage.reload(selfcareActivityPage);
+    await selfcareTopupPage.enterAmount(5000);
+    await selfcareTopupPage.clickPayNow();
+    await selfcareTopupPage.assertPaymentSuccess();
 
-  // Save a card so downstream Pay Now tests have a token.
-  await selfcareActivityPage.navigateToManagePaymentProfile();
-  await selfcareActivityPage.clickSaveWithPlaceToPay();
-  await placeToPayCheckoutPage.completeTokenization('approve');
-  await selfcareActivityPage.assertCardOnFilePopulated();
+    return accountId;
+  },
+  attach: (fixtures, accountId) => attachToAccountInSelfCare(fixtures, accountId),
+});
 
-  // Seed one top-up so receipt tests have a history row to click.
-  await selfcareActivityPage.navigateToTopUp();
-  await selfcareTopupPage.assertLoaded();
-  await selfcareTopupPage.reload(selfcareActivityPage);
-  await selfcareTopupPage.enterAmount(5000);
-  await selfcareTopupPage.clickPayNow();
-  await selfcareTopupPage.assertPaymentSuccess();
-
-  sharedAccountId = accountId;
-  return accountId;
-}
+const ensureSharedAccountAndAttach = (fixtures: GroupAFixtures): Promise<string> =>
+  groupAAccount.ensure(fixtures);
 
 test.describe(
   'TS-02 — Top-Up',
@@ -120,7 +123,7 @@ test.describe(
       '2.1: Top-Up history table only shows current-period entries',
       { tag: ['@tc-2-1'] },
       async ({
-        page, testLogger,
+        page, testLogger, accountOrderApiHelper,
         searchAccountsPage, createAccountPage, orderManagementPage, screenshotHelper,
         selfcareLoginPage, selfcareAccountSearchPage,
         selfcareActivityPage, selfcareTopupPage,
@@ -132,8 +135,8 @@ test.describe(
 
         await serverHelper.setAndVerifyCcpTime(monthA);
 
-        const accountId = await setUpAccountInSelfCare({
-          page, testLogger, searchAccountsPage, createAccountPage,
+        const accountId = await setUpAccountForTopUp({
+          page, testLogger, accountOrderApiHelper, searchAccountsPage, createAccountPage,
           orderManagementPage, screenshotHelper,
           selfcareLoginPage, selfcareAccountSearchPage,
         }, baseRow);
@@ -170,14 +173,14 @@ test.describe(
       '2.2: Top Up using Pay Now with a saved card',
       { tag: ['@tc-2-2'] },
       async ({
-        page, testLogger,
+        page, testLogger, accountOrderApiHelper,
         searchAccountsPage, createAccountPage, orderManagementPage, screenshotHelper,
         selfcareLoginPage, selfcareAccountSearchPage,
         selfcareActivityPage, selfcareTopupPage,
         placeToPayCheckoutPage,
       }) => {
         const accountId = await ensureSharedAccountAndAttach({
-          page, testLogger, searchAccountsPage, createAccountPage,
+          page, testLogger, accountOrderApiHelper, searchAccountsPage, createAccountPage,
           orderManagementPage, screenshotHelper,
           selfcareLoginPage, selfcareAccountSearchPage,
           selfcareActivityPage, selfcareTopupPage, placeToPayCheckoutPage,
@@ -203,14 +206,14 @@ test.describe(
       '2.3a: Top Up using Pay with PlaceToPay — APPROVE card',
       { tag: ['@tc-2-3', '@tc-2-3a'] },
       async ({
-        page, testLogger,
+        page, testLogger, accountOrderApiHelper,
         searchAccountsPage, createAccountPage, orderManagementPage, screenshotHelper,
         selfcareLoginPage, selfcareAccountSearchPage,
         selfcareActivityPage, selfcareTopupPage,
         placeToPayCheckoutPage,
       }) => {
         const accountId = await ensureSharedAccountAndAttach({
-          page, testLogger, searchAccountsPage, createAccountPage,
+          page, testLogger, accountOrderApiHelper, searchAccountsPage, createAccountPage,
           orderManagementPage, screenshotHelper,
           selfcareLoginPage, selfcareAccountSearchPage,
           selfcareActivityPage, selfcareTopupPage, placeToPayCheckoutPage,
@@ -240,14 +243,14 @@ test.describe(
       '2.3b: Top Up using Pay with PlaceToPay — DECLINE card, no top-up recorded',
       { tag: ['@tc-2-3', '@tc-2-3b'] },
       async ({
-        page, testLogger,
+        page, testLogger, accountOrderApiHelper,
         searchAccountsPage, createAccountPage, orderManagementPage, screenshotHelper,
         selfcareLoginPage, selfcareAccountSearchPage,
         selfcareActivityPage, selfcareTopupPage,
         placeToPayCheckoutPage,
       }) => {
-        const accountId = await setUpAccountInSelfCare({
-          page, testLogger, searchAccountsPage, createAccountPage,
+        const accountId = await setUpAccountForTopUp({
+          page, testLogger, accountOrderApiHelper, searchAccountsPage, createAccountPage,
           orderManagementPage, screenshotHelper,
           selfcareLoginPage, selfcareAccountSearchPage,
         }, baseRow);
@@ -270,14 +273,14 @@ test.describe(
       '2.4: Rapid double-click Pay Now — only one top-up recorded (frontend idempotency)',
       { tag: ['@tc-2-4'] },
       async ({
-        page, testLogger,
+        page, testLogger, accountOrderApiHelper,
         searchAccountsPage, createAccountPage, orderManagementPage, screenshotHelper,
         selfcareLoginPage, selfcareAccountSearchPage,
         selfcareActivityPage, selfcareTopupPage,
         placeToPayCheckoutPage,
       }) => {
-        const accountId = await setUpAccountInSelfCare({
-          page, testLogger, searchAccountsPage, createAccountPage,
+        const accountId = await setUpAccountForTopUp({
+          page, testLogger, accountOrderApiHelper, searchAccountsPage, createAccountPage,
           orderManagementPage, screenshotHelper,
           selfcareLoginPage, selfcareAccountSearchPage,
         }, baseRow);
@@ -342,14 +345,14 @@ test.describe(
       '2.5: Duplicate transaction blocked — parallel POSTs with same reference UUID (backend idempotency)',
       { tag: ['@tc-2-5'] },
       async ({
-        page, testLogger,
+        page, testLogger, accountOrderApiHelper,
         searchAccountsPage, createAccountPage, orderManagementPage, screenshotHelper,
         selfcareLoginPage, selfcareAccountSearchPage,
         selfcareActivityPage, selfcareTopupPage,
         placeToPayCheckoutPage,
       }) => {
-        const accountId = await setUpAccountInSelfCare({
-          page, testLogger, searchAccountsPage, createAccountPage,
+        const accountId = await setUpAccountForTopUp({
+          page, testLogger, accountOrderApiHelper, searchAccountsPage, createAccountPage,
           orderManagementPage, screenshotHelper,
           selfcareLoginPage, selfcareAccountSearchPage,
         }, baseRow);
@@ -385,7 +388,7 @@ test.describe(
           serviceType: 'ELECTRICITY',
           reference,
         };
-
+for
         testLogger.data('Duplicate-test payload (both requests use same reference)', body);
 
         const [resp1, resp2] = await Promise.all([
@@ -398,6 +401,35 @@ test.describe(
         const statuses = [json1.status, json2.status];
         const successes = statuses.filter((s) => s === 'SUCCESS').length;
         const rejections = statuses.filter((s) => s !== 'SUCCESS').length;
+
+        // ── Tell "endpoint broken" apart from "dedup broken" ──────────
+        // The two assertions below both read a 0-SUCCESS result as a dedup
+        // failure. But 0 SUCCESS means NEITHER post landed, so idempotency was
+        // never exercised at all -- the opposite of what the message claims.
+        //
+        // That cost real time on 2026-08-24: both requests came back
+        // SYSTEM_ERROR / "Cannot get property 'id' on null object" and the case
+        // reported "expected exactly 1 SUCCESS", which reads as a dedup defect.
+        // The endpoint was simply down. (Per the team's bug report that error is
+        // the account-has-no-subscription path, since given better handling.)
+        //
+        // This still FAILS -- an unusable endpoint must never go green -- it just
+        // states the true reason.
+        if (successes === 0) {
+          const detail = [json1, json2]
+            .map((j, i) => `request${i + 1}: status=${j.status ?? '-'} `
+              + `errorCode=${j.errorCode ?? '-'} errorMsg=${j.errorMsg ?? '-'}`)
+            .join('  |  ');
+          test.info().annotations.push({
+            type: 'inconclusive',
+            description: `TC 2.5 never exercised idempotency -- neither POST succeeded. ${detail}`,
+          });
+          throw new Error(
+            'TC 2.5 INCONCLUSIVE -- neither top-up POST succeeded, so backend idempotency '
+            + 'was never tested. This is an ENDPOINT failure, not a dedup failure: fix the '
+            + `endpoint before reading anything into this case.  ${detail}`,
+          );
+        }
 
         // ── Dedup must work ───────────────────────────────────────────
         // Both returning SUCCESS means dedup is broken and the account was
@@ -428,7 +460,7 @@ test.describe(
       '2.6: Receipt column visible on Top Up history when feature flag is on',
       { tag: ['@tc-2-6'] },
       async ({
-        page, testLogger,
+        page, testLogger, accountOrderApiHelper,
         searchAccountsPage, createAccountPage, orderManagementPage, screenshotHelper,
         selfcareLoginPage, selfcareAccountSearchPage,
         selfcareActivityPage, selfcareTopupPage,
@@ -437,7 +469,7 @@ test.describe(
         test.skip(!RECEIPTS_ENABLED, RECEIPTS_SKIP_REASON);
 
         const accountId = await ensureSharedAccountAndAttach({
-          page, testLogger, searchAccountsPage, createAccountPage,
+          page, testLogger, accountOrderApiHelper, searchAccountsPage, createAccountPage,
           orderManagementPage, screenshotHelper,
           selfcareLoginPage, selfcareAccountSearchPage,
           selfcareActivityPage, selfcareTopupPage, placeToPayCheckoutPage,
@@ -463,7 +495,7 @@ test.describe(
       '2.7: Receipt column header localized (Receipt in EN, Recibo in ES)',
       { tag: ['@tc-2-7'] },
       async ({
-        page, testLogger,
+        page, testLogger, accountOrderApiHelper,
         searchAccountsPage, createAccountPage, orderManagementPage, screenshotHelper,
         selfcareLoginPage, selfcareAccountSearchPage,
         selfcareActivityPage, selfcareTopupPage,
@@ -472,7 +504,7 @@ test.describe(
         test.skip(!RECEIPTS_ENABLED, RECEIPTS_SKIP_REASON);
 
         const accountId = await ensureSharedAccountAndAttach({
-          page, testLogger, searchAccountsPage, createAccountPage,
+          page, testLogger, accountOrderApiHelper, searchAccountsPage, createAccountPage,
           orderManagementPage, screenshotHelper,
           selfcareLoginPage, selfcareAccountSearchPage,
           selfcareActivityPage, selfcareTopupPage, placeToPayCheckoutPage,
@@ -506,7 +538,7 @@ test.describe(
       '2.8: View / Download Receipt opens PDF in a new tab',
       { tag: ['@tc-2-8'] },
       async ({
-        page, testLogger,
+        page, testLogger, accountOrderApiHelper,
         searchAccountsPage, createAccountPage, orderManagementPage, screenshotHelper,
         selfcareLoginPage, selfcareAccountSearchPage,
         selfcareActivityPage, selfcareTopupPage,
@@ -515,7 +547,7 @@ test.describe(
         test.skip(!RECEIPTS_ENABLED, RECEIPTS_SKIP_REASON);
 
         const accountId = await ensureSharedAccountAndAttach({
-          page, testLogger, searchAccountsPage, createAccountPage,
+          page, testLogger, accountOrderApiHelper, searchAccountsPage, createAccountPage,
           orderManagementPage, screenshotHelper,
           selfcareLoginPage, selfcareAccountSearchPage,
           selfcareActivityPage, selfcareTopupPage, placeToPayCheckoutPage,
@@ -549,7 +581,7 @@ test.describe(
       '2.9: Re-clicking View / Download Receipt returns the same cached PDF',
       { tag: ['@tc-2-9'] },
       async ({
-        page, testLogger,
+        page, testLogger, accountOrderApiHelper,
         searchAccountsPage, createAccountPage, orderManagementPage, screenshotHelper,
         selfcareLoginPage, selfcareAccountSearchPage,
         selfcareActivityPage, selfcareTopupPage,
@@ -557,8 +589,8 @@ test.describe(
       }) => {
         test.skip(!RECEIPTS_ENABLED, RECEIPTS_SKIP_REASON);
 
-        const accountId = await setUpAccountInSelfCare({
-          page, testLogger, searchAccountsPage, createAccountPage,
+        const accountId = await setUpAccountForTopUp({
+          page, testLogger, accountOrderApiHelper, searchAccountsPage, createAccountPage,
           orderManagementPage, screenshotHelper,
           selfcareLoginPage, selfcareAccountSearchPage,
         }, baseRow);
@@ -613,7 +645,7 @@ test.describe(
       '2.10: Receipt PDF contains required fields (Company, Customer, Meter ID, Amount+Currency, Date, Transaction ID)',
       { tag: ['@tc-2-10'] },
       async ({
-        page, testLogger,
+        page, testLogger, accountOrderApiHelper,
         searchAccountsPage, createAccountPage, orderManagementPage, screenshotHelper,
         selfcareLoginPage, selfcareAccountSearchPage,
         selfcareActivityPage, selfcareTopupPage,
@@ -625,6 +657,9 @@ test.describe(
         // Freeze the clock so the PDF date is deterministic.
         const testDate = '2026-07-15';
         await serverHelper.setAndVerifyCcpTime(testDate);
+        // NOT setUpAccountForTopUp: TC 2.10 asserts the "Medidor" (Meter ID) field on
+        // the receipt PDF, and the CRM gateway cannot attach a meter. This one must
+        // keep building its account through the Core UI order flow.
 
         const accountId = await setUpAccountInSelfCare({
           page, testLogger, searchAccountsPage, createAccountPage,
