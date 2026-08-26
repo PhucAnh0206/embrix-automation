@@ -136,6 +136,28 @@ npx playwright test --project=jasec-regression
 npx playwright test --project=jasec-top-up
 ```
 
+Or via the npm shortcuts, which exist for every JASEC project:
+
+```
+npm run test:jasec:regression
+npm run test:jasec:top-up
+npm run test:jasec:billing:explore
+npm run test:notification:content     # DB only — safe any time, no clock move
+```
+
+### 5.2b Check types without running anything
+
+```
+npm run typecheck
+```
+
+Playwright transpiles specs without type-checking them, so a type error only ever
+surfaces as a confusing runtime failure mid-run. Run this before pushing — it takes
+seconds and catches things like a helper method that does not exist. Five errors in
+team-owned files (`account-order-api.helper.ts`, `userManagement.page.ts`,
+`embrixPlatform/ts-02.spec.ts`) are pre-existing and not JASEC's; everything under
+the JASEC surface is clean, so keep it that way.
+
 ### 5.3 One spec file
 
 ```
@@ -269,13 +291,41 @@ Rough budget — measure on your own first run:
 
 | Command | Order of magnitude |
 |---------|--------------------|
-| A single case that creates its own account | ~5 min |
-| A single case attaching to the shared account (2.2 / 2.3a / 2.6 / 2.7 / 2.8, after the first) | ~1 min |
+| A single case that creates its own account | ~2.5–5 min |
+| A single case attaching to a shared account | ~1 min |
 | `--project=jasec-regression` | ~5 min |
 | `--project=jasec-top-up` | ~1–1.5 h |
 | Everything | ~1.5 h |
 
 Start with one case, not the full suite.
+
+### 7.1 Why some cases are much faster than others
+
+Creating an account is the expensive part — the Core UI account form, then the
+whole order wizard (bundle, meter provisioning, submit, poll to COMPLETED), then
+the Self Care login. Measured A/B on jasec-dev, same code, same day:
+
+| TC 1.4 "Delete a saved card" | Time |
+|---|---|
+| run on its own — creates the account and saves a card itself | **2.6 min** |
+| run in the suite — reuses the account TC 1.1 already carded | **1.1 min** |
+
+So a shared account is worth roughly 90 seconds per test that can use one. Where
+state allows it, the suites do this (`fixtures/shared-account.helper.ts`):
+
+| Suite | Shared | Own account, and why |
+|---|---|---|
+| TS-01 card | 1.1 + 1.4 | 1.2, 1.3 — both negative "no card saved" tests; sharing would make a card leaked by one look like a failure of the other |
+| TS-02 top-up | 2.2, 2.3a, 2.6, 2.7, 2.8 | 2.1, 2.3b, 2.4, 2.5, 2.9, 2.10 — each needs a controlled starting history |
+| TS-03 min amount | 3.1 + 3.5 | 3.2 (injected debt), 3.3, 3.4 (spend their credit), 3.6 (top-up across a month boundary) |
+
+**The cache is per WORKER, not per run.** Playwright starts a new worker after a
+test failure and on every retry, so a run with failures re-creates the shared
+account and the saving quietly disappears. `ensure()` logs which path it took
+(`creating the shared account` vs `reusing shared account`), so check the log
+before wondering why a run was slow. This is exactly what happened on
+2026-08-20: TC 2.5 failed, the worker restarted, and TC 2.6 paid 200s where its
+siblings paid 61–70s.
 
 ---
 
@@ -289,6 +339,7 @@ Start with one case, not the full suite.
 | TS-01 stalls — "View Provisioning Data" modal never opens | Tenant's ELECTRICITY provisioning type not configured | Environment config issue, not a test bug. Raise it before re-running. |
 | TC 2.6–2.10 fail on a missing Receipt column | Feature flag off | Set `TOPUP_RECEIPTS_ENABLED=false` — they will skip with a reason. |
 | Account creation fails "not effective until future" | CCP clock parked in the future by an earlier run | The `jasecCcpBaseline` fixture normally handles this. Check the current clock before blaming the test. |
+| `CCP REWIND:` warnings on every test | The tenant clock is parked ahead of `JASEC_CCP_BASELINE`, so each reset moves it backward | Expected today, and tolerated because the date-sensitive specs pin absolute dates. Set `JASEC_CCP_BASELINE` in `.env` if your environment needs a different anchor. Specs that own the clock opt out with `test.use({ ccpBaseline: null })`. |
 | PlaceToPay page times out | Third-party sandbox slow or down | Re-run the single case, confirm with `--headed` before filing anything. |
 | Tests interfere with each other, or dates look wrong | Parallelism, or a colleague moving the clock | Keep `workers: 1`; check the team channel. |
 | Wrong tenant got the test accounts | `EMBRIX_BASE_URL` disagreeing with `TEST_ENV` | Section 4 — the URL wins. |
