@@ -208,14 +208,8 @@ The `METER=...` part goes **in front of** the command, on the same line.
 
 Valid case names: `TC02 TC03 TC04 TC05 TC06 TC07 TC08 TC09 TCB1 TCB2 TCB3`.
 
-Each takes about 4 minutes. The script prints a line per event showing what it
-expected, what the JASEC document says, and what Embrix actually produced.
-
-### 6.3 Three cases where "not PASS" is still correct
-
-`TC04`, `TC05` and `TC07` print **`PASS-ENGINE-DOC-WRONG`**. That means Embrix is
-right and the JASEC document's own arithmetic is wrong. **These count as passes.**
-Do not raise them as defects.
+Each takes about 4 minutes. The script prints a line per event showing what was
+expected and what Embrix actually produced, then `PASS` or `FAIL`.
 
 ---
 
@@ -262,7 +256,6 @@ Here is how to tell which you have:
 | `NO_SERVICE_FOR_THE_PROVISIONING_ID` | that meter's service is switched off | BLOCKED |
 | `MDR did not reach PROCESSED` | the file was never picked up — see §9 | BLOCKED |
 | `*** ABORT: meter ... is not in service` | the meter did not exist yet at the system clock's date | BLOCKED |
-| `PASS-ENGINE-DOC-WRONG` on TC04 / TC05 / TC07 | document arithmetic is wrong, Embrix is right | **PASS** |
 | An amount that differs from expected | Embrix charged the wrong money | **FAIL** |
 
 ---
