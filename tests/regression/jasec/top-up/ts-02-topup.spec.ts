@@ -388,7 +388,6 @@ test.describe(
           serviceType: 'ELECTRICITY',
           reference,
         };
-for
         testLogger.data('Duplicate-test payload (both requests use same reference)', body);
 
         const [resp1, resp2] = await Promise.all([
