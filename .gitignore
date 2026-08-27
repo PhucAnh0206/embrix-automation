@@ -16,6 +16,10 @@ playwright/.auth/
 
 # Test output
 test-results/
+# Recon/evidence dumps written by the explore-* specs. Deliberately NOT under
+# test-results/ — Playwright clears that folder around a run and the evidence
+# went with it.
+artifacts/
 playwright-report/
 # Captured console output from local runs (full-run.log, verify-*.log, etc.)
 *.log
