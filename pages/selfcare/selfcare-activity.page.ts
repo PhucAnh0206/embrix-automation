@@ -131,15 +131,48 @@ export class SelfcareActivityPage extends BasePage {
     ).toBeVisible({ timeout: MEDIUM_WAIT });
   }
 
-  /** Assert the Card On File section is empty (token and expiry cleared). */
-  async assertCardOnFileEmpty(): Promise<void> {
+  /**
+   * Assert the Card On File section is empty (token and expiry cleared).
+   *
+   * Same re-fetch rule as assertCardOnFilePopulated, in both directions:
+   *
+   *  - AFTER A DELETE, a stale token cannot clear itself. The field is filled on
+   *    page load, so polling it would watch the old value until timeout. Hence
+   *    the re-navigation lives inside the retry.
+   *  - FOR A NEGATIVE ("no card was saved"), the opposite risk applies and it is
+   *    worse: an empty field is indistinguishable from one that has not rendered
+   *    yet, so the assertion can pass instantly while proving nothing. Pass
+   *    `settleMs` to require the field to STAY empty across further re-fetches.
+   *
+   * `settleMs` still cannot prove a negative outright -- only bound it. The
+   * definitive oracle is DbHelper.getSavedCardCount(); see cases 1.2 / 1.3.
+   */
+  async assertCardOnFileEmpty(opts: { settleMs?: number } = {}): Promise<void> {
     await this.page.waitForLoadingToDisappear();
 
     const tokenInput = this.page.getByPlaceholder(/Card Number/i).first();
-    await expect(tokenInput).toHaveValue('', { timeout: LONG_WAIT });
-
     const expiryInput = this.page.getByPlaceholder(/MM\/YYYY/i).first();
-    await expect(expiryInput).toHaveValue('', { timeout: MEDIUM_WAIT });
+
+    await expect(async () => {
+      await this.navigateToManagePaymentProfile();
+      expect(await tokenInput.inputValue()).toBe('');
+      expect(await expiryInput.inputValue()).toBe('');
+    }).toPass({ timeout: LONG_WAIT, intervals: [1000, 2000, 3000] });
+
+    const settleMs = opts.settleMs ?? 0;
+    if (settleMs > 0) {
+      const deadline = Date.now() + settleMs;
+      while (Date.now() < deadline) {
+        await this.page.waitForTimeout(3000);
+        await this.navigateToManagePaymentProfile();
+        const seen = await tokenInput.inputValue();
+        expect(
+          seen,
+          `a card appeared ${settleMs}ms into the settle window -- it was saved ` +
+          `late, so an immediate empty check would have passed wrongly`,
+        ).toBe('');
+      }
+    }
   }
 
   /**

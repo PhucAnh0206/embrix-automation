@@ -32,6 +32,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { test, expect } from '../../../../fixtures/jasec-fixtures';
+import { DbHelper } from '../../../../helpers/db.helper';
 import {
   setUpAccountAndEnterManagePaymentProfile,
   attachToAccountInSelfCare,
@@ -68,6 +69,49 @@ const cardedAccount = new SharedAccount<CardFixtures>({
   create: (fixtures) => setUpAccountAndEnterManagePaymentProfile(fixtures, baseRow),
   attach: attachAndOpenPaymentProfile,
 });
+
+/**
+ * Confirm from the DATABASE that no card was saved.
+ *
+ * The UI cannot answer this. An empty Credit Card Token field is identical
+ * whether nothing was ever saved or the PlaceToPay callback has not landed yet,
+ * and waiting longer cannot resolve an absence -- so 1.2 and 1.3 could pass while
+ * proving nothing, and would keep passing even if the product started saving
+ * cards from abandoned or declined sessions.
+ *
+ * Built here instead of taken as a fixture ON PURPOSE: the `dbHelper` fixture
+ * connects eagerly and is documented to fail fast when VPN is down, so declaring
+ * it would turn these two UI-only cases into VPN-only ones. A connection failure
+ * SKIPS the DB leg with the reason printed -- the UI settle window still ran, and
+ * a blocked precondition is never reported as proof.
+ */
+async function confirmNoCardInDb(
+  accountId: string,
+  testLogger: { log: (message: string) => void },
+): Promise<void> {
+  const db = new DbHelper();
+  try {
+    await db.connect();
+  } catch (err) {
+    const first = String((err as Error)?.message ?? err).split('\n')[0];
+    testLogger.log(
+      `! DB oracle SKIPPED for ${accountId} -- cannot connect (${first}). ` +
+      `VPN down or DB_* not configured. The UI settle window ran, but ` +
+      `"no card saved" is NOT proven by this run.`,
+    );
+    return;
+  }
+  try {
+    const saved = await db.getSavedCardCount(accountId);
+    expect(
+      saved,
+      `${accountId} must have NO saved card, but core_engine.credit_card has ${saved}`,
+    ).toBe(0);
+    testLogger.log(`checked DB oracle -- ${accountId} has 0 saved cards`);
+  } finally {
+    await db.disconnect();
+  }
+}
 
 test.describe(
   'TS-01 — Manage Credit Card',
@@ -115,7 +159,10 @@ test.describe(
 
         await selfcareActivityPage.clickSaveWithPlaceToPay();
         await placeToPayCheckoutPage.abandonCheckoutSession();
-        await selfcareActivityPage.assertCardOnFileEmpty();
+        // settleMs: keep re-fetching for a while, so a LATE save is caught rather
+        // than read as "never saved". Bounds the negative; the DB proves it.
+        await selfcareActivityPage.assertCardOnFileEmpty({ settleMs: 15_000 });
+        await confirmNoCardInDb(accountId, testLogger);
 
         testLogger.log(`✓ TC 1.2 — account ${accountId} has no card`);
       },
@@ -138,7 +185,8 @@ test.describe(
 
         await selfcareActivityPage.clickSaveWithPlaceToPay();
         await placeToPayCheckoutPage.submitDeclinedCard();
-        await selfcareActivityPage.assertCardOnFileEmpty();
+        await selfcareActivityPage.assertCardOnFileEmpty({ settleMs: 15_000 });
+        await confirmNoCardInDb(accountId, testLogger);
 
         testLogger.log(`✓ TC 1.3 — account ${accountId} did not save the declined card`);
       },
