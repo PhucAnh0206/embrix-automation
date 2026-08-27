@@ -1,6 +1,6 @@
 import { Page, expect } from '@playwright/test';
 import { BasePage } from '../base.page';
-import { MEDIUM_WAIT, LONG_WAIT, EXTRA_LONG_WAIT } from '../../helpers/timeouts.helper';
+import { MEDIUM_WAIT, LONG_WAIT, VERY_LONG_WAIT, EXTRA_LONG_WAIT } from '../../helpers/timeouts.helper';
 import { selfcareHostRe } from './selfcare-login.page';
 
 /**
@@ -97,8 +97,28 @@ export class SelfcareActivityPage extends BasePage {
       .then(async () => (await tokenInput.inputValue()) !== '')
       .catch(() => false);
 
+    // The token field is filled by a fetch on PAGE LOAD; nothing updates it in
+    // place. So polling the DOM cannot make a value appear -- only re-fetching
+    // can. That is why the re-navigation belongs INSIDE the retry.
+    //
+    // This previously re-navigated exactly ONCE and then polled for 30s. When
+    // the PlaceToPay round-trip landed after that single re-navigation, the poll
+    // was watching a DOM that would never change: 63 polls, every one
+    // value="", then a timeout. Being a race against an external gateway it
+    // failed DETERMINISTICALLY for a tester whose round-trip is slower, and
+    // passed deterministically here -- six consecutive identical failures on one
+    // machine (2026-08-27, account AC-840608) while the card sat in
+    // core_engine.credit_card the whole time and rendered fine when opened later.
+    //
+    // Re-fetching on every attempt removes the timing dependency entirely.
     if (!populatedFast) {
-      await this.navigateToManagePaymentProfile();
+      await expect(async () => {
+        await this.navigateToManagePaymentProfile();
+        expect(await tokenInput.inputValue()).not.toBe('');
+      }).toPass({
+        timeout: VERY_LONG_WAIT,
+        intervals: [1000, 2000, 3000, 5000],
+      });
     }
 
     await expect(tokenInput).not.toHaveValue('', { timeout: LONG_WAIT });
