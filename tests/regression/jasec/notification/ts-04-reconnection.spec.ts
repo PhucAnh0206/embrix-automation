@@ -166,7 +166,14 @@ test.describe('TS-04 — reconnection after top-up', () => {
   test.use({ ccpBaseline: null });
 
   test('5.3 partial top-up does not reconnect, then 5.2 full top-up does', async ({ page, dialogs }) => {
-    test.setTimeout(900_000);
+    // 25 minutes, and it is not padding. The internal waits alone can total 720s:
+    // two waitForBalanceChange at 180s (line ~306, ~343) plus notification settle
+    // windows of 120s and 240s. On top of that sit account search, two full
+    // PlaceToPay checkout round-trips, and the no-card guard step. At the previous
+    // 900s the budget left ~3 minutes for all of that and the run took 16.9m --
+    // it timed out with every assertion already logged as passing. Do not trim
+    // this without shortening the waits it exists to cover.
+    test.setTimeout(1_500_000);
 
     const candidate = await pickSuspendedAccount();
     expect(
@@ -230,8 +237,24 @@ test.describe('TS-04 — reconnection after top-up', () => {
       await activity.navigateToTopUp();
       await topup.assertLoaded();
       const min = await topup.getDisplayedMinimumAmount();
-      // Cross-check of the settled Min Amount rule: base 3300 + outstanding debt.
-      console.log(`[TS-04] displayed minimum "${min}" (expected ${(3300 + debt).toFixed(2)})`);
+      // Cross-check of the settled Min Amount rule: base + outstanding debt.
+      //
+      // There are TWO valid bases and this used to hardcode one: 2920 in the first
+      // month of the effective subscription, 3300 afterwards. On 2026-08-27
+      // ACT-100173 displayed 5739.30 -- exactly 2920 + 2819.30, i.e. correct --
+      // while this line printed "expected 6119.30" and so made a correct figure
+      // look like a defect in every report. Print both and name the one that
+      // matched rather than asserting a single base.
+      const firstMonthMin = 2920 + debt;
+      const ongoingMin = 3300 + debt;
+      const matchedBase =
+        Number(min) === firstMonthMin ? 'first-month base 2920'
+          : Number(min) === ongoingMin ? 'ongoing base 3300'
+            : 'NEITHER base';
+      console.log(
+        `[TS-04] displayed minimum "${min}" -- ${matchedBase} ` +
+        `(first-month ${firstMonthMin.toFixed(2)} / ongoing ${ongoingMin.toFixed(2)})`,
+      );
     });
 
     // ── PAY NOW with no card on file must warn, not fail silently ──────────
