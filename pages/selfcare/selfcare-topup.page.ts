@@ -1,6 +1,6 @@
 import { Page, expect } from '@playwright/test';
 import { BasePage } from '../base.page';
-import { MEDIUM_WAIT, LONG_WAIT, EXTRA_LONG_WAIT } from '../../helpers/timeouts.helper';
+import { MEDIUM_WAIT, LONG_WAIT, VERY_LONG_WAIT, EXTRA_LONG_WAIT } from '../../helpers/timeouts.helper';
 import type { SelfcareActivityPage } from './selfcare-activity.page';
 
 /**
@@ -179,7 +179,7 @@ export class SelfcareTopupPage extends BasePage {
   }
 
   /** Assert a top-up succeeded — success toast or new history data row. */
-  async assertPaymentSuccess(): Promise<void> {
+  async assertPaymentSuccess(activityPage?: SelfcareActivityPage): Promise<void> {
     await this.page.waitForLoadingToDisappear();
 
     const toast = this.page.locator('.Toastify__toast--success').first();
@@ -191,6 +191,21 @@ export class SelfcareTopupPage extends BasePage {
       approvedHeading.waitFor({ state: 'visible', timeout: LONG_WAIT }),
       firstDataRow.waitFor({ state: 'visible', timeout: LONG_WAIT }),
     ]).catch(() => { });
+
+    // The history table is fetched on PAGE LOAD, so a row that lands after the
+    // render never appears by waiting -- which is how this helper once reported
+    // "no history rows" for a top-up that HAD landed (core_engine already showed
+    // the credit). Given an activityPage it re-fetches on every attempt; without
+    // one it keeps the previous single-shot behaviour, so existing callers are
+    // unaffected. The definitive oracle is still the DB -- prefer polling
+    // core_engine over this table when the point of the test is the money.
+    if (activityPage) {
+      await expect(async () => {
+        await this.reload(activityPage);
+        expect(await this.historyDataRows.count()).toBeGreaterThanOrEqual(1);
+      }).toPass({ timeout: VERY_LONG_WAIT, intervals: [2000, 3000, 5000] });
+      return;
+    }
 
     await this.assertHistoryRowCountAtLeast(1);
   }

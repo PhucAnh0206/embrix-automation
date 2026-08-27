@@ -163,6 +163,27 @@ export class DbHelper {
   }
 
   /** Convenience — one call to set an account's balance by accountId. */
+  /**
+   * How many saved cards the account has in core_engine.credit_card.
+   *
+   * The oracle for "no card was saved". The UI cannot answer that question: an
+   * empty Credit Card Token field is identical whether nothing was ever saved or
+   * the PlaceToPay callback simply has not landed yet, and waiting longer cannot
+   * resolve an absence. Cases 1.2 (abandoned checkout) and 1.3 (declined card)
+   * assert exactly that negative, so without this they can pass while proving
+   * nothing -- they would keep passing even if the product started saving cards
+   * from declined sessions.
+   */
+  async getSavedCardCount(accountId: string): Promise<number> {
+    const rows = await this.query<{ n: string }>(
+      `SELECT count(*)::text AS n
+         FROM core_engine.credit_card
+        WHERE accountid = $1`,
+      [accountId],
+    );
+    return Number(rows[0]?.n ?? 0);
+  }
+
   async setAccountBalance(accountId: string, amount: number): Promise<void> {
     const bu = await this.getBalanceUnitIdForAccount(accountId);
     await this.setBalanceAmount(bu, amount);
