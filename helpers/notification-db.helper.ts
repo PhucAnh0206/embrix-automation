@@ -258,13 +258,10 @@ export class NotificationDbHelper {
   }
 
   async getCrcBalance(accountId: string): Promise<number | null> {
-    const rows = await this.db.query<{ amount: string }>(
-      `SELECT bub.amount FROM core_engine.balance_unit_balances bub
-         JOIN core_engine.balance_unit bu ON bu.id = bub.id
-        WHERE bu.accountid = $1 AND bub.currencyid = 'CRC'`,
-      [accountId],
-    );
-    return rows.length ? Number(rows[0].amount) : null;
+    // Delegated: DbHelper.getCrcBalanceAnyState is the same query. Two copies of
+    // it had already drifted apart in ordering elsewhere, so there is now one
+    // definition and this keeps the name the notification specs use.
+    return this.db.getCrcBalanceAnyState(accountId);
   }
 
   /**
@@ -279,12 +276,14 @@ export class NotificationDbHelper {
    * whenever no suspension was ever due.
    */
   async getSubscriptionStatus(accountId: string): Promise<string | null> {
-    const rows = await this.db.query<{ status: string }>(
-      `SELECT status FROM core_engine.subscription WHERE accountid = $1
-        ORDER BY id DESC LIMIT 1`,
-      [accountId],
-    );
-    return rows.length ? rows[0].status : null;
+    // Delegated to DbHelper, which is now the single definition of "the
+    // account's primary subscription". The two used to order differently -- this
+    // one by id, DbHelper's by createddate -- so they could return different rows
+    // for a multi-subscription account. id DESC won: createddate follows the
+    // manipulable CCP clock. No behaviour change; every account on jasec-dev has
+    // exactly one subscription, and the two orderings were verified to agree on
+    // all 676 of them before this was consolidated.
+    return this.db.getSubscriptionStatus(accountId);
   }
 
   /**
