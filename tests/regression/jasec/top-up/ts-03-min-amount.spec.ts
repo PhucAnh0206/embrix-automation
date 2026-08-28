@@ -2,11 +2,47 @@
  * TS-03 — Minimum Amount Business Logic
  *
  * Rules (see MIN_AMOUNT_BASE constant below):
- *   • Base = firstMonth CRC in the account's first effective month
- *   • Base = ongoing CRC from the second month onward
  *   • Displayed value = MAX(0, base − abs(creditBalance) + debtBalance)
  *   • Section is visible when displayed value > 0, removed when <= 0
  *   • Balance uses inverted CRC sign: > 0 = debt, < 0 = credit
+ *
+ * WHAT THE BASE ACTUALLY IS — corrected 2026-08-29 from the product source
+ * (PGPrepaidSubscriptionService.calculateTopupAmount + the SQL function
+ * core_engine.get_minimum_topup_amount).
+ *
+ * The base is NOT a property of the calendar month. It is the TIER-AWARE
+ * INCREMENTAL cost of the next N units given what the account has already
+ * consumed this cycle:
+ *
+ *     base = f(topupQuantity + consumedThisCycle) − f(consumedThisCycle)
+ *
+ * where f prices a quantity through the offer's tiers. So the base rises when
+ * consumption pushes the next N units into a higher tier. The firstMonth /
+ * ongoing constants below are the values that behaviour produces for THIS test
+ * data — they are correct as expectations, but the reason they differ is tier
+ * position, not "which month it is". Treat a change in them as a pricing or
+ * consumption change, not a calendar bug.
+ *
+ * Two further details from the same source, both currently benign here:
+ *
+ *   • `noOfTopup` is counted over billingProfile.lastBillDate..nextBillDate,
+ *     i.e. the BILLING CYCLE, not the calendar month.
+ *   • A separate branch subtracts current consumption from the required initial
+ *     quantity when noOfTopup == 0, but it is gated on the ccp property
+ *     `includeCurrentConsumptionForIntialTopup`, which is UNSET on jasec-dev, so
+ *     that branch does not run and is not what makes the base move.
+ *
+ * CAVEAT ON THE ABOVE, and it matters. That logic is the ENGINE's, reached through
+ * CrmGatewayController.getTopUp — and on jasec-dev that route answers
+ * "Canonical Mapping Configuration is not found for GET_TOP_UP API", i.e. it is not
+ * wired for this tenant. So the description above is where the platform implements
+ * a prepaid minimum, NOT a proven account of what Self Care shows here. No response
+ * observed during a Top Up page load carried these fields either.
+ *
+ * Treat the constants as empirically correct (they pass, repeatedly) and the
+ * mechanism above as the best available explanation rather than a verified one. If
+ * they ever drift, find the endpoint Self Care actually reads first; do not assume
+ * the engine path above.
  *
  * Setup requirement: account MUST be created with a real order so top-ups
  * actually reach the backend. Setup helper uses createPrepaidAccountWithOrder.
