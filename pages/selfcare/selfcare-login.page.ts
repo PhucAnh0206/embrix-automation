@@ -39,6 +39,28 @@ export class SelfcareLoginPage extends BasePage {
   }
 
   /** Navigate to the Self Care login page. Uses SELFCARE_BASE_URL from .env. */
+  /**
+   * True when this page already holds an authenticated Self Care session.
+   *
+   * Exists so attachToAccountInSelfCare can be called twice in one test without
+   * hanging. goto() on an authenticated session routes straight to the app, so
+   * there is NO login form to wait for and usernameInput().waitFor() burns its
+   * full 180s. Verified 2026-08-28: after logging in, a second goto() landed on
+   * "/" with the nav rendered and no username field. Not a product defect -
+   * expected SPA behaviour, and previously a nine-minute stall.
+   */
+  async isAuthenticated(): Promise<boolean> {
+    const url = this.page.url();
+    if (!selfcareHostRe().test(url)) return false;
+    if (/login/i.test(url)) return false;
+    const loginFormVisible = await this.page
+      .getByPlaceholder(/username/i)
+      .first()
+      .isVisible({ timeout: 3_000 })
+      .catch(() => false);
+    return !loginFormVisible;
+  }
+
   async goto(): Promise<void> {
     await this.page.goto(selfcareBaseUrl(), { waitUntil: 'domcontentloaded' });
   }

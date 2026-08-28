@@ -259,10 +259,16 @@ export async function attachToAccountInSelfCare(
 ): Promise<void> {
   const { selfcareLoginPage, selfcareAccountSearchPage } = fixtures;
 
-  const { username, password } = embrixCredentials();
-  await selfcareLoginPage.goto();
-  await selfcareLoginPage.login(username, password);
-  await selfcareLoginPage.assertLoginSuccess();
+  // Idempotent on purpose. Called a second time inside one test this would
+  // otherwise wait out its full 180s for a login form that cannot appear: an
+  // authenticated session routes goto() straight to the app. Verified
+  // 2026-08-28. Switching accounts is all a logged-in caller needs.
+  if (!(await selfcareLoginPage.isAuthenticated())) {
+    const { username, password } = embrixCredentials();
+    await selfcareLoginPage.goto();
+    await selfcareLoginPage.login(username, password);
+    await selfcareLoginPage.assertLoginSuccess();
+  }
 
   await selfcareAccountSearchPage.navigate();
   await selfcareAccountSearchPage.searchAndSelectAccount(accountId);
@@ -323,12 +329,10 @@ export async function setUpAccountAndEnterManagePaymentProfile(
  * Also note `legalEntity` is ignored (stored as 'US'), and the credit profile is
  * not guaranteed by this path — assert it if the test depends on it.
  */
-export async function setUpAccountInSelfCareViaGateway(
+export async function createPrepaidAccountViaGateway(
   fixtures: {
     testLogger: TestLogger;
     accountOrderApiHelper: AccountOrderApiHelper;
-    selfcareLoginPage: SelfcareLoginPage;
-    selfcareAccountSearchPage: SelfcareAccountSearchPage;
   },
   row?: PrepaidAccountWithOrderRow,
 ): Promise<string> {
@@ -376,7 +380,28 @@ export async function setUpAccountInSelfCareViaGateway(
     }],
   });
   testLogger.log(`gateway created ${accountId} in ${((Date.now() - started) / 1000).toFixed(1)}s`);
+  return accountId;
+}
 
+/**
+ * Create via the gateway AND attach to the account in Self Care.
+ *
+ * Split from createPrepaidAccountViaGateway so a caller that is ALREADY logged
+ * in can create an account without logging in again -- repeating the Self Care
+ * login inside one test leaves the form unrendered and every following action
+ * times out (seen 2026-08-28). Such a caller creates, then navigates and
+ * searches, rather than calling this.
+ */
+export async function setUpAccountInSelfCareViaGateway(
+  fixtures: {
+    testLogger: TestLogger;
+    accountOrderApiHelper: AccountOrderApiHelper;
+    selfcareLoginPage: SelfcareLoginPage;
+    selfcareAccountSearchPage: SelfcareAccountSearchPage;
+  },
+  row?: PrepaidAccountWithOrderRow,
+): Promise<string> {
+  const accountId = await createPrepaidAccountViaGateway(fixtures, row);
   await attachToAccountInSelfCare(fixtures, accountId);
   return accountId;
 }
