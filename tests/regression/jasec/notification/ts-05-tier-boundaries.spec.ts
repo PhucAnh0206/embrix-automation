@@ -393,6 +393,13 @@ test.describe('TS-05 — threshold email tier boundaries', () => {
       const watermark = await notifyDb.getMaxNotificationId();
       console.log(`[TS-05] watermark ${watermark}`);
 
+      // Stale BILL_CHECK rows collide on batch ids with a new run. They are left
+      // behind by a run that died midway — exactly when you re-run this spec.
+      // ts-02 has always done this; added here 2026-08-28 for consistency, since
+      // ts-05 fires the same billingJobs() and had the same exposure.
+      const clearedJobs = await notifyDb.clearStaleJobs('BILL_CHECK');
+      if (clearedJobs) console.log(`[TS-05] cleared ${clearedJobs} stale BILL_CHECK job rows`);
+
       const scheduleId = await jobs.createSchedule({
         scheduleDate: SCHEDULE_DATE,
         frequency,
