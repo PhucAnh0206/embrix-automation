@@ -206,6 +206,26 @@ export default defineConfig({
       testMatch: ['**/regression/jasec/notification/ts-05-*.spec.ts'],
     },
 
+    // ── JASEC billing via the Core UI Daily Schedule screen.
+    // Proves the UI can run a billing cycle. The GraphQL path in ts-02 / ts-05
+    // stays the one the suite relies on; this is an addition so a UI regression
+    // cannot stop the regression suite from billing.
+    //
+    // IRREVERSIBLE: moves the tenant CCP clock, spends a job_schedule slot, and
+    // bills real accounts (advancing their cycle). Gated behind
+    // JASEC_BILL_UI_RUN=true inside the spec and refuses to start without an
+    // explicit JASEC_BILL_UI_DATE, so a broad run can never trigger it.
+    // Needs a browser and the DB, therefore the VPN.
+    {
+      name: 'jasec-billing-ui',
+      testMatch: ['**/regression/jasec/billing/ui-*.spec.ts'],
+      dependencies: ['setup'],
+      use: {
+        ...devices['Desktop Chrome'],
+        storageState: 'playwright/.auth/user.json',
+      },
+    },
+
     // ── JASEC billing EXPLORATORY: the invoice as a DOCUMENT, read through Core UI.
     // NOT PART OF THE OFFICIAL SUITE. There is no EPDP sub-task for billing or
     // invoicing; this project exists to find out whether the area is worth
