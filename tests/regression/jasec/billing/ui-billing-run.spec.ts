@@ -51,8 +51,27 @@
 import { test, expect } from '../../../../fixtures/page-factory';
 import { DatabaseHelper } from '../../../../helpers/database.helper';
 
-/** Accounts a schedule on `date` will actually bill. Conditions mirror
- *  NotificationDbHelper.findEligibleAccounts — every one is load-bearing. */
+/**
+ * Accounts a schedule on `date` will actually bill. Conditions mirror
+ * NotificationDbHelper.findEligibleAccounts — every one is load-bearing.
+ *
+ * NOTE THE PAYMENT-METHOD FILTER. core_engine.insert_jobs splits billing four
+ * ways by payment method, and each variant selects ONLY its own:
+ *
+ *   BILL              paymentmethod != 'NON_PAYING'
+ *   BILL_CC           paymentmethod  = 'CREDIT_CARD'
+ *   BILL_CHECK        paymentmethod  = 'CHECK'
+ *   BILL_NON_PAYING   paymentmethod  = 'NON_PAYING'
+ *
+ * The UI's DAILY template contains BILL_CHECK and no BILL_CC, so it bills CHECK
+ * accounts only. Without this filter the spec would announce a CREDIT_CARD
+ * account as "will be billed", the chain would correctly skip it, and the run
+ * would fail with "no eligible account gained an invoice" — a false failure
+ * against a healthy screen. JASEC is genuinely mixed: on 2026-08-29 dev held 631
+ * CHECK and 283 CREDIT_CARD prepaid accounts, preprod 84 and 38.
+ *
+ * If a tenant's DAILY template ever gains BILL_CC, widen this to match.
+ */
 const ELIGIBLE_SQL = `
   SELECT a.id AS accountid, bp.billingdom
     FROM core_engine.account a
@@ -62,9 +81,26 @@ const ELIGIBLE_SQL = `
     JOIN core_engine.subscription s     ON s.accountid = a.id AND s.status = 'ACTIVE'
    WHERE a.accountcategory = 'PREPAID'
      AND a.status = 'ACTIVE'
+     AND pp.paymentmethod = 'CHECK'
      AND bp.nextaccountingdate + core_engine.get_future_cycle_date(a.id) = $1::date
    GROUP BY a.id, bp.billingdom
    ORDER BY a.id`;
+
+/** Same date, but the accounts BILL_CHECK cannot touch. Logged, not asserted:
+ *  they are excluded by design and it is worth saying so out loud. */
+const EXCLUDED_BY_PAYMENT_METHOD_SQL = `
+  SELECT pp.paymentmethod, count(*)::int AS n
+    FROM core_engine.account a
+    JOIN core_engine.billing_profile bp ON bp.accountid = a.id
+    JOIN core_engine.bill_unit bu       ON bu.accountid = a.id AND bu.status = 'PENDING'
+    JOIN core_engine.payment_profile pp ON pp.accountid = a.id
+    JOIN core_engine.subscription s     ON s.accountid = a.id AND s.status = 'ACTIVE'
+   WHERE a.accountcategory = 'PREPAID'
+     AND a.status = 'ACTIVE'
+     AND pp.paymentmethod <> 'CHECK'
+     AND bp.nextaccountingdate + core_engine.get_future_cycle_date(a.id) = $1::date
+   GROUP BY pp.paymentmethod
+   ORDER BY pp.paymentmethod`;
 
 const INVOICE_COUNT_SQL = `
   SELECT count(*)::int AS n FROM core_engine.invoice_unit WHERE accountid = $1`;
@@ -128,16 +164,36 @@ test.describe('Billing via the Core UI Daily Schedule', () => {
     try {
       // ── 1. Who will this bill, and is that an acceptable blast radius? ──
       const eligible = await db.executeQuery(ELIGIBLE_SQL, [date]);
+      // Cap the list. A bulk date resolves to ~200 accounts and printing them all
+      // buries the count, which is the number that actually matters here.
+      const shown = eligible
+        .slice(0, 10)
+        .map((r: any) => `${r.accountid}(BDOM ${r.billingdom})`)
+        .join(', ');
       testLogger.log(
-        `${date}: ${eligible.length} account(s) will be billed — ` +
-        `${eligible.map((r: any) => `${r.accountid}(BDOM ${r.billingdom})`).join(', ') || 'NONE'}`,
+        `${date}: ${eligible.length} CHECK account(s) will be billed — ` +
+        `${shown || 'NONE'}${eligible.length > 10 ? ` ... +${eligible.length - 10} more` : ''}`,
       );
+
+      // Say what the chain will skip, so a low count is never a mystery.
+      const excluded = await db.executeQuery(EXCLUDED_BY_PAYMENT_METHOD_SQL, [date]);
+      if (excluded.length) {
+        testLogger.log(
+          `${date}: NOT billed by this chain (no BILL_CC in the DAILY template) — ` +
+          excluded.map((r: any) => `${r.paymentmethod}=${r.n}`).join(', '),
+        );
+      }
 
       expect(
         eligible.length,
-        `No account has a required billing date of ${date}, so this run would ` +
+        `No CHECK account has a required billing date of ${date}, so this run would ` +
         `complete having billed nobody and prove nothing. Pick a date equal to ` +
-        `some account's nextaccountingdate + offset.`,
+        `some account's nextaccountingdate + offset. Note the chain bills CHECK ` +
+        `accounts only` +
+        (excluded.length
+          ? `, and ${excluded.map((r: any) => `${r.n} ${r.paymentmethod}`).join(' + ')} ` +
+            `account(s) on this date are excluded for that reason.`
+          : `.`),
       ).toBeGreaterThan(0);
 
       expect(
