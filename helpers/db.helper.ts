@@ -286,9 +286,15 @@ export class DbHelper {
   /** Current status of the account's primary subscription, or null if it has none. */
   async getSubscriptionStatus(accountId: string): Promise<string | null> {
     const rows = await this.query<{ status: string }>(
+      // id DESC, NOT createddate. subscription.createddate is stamped with the
+      // CCP clock, which is moved around freely and routinely BACKWARD on dev and
+      // preprod -- values on jasec-dev span 2026-06-03 to 2027-04-09 against a
+      // clock of 2026-07-15. Ordering by it would rank a subscription created
+      // during a rewind as older than one created earlier in real time. `id` is a
+      // monotonic sequence and cannot be perturbed that way.
       `SELECT status FROM core_engine.subscription
         WHERE accountid = $1
-        ORDER BY createddate DESC, id DESC
+        ORDER BY id DESC
         LIMIT 1`,
       [accountId],
     );
@@ -319,7 +325,10 @@ export class DbHelper {
           SET status = $2
         WHERE id = (SELECT id FROM core_engine.subscription
                      WHERE accountid = $1
-                     ORDER BY createddate DESC, id DESC
+                     -- id DESC, not createddate: see getSubscriptionStatus. This
+                     -- one WRITES, so picking the wrong row would silently change
+                     -- the state of the wrong subscription.
+                     ORDER BY id DESC
                      LIMIT 1)
       RETURNING id`,
       [accountId, status],
