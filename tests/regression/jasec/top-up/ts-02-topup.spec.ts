@@ -1130,7 +1130,6 @@ test.describe(
       selfcareLoginPage: SelfcareLoginPage,
       selfcareAccountSearchPage: SelfcareAccountSearchPage,
       state: 'CLOSED' | 'ACTIVE' | 'SUSPENDED',
-      alreadyLoggedIn = false,
     ): Promise<string | null> {
       const candidates = await dbHelper.findAccountsBySubscriptionState(state, 3);
       if (!candidates.length) {
@@ -1142,19 +1141,14 @@ test.describe(
       }
       for (const accountId of candidates) {
         try {
-          if (alreadyLoggedIn) {
-            // Re-running the full login inside one test, after a completed
-            // PlaceToPay round trip, leaves the login form unrendered and every
-            // candidate times out at 180s -- three of them burned 9 minutes on
-            // 2026-08-28 and blew the test budget. The session is already good;
-            // just switch which account it is pointed at.
-            await selfcareAccountSearchPage.navigate();
-            await selfcareAccountSearchPage.searchAndSelectAccount(accountId);
-          } else {
-            await attachToAccountInSelfCare(
-              { selfcareLoginPage, selfcareAccountSearchPage }, accountId,
-            );
-          }
+          // Safe to call unconditionally: attachToAccountInSelfCare skips the
+          // login when a session already exists. It used to need an
+          // alreadyLoggedIn flag from every caller, because a second login inside
+          // one test waits out its full 180s for a form that cannot appear -- but
+          // that is now handled at the source, so callers no longer have to know.
+          await attachToAccountInSelfCare(
+            { selfcareLoginPage, selfcareAccountSearchPage }, accountId,
+          );
           return accountId;
         } catch (err) {
           testLogger.log(
@@ -1204,11 +1198,8 @@ test.describe(
         });
 
         await test.step('account with a CLOSED subscription', async () => {
-          // Second attach in this test - the session from the first leg is still
-          // good, so switch accounts rather than logging in again.
           const accountId = await attachToFirstUsableAccount(
-            dbHelper, testLogger, selfcareLoginPage, selfcareAccountSearchPage,
-            'CLOSED', true,
+            dbHelper, testLogger, selfcareLoginPage, selfcareAccountSearchPage, 'CLOSED',
           );
           if (!accountId) {
             testLogger.log('! 2.11 CLOSED leg SKIPPED - see reason above.');
@@ -1281,11 +1272,8 @@ test.describe(
         await test.step('SUSPENDED subscription', async () => {
           // Prefer a REAL suspended account: one that got there through the
           // product, which is a truer fixture than anything we can fabricate.
-          // Already logged in from the ACTIVE leg, so switch accounts rather than
-          // logging in again.
           let accountId = await attachToFirstUsableAccount(
-            dbHelper, testLogger, selfcareLoginPage, selfcareAccountSearchPage,
-            'SUSPENDED', true,
+            dbHelper, testLogger, selfcareLoginPage, selfcareAccountSearchPage, 'SUSPENDED',
           );
           let synthetic = false;
 
@@ -1306,8 +1294,9 @@ test.describe(
             testLogger.log(`2.12 SUSPENDED: ${accountId} / ${subId} forced to SUSPENDED`);
             synthetic = true;
 
-            await selfcareAccountSearchPage.navigate();
-            await selfcareAccountSearchPage.searchAndSelectAccount(accountId);
+            await attachToAccountInSelfCare(
+              { selfcareLoginPage, selfcareAccountSearchPage }, accountId,
+            );
           }
 
           // Confirm the state actually under test, rather than trusting either
