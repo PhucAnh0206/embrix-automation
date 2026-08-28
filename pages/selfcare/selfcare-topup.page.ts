@@ -170,6 +170,32 @@ export class SelfcareTopupPage extends BasePage {
   }
 
   /** Click PAY WITH PLACETOPAY and wait for the PTP checkout URL. */
+  /**
+   * State of the PAY WITH PLACETOPAY button, plus any message shown beside it.
+   *
+   * Exists so a test can prove the product PREVENTED a charge, rather than
+   * inferring it from a click timeout. Those are not the same thing: a timeout is
+   * also what a broken environment or a slow host looks like, so a case that
+   * passes on silence can pass for entirely the wrong reason.
+   */
+  async getPayWithPlaceToPayState(): Promise<{
+    visible: boolean;
+    enabled: boolean;
+    message: string;
+  }> {
+    const visible = await this.payWithPlaceToPayButton.isVisible().catch(() => false);
+    const enabled = visible
+      ? await this.payWithPlaceToPayButton.isEnabled().catch(() => false)
+      : false;
+    const message = await this.page
+      .locator('.alert, .Toastify__toast, [class*="error"], [class*="warning"]')
+      .first()
+      .innerText({ timeout: 2_000 })
+      .then((t) => t.replace(/\s+/g, ' ').trim().slice(0, 160))
+      .catch(() => '');
+    return { visible, enabled, message };
+  }
+
   async clickPayWithPlaceToPay(): Promise<void> {
     await this.payWithPlaceToPayButton.scrollIntoViewIfNeeded().catch(() => { });
     await this.payWithPlaceToPayButton.click();
