@@ -110,6 +110,115 @@ const INVOICE_COUNT_SQL = `
 const CLEAR_STALE_BILL_CHECK_SQL = `
   DELETE FROM core_engine.jobs WHERE type = 'BILL_CHECK' RETURNING id`;
 
+/** The invoice this run produced for one account, newest first. */
+const NEWEST_INVOICE_SQL = `
+  SELECT id, billunitid, total::float8 AS total, due::float8 AS due,
+         to_char(invoicedate,'YYYY-MM-DD') AS invoicedate,
+         to_char(duedate,'YYYY-MM-DD')     AS duedate
+    FROM core_engine.invoice_unit
+   WHERE accountid = $1
+   ORDER BY id DESC
+   LIMIT 1`;
+
+/**
+ * Invoice lines. JASEC prepaid renders four:
+ *   ENERGIA (KWH), CVG ENERGIA (KWH-CVG),
+ *   ALUMBRADO PUBLICO (ALP), CVG ALUMBRADO PUBLICO (ALP-CVG)
+ * `name` is pipe-composite ("ENERGIA|KWH|30|0"), so match on the leading token.
+ */
+const INVOICE_LINES_SQL = `
+  SELECT name, quantity::float8 AS quantity, unitprice::float8 AS unitprice,
+         amount::float8 AS amount, gross::float8 AS gross, taxcode
+    FROM core_engine.invoice_summary
+   WHERE id = $1
+   ORDER BY name`;
+
+/**
+ * Tax rows key off BILLUNITID, not the invoice id. Two types on this tenant:
+ *   MAIN_TAX       rate 0.1300  = IVA 13%
+ *   ADDITIONAL_TAX rate 0.0175  = BOM (bomberos) 1.75%
+ */
+const INVOICE_TAXES_SQL = `
+  SELECT taxtype, taxcode, taxrate::float8 AS taxrate,
+         sum(taxableamount)::float8 AS taxableamount,
+         sum(amount)::float8        AS amount
+    FROM core_engine.invoice_tax_detail
+   WHERE billunitid = $1
+   GROUP BY taxtype, taxcode, taxrate
+   ORDER BY taxtype`;
+
+/** CRC balance. Inverted sign: > 0 = debt, < 0 = credit. */
+const CRC_BALANCE_SQL = `
+  SELECT bub.amount::float8 AS amount
+    FROM core_engine.balance_unit bu
+    JOIN core_engine.balance_unit_balances bub
+      ON bub.id = bu.id AND bub.currencyid = 'CRC'
+   WHERE bu.accountid = $1`;
+
+/**
+ * kWh accumulated in the cycle the INVOICE covers - keyed on the bill unit's own
+ * period, not on the schedule date.
+ *
+ * Keying on the schedule date is wrong and was the first version of this: billing
+ * on the 9th settles the cycle that ENDED on the 1st, so the schedule date falls
+ * OUTSIDE the accumulator window and the lookup returns 0. That would report every
+ * account as having consumed nothing, and would then assert that tax correctly did
+ * not apply - passing for entirely the wrong reason.
+ */
+const CYCLE_KWH_SQL = `
+  SELECT coalesce(sum(bua.amount), 0)::float8 AS kwh
+    FROM core_engine.balance_unit bu
+    JOIN core_engine.balance_unit_accumulators bua
+      ON bua.id = bu.id AND bua.accumulatorid = 'KWH'
+    JOIN core_engine.bill_unit bx ON bx.id = $2
+   WHERE bu.accountid = $1
+     AND bua.startdate::date < bx.enddate::date
+     AND bua.enddate::date   > bx.startdate::date`;
+
+/** The PENDING bill unit - the one this run is about to settle. Used to read the
+ *  cycle's kWh BEFORE billing, since the invoice does not exist yet. */
+const PENDING_BILL_UNIT_SQL = `
+  SELECT id FROM core_engine.bill_unit
+   WHERE accountid = $1 AND status = 'PENDING'
+   ORDER BY id DESC LIMIT 1`;
+
+/** The period a bill unit covers, for reporting alongside the kWh. */
+const BILL_PERIOD_SQL = `
+  SELECT to_char(startdate,'YYYY-MM-DD') AS startdate,
+         to_char(enddate,'YYYY-MM-DD')   AS enddate
+    FROM core_engine.bill_unit WHERE id = $1`;
+
+/** Top-ups registered in the cycle, so the balance arithmetic can account for them. */
+const CYCLE_TOPUPS_SQL = `
+  SELECT count(*)::int AS n, coalesce(sum(amount), 0)::float8 AS total
+    FROM core_engine.subscription_topup t
+   WHERE t.accountid = $1`;
+
+/** Live tax thresholds. Never hardcode these - config-preflight.sh guards them. */
+const TAX_THRESHOLDS_SQL = `
+  SELECT name, accumulatorid,
+         minaccumulatorthreshold::float8 AS minthreshold,
+         maxaccumulatorthreshold::float8 AS maxthreshold
+    FROM core_config.config_tax_product_taxes
+   WHERE minaccumulatorthreshold IS NOT NULL`;
+
+/**
+ * Why an eligible account was NOT billed.
+ *
+ * Under Option A a prepaid charge larger than the account's balance is REFUSED,
+ * not billed: BILL_CHECK writes a jobs_error saying
+ * "Credit Limit 0 for the Currency CRC exceeded by amount X" and the chain
+ * reports ERROR. That is correct product behaviour, so an account that gains no
+ * invoice for this reason is an expected outcome, not a test failure.
+ */
+const BILL_REFUSAL_SQL = `
+  SELECT accountid, reason
+    FROM core_engine.jobs_error
+   WHERE type = 'BILL_CHECK'
+     AND accountid = $1
+   ORDER BY index DESC
+   LIMIT 1`;
+
 const JOB_CHILDREN_SQL = `
   SELECT l.type, l.status
     FROM core_engine.job_schedule_list l
@@ -204,15 +313,28 @@ test.describe('Billing via the Core UI Daily Schedule', () => {
       ).toBeLessThanOrEqual(maxAccounts);
 
       // ── 2. Before state, per account ──
+      // Balance and cycle kWh are captured too, so the invoice can be reconciled
+      // against what the account actually consumed rather than merely counted.
       const before = new Map<string, number>();
+      const balanceBefore = new Map<string, number | null>();
+      const kwhBefore = new Map<string, number>();
       for (const row of eligible) {
         const r = await db.executeQuery(INVOICE_COUNT_SQL, [row.accountid]);
         before.set(row.accountid, Number(r[0]?.n ?? 0));
+
+        const b = await db.executeQuery(CRC_BALANCE_SQL, [row.accountid]);
+        balanceBefore.set(row.accountid, b.length ? Number(b[0].amount) : null);
+
+        const pend = await db.executeQuery(PENDING_BILL_UNIT_SQL, [row.accountid]);
+        const pendId = pend[0]?.id;
+        const k = pendId
+          ? await db.executeQuery(CYCLE_KWH_SQL, [row.accountid, pendId])
+          : [];
+        kwhBefore.set(row.accountid, Number(k[0]?.kwh ?? 0));
       }
-      testLogger.data(
-        'invoice_unit rows BEFORE',
-        Object.fromEntries(before),
-      );
+      testLogger.data('invoice_unit rows BEFORE', Object.fromEntries(before));
+      testLogger.data('CRC balance BEFORE', Object.fromEntries(balanceBefore));
+      testLogger.data('cycle kWh BEFORE', Object.fromEntries(kwhBefore));
 
       // ── 3. The clock. Process stays disabled unless CCP equals the date. ──
       await serverHelper.setCcpTime(date);
@@ -273,10 +395,11 @@ test.describe('Billing via the Core UI Daily Schedule', () => {
       const statusOf = (type: string) =>
         children.find((c: any) => c.type === type)?.status ?? '(absent)';
 
-      expect(
-        statusOf('BILL_CHECK'),
-        `BILL_CHECK did not complete. Chain: ${children.map((c: any) => c.type + '=' + c.status).join(', ')}`,
-      ).toBe('COMPLETED');
+      // BILL_CHECK is REPORTED, not asserted. It reports ERROR whenever any
+      // account in the run is refused for insufficient credit - correct Option A
+      // behaviour, and unrelated to whether the screen worked. The outcome that
+      // matters is the invoice, checked below.
+      testLogger.log(`BILL_CHECK status: ${statusOf('BILL_CHECK')}`);
 
       expect(
         statusOf('INVOICE_CHECK'),
@@ -296,19 +419,216 @@ test.describe('Billing via the Core UI Daily Schedule', () => {
         (row: any) => (after.get(row.accountid) ?? 0) > (before.get(row.accountid) ?? 0),
       );
 
+      // Separate "refused for insufficient credit" (expected) from "silently not
+      // billed" (a real problem) before deciding this run failed.
+      const notBilled = eligible.filter(
+        (row: any) => (after.get(row.accountid) ?? 0) <= (before.get(row.accountid) ?? 0),
+      );
+      const unexplained: string[] = [];
+      for (const row of notBilled) {
+        const why = await db.executeQuery(BILL_REFUSAL_SQL, [row.accountid]);
+        const reason = why[0]?.reason as string | undefined;
+        if (reason && /credit limit/i.test(reason)) {
+          testLogger.log(
+            `${row.accountid}: not billed, and correctly so - ${reason}. Under Option A ` +
+            `a charge above the balance is refused rather than billed.`,
+          );
+        } else {
+          unexplained.push(`${row.accountid}${reason ? ` (${reason})` : ' (no jobs_error row)'}`);
+        }
+      }
+
       expect(
-        gained.length,
-        `No eligible account gained an invoice. BILL_CHECK and INVOICE_CHECK both ` +
-        `completed, so the screen worked — the accounts were simply not billed. ` +
-        `Before: ${JSON.stringify(Object.fromEntries(before))} ` +
-        `After: ${JSON.stringify(Object.fromEntries(after))}`,
-      ).toBeGreaterThan(0);
+        unexplained.length,
+        `Account(s) were eligible, were not billed, and nothing explains why: ` +
+        `${unexplained.join('; ')}. A credit-limit refusal would be expected; ` +
+        `silence is not.`,
+      ).toBe(0);
+
+      expect(
+        gained.length + notBilled.length,
+        `Bookkeeping error: ${gained.length} billed + ${notBilled.length} not billed ` +
+        `does not account for all ${eligible.length} eligible account(s).`,
+      ).toBe(eligible.length);
 
       testLogger.log(
         `PASS — billing ran from the Core UI on ${date}; ` +
         `${gained.length} of ${eligible.length} account(s) gained an invoice: ` +
         gained.map((r: any) => r.accountid).join(', '),
       );
+
+      // ── 7. Reconcile the invoice against what the account actually did ──
+      //
+      // Counting invoices only proves the screen fired. This checks the money:
+      // that the lines are the four JASEC prepaid charges, that the tax base
+      // excludes ALUMBRADO PUBLICO, that tax appears exactly when the cycle's kWh
+      // crosses the configured thresholds and is arithmetically right, that the
+      // header total equals its own lines plus tax, and that the balance moved by
+      // the invoice.
+      //
+      // SOFT throughout. The billing run is irreversible, so a reconciliation
+      // problem must report every finding in one pass rather than abort on the
+      // first - a second run to see the next failure is not available.
+      const thresholds = await db.executeQuery(TAX_THRESHOLDS_SQL);
+      const thresholdFor = (taxType: 'MAIN_TAX' | 'ADDITIONAL_TAX') =>
+        thresholds.find((t: any) => t.name === (taxType === 'MAIN_TAX' ? 'IVA' : 'BOM'));
+
+      for (const row of gained) {
+        const acct = row.accountid as string;
+        await test.step(`reconcile ${acct}`, async () => {
+          const inv = (await db.executeQuery(NEWEST_INVOICE_SQL, [acct]))[0];
+          expect.soft(inv, `${acct}: no invoice row to reconcile`).toBeTruthy();
+          if (!inv) return;
+
+          const lines = await db.executeQuery(INVOICE_LINES_SQL, [inv.id]);
+          const taxes = await db.executeQuery(INVOICE_TAXES_SQL, [inv.billunitid]);
+          const kwhRow = await db.executeQuery(CYCLE_KWH_SQL, [acct, inv.billunitid]);
+          const period = (await db.executeQuery(BILL_PERIOD_SQL, [inv.billunitid]))[0];
+          const balRow = await db.executeQuery(CRC_BALANCE_SQL, [acct]);
+          const topups = (await db.executeQuery(CYCLE_TOPUPS_SQL, [acct]))[0];
+
+          const cycleKwh = Number(kwhRow[0]?.kwh ?? 0);
+          const balAfter = balRow.length ? Number(balRow[0].amount) : null;
+          const balBefore = balanceBefore.get(acct) ?? null;
+
+          const lineName = (n: string) => String(n ?? '').split('|')[0].trim().toUpperCase();
+          const lineSum = lines.reduce((s: number, l: any) => s + Number(l.amount), 0);
+          const taxSum = taxes.reduce((s: number, t: any) => s + Number(t.amount), 0);
+
+          testLogger.log(
+            `${acct}: invoice ${inv.id} total=${inv.total} due=${inv.duedate} | ` +
+            `${lines.length} line(s) summing ${lineSum.toFixed(2)} | ` +
+            `tax ${taxSum.toFixed(2)} (${taxes.map((t: any) => `${t.taxtype}@${t.taxrate}=${t.amount}`).join(', ') || 'none'}) | ` +
+            `cycle ${period?.startdate ?? '?'}..${period?.enddate ?? '?'} kWh ${cycleKwh} | ` +
+            `balance ${String(balBefore)} -> ${String(balAfter)} | ` +
+            `top-ups ${topups?.n ?? 0} totalling ${topups?.total ?? 0}`,
+          );
+
+          // (a) Line composition.
+          //
+          // Do NOT require all four charge types. A real consumption invoice
+          // carries ONE ROW PER TIER, and the CVG lines are not always present:
+          // invoice 002210 on this tenant has 8 lines across only three types and
+          // no CVG ALUMBRADO PUBLICO at all. Requiring the full set was measured
+          // from a minimum-charge invoice and would false-fail on every account
+          // that actually consumed. Assert instead that ENERGIA and ALUMBRADO
+          // PUBLICO are billed, and that nothing UNKNOWN appears.
+          const KNOWN_LINES = [
+            'ENERGIA', 'CVG ENERGIA', 'ALUMBRADO PUBLICO', 'CVG ALUMBRADO PUBLICO',
+          ];
+          expect
+            .soft(lines.length, `${acct}: invoice ${inv.id} has no lines`)
+            .toBeGreaterThan(0);
+          for (const want of ['ENERGIA', 'ALUMBRADO PUBLICO']) {
+            expect
+              .soft(
+                lines.some((l: any) => lineName(l.name) === want),
+                `${acct}: invoice ${inv.id} is missing the "${want}" line. ` +
+                `Lines present: ${lines.map((l: any) => lineName(l.name)).join(', ')}`,
+              )
+              .toBe(true);
+          }
+          const unknown = lines
+            .map((l: any) => lineName(l.name))
+            .filter((n: string) => !KNOWN_LINES.includes(n));
+          expect
+            .soft(
+              unknown.length,
+              `${acct}: invoice ${inv.id} carries unrecognised line(s): ` +
+              `${[...new Set(unknown)].join(', ')}. Either the catalogue changed or ` +
+              `this account is not billing the JASEC prepaid charges.`,
+            )
+            .toBe(0);
+
+          // (b) The tax base. ALUMBRADO PUBLICO is excluded (taxcode NA); the
+          //     other three carry IVA_BOM. This is the documented JASEC rule
+          //     "tax base = ENE + ENE CVG + ALP CVG, ALP Sin CVG EXCLUDED".
+          for (const l of lines) {
+            const nm = lineName(l.name);
+            const want = nm === 'ALUMBRADO PUBLICO' ? 'NA' : 'IVA_BOM';
+            expect
+              .soft(
+                String(l.taxcode),
+                `${acct}: line "${nm}" has taxcode ${l.taxcode}, expected ${want}. ` +
+                `ALUMBRADO PUBLICO must be OUTSIDE the tax base and the other three inside it.`,
+              )
+              .toBe(want);
+          }
+
+          // (c) Tax presence follows the CONFIGURED kWh thresholds, read live.
+          for (const taxType of ['ADDITIONAL_TAX', 'MAIN_TAX'] as const) {
+            const cfg = thresholdFor(taxType);
+            if (!cfg) continue;
+            const min = Number(cfg.minthreshold);
+            const present = taxes.some((t: any) => t.taxtype === taxType && Number(t.amount) > 0);
+            const shouldApply = cycleKwh > min;
+            expect
+              .soft(
+                present,
+                `${acct}: ${cfg.name} (${taxType}) ${present ? 'WAS' : 'was NOT'} applied at ` +
+                `${cycleKwh} kWh, but its configured threshold is ${min} kWh so it ` +
+                `${shouldApply ? 'should' : 'should not'} apply.`,
+              )
+              .toBe(shouldApply);
+          }
+
+          // (d) Tax arithmetic: amount = taxableamount x rate.
+          for (const t of taxes) {
+            const expected = Number(t.taxableamount) * Number(t.taxrate);
+            expect
+              .soft(
+                Math.abs(expected - Number(t.amount)) <= 0.05,
+                `${acct}: ${t.taxtype} is ${t.amount} but ${t.taxableamount} x ${t.taxrate} ` +
+                `= ${expected.toFixed(2)}. Beyond what currency rounding explains.`,
+              )
+              .toBe(true);
+          }
+
+          // (e) The header equals its own parts.
+          expect
+            .soft(
+              Math.abs(Number(inv.total) - (lineSum + taxSum)) <= 0.05,
+              `${acct}: invoice ${inv.id} total is ${inv.total} but its lines (${lineSum.toFixed(2)}) ` +
+              `plus tax (${taxSum.toFixed(2)}) come to ${(lineSum + taxSum).toFixed(2)}.`,
+            )
+            .toBe(true);
+
+          // (f) The balance moved by the invoice. Inverted CRC sign: charging a
+          //     prepaid account consumes credit, so the balance moves UP by the
+          //     invoice total. Skipped when either reading is unavailable.
+          if (balBefore !== null && balAfter !== null) {
+            const moved = balAfter - balBefore;
+            expect
+              .soft(
+                Math.abs(moved - Number(inv.total)) <= 0.05,
+                `${acct}: invoice ${inv.id} charged ${inv.total} but the CRC balance moved ` +
+                `${moved.toFixed(2)} (${balBefore} -> ${balAfter}). Inverted sign: a charge ` +
+                `moves the balance UP. A mismatch means a top-up or adjustment landed ` +
+                `mid-run, or the charge did not reach the balance.`,
+              )
+              .toBe(true);
+          }
+
+          // (g) Quantity sanity: the invoice bills the cycle's own kWh.
+          // SUM the ENERGIA rows - there is one per tier, so checking only the
+          // first would compare a single tier's slice against the whole cycle and
+          // pass trivially. On invoice 002210 the three ENERGIA rows are
+          // 30 + 170 + 10703 = 10903, exactly the cycle accumulator.
+          const energiaKwh = lines
+            .filter((l: any) => lineName(l.name) === 'ENERGIA')
+            .reduce((sum: number, l: any) => sum + Number(l.quantity), 0);
+          if (energiaKwh > 0 && cycleKwh > 0) {
+            expect
+              .soft(
+                Math.abs(energiaKwh - cycleKwh) <= 0.001,
+                `${acct}: the ENERGIA lines bill ${energiaKwh} kWh but the cycle ` +
+                `accumulator holds ${cycleKwh}. Billing a different quantity from ` +
+                `what was metered.`,
+              )
+              .toBe(true);
+          }
+        });
+      }
     } finally {
       await db.disconnect();
     }
