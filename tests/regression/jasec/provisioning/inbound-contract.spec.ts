@@ -228,6 +228,64 @@ test.describe('JASEC provisioning - inbound callback contract', () => {
     expect(r.errorMsg).toContain('OrderStatus');
   });
 
+  // ── RESUME ────────────────────────────────────────────────────────────
+  //
+  // Everything above is SUSPEND-shaped. Reconnect travels the same endpoint with
+  // action RESUME, and the refusal paths should not care which it is - validation
+  // runs deserialize, existence, state, and only then shape, so the action value
+  // is never reached on a refusal. That is worth CONFIRMING rather than assuming:
+  // if a RESUME callback ever refuses differently from a SUSPEND one, the two
+  // paths have diverged somewhere they should not have.
+
+  test('RESUME: an order id that does not exist is refused identically', async ({ request }) => {
+    const suspend = await callback(request, {
+      orderId: absentOrder('cmp-s'),
+      accountId: 'QA-NONE',
+      status: 'COMPLETED',
+      services: [
+        { serviceType: 'ELECTRICITY', action: 'SUSPEND', bundleId: 'NONE', provisioningId: '000000' },
+      ],
+    });
+    const resume = await callback(request, {
+      orderId: absentOrder('cmp-r'),
+      accountId: 'QA-NONE',
+      status: 'COMPLETED',
+      services: [
+        { serviceType: 'ELECTRICITY', action: 'RESUME', bundleId: 'NONE', provisioningId: '000000' },
+      ],
+    });
+
+    expectRefused(resume, 'RESUME, unknown order');
+    expect(resume.errorCode).toBe('INCORRECT_INPUT');
+    expect(resume.errorMsg).toContain('does not exist');
+
+    // The point of the case: same treatment, not merely a valid-looking refusal.
+    expect(
+      resume.errorMsg,
+      `RESUME refused differently from SUSPEND for the same condition. ` +
+      `SUSPEND said "${suspend.errorMsg}", RESUME said "${resume.errorMsg}". ` +
+      `The refusal paths are supposed to be action-agnostic - validation reaches ` +
+      `existence long before it looks at the action.`,
+    ).toBe(suspend.errorMsg);
+  });
+
+  test('RESUME: a second callback on an already-closed order is refused', async ({ request }) => {
+    const r = await callback(request, {
+      orderId: TERMINAL_ORDER.orderId,
+      accountId: TERMINAL_ORDER.accountId,
+      status: 'COMPLETED',
+      services: [
+        { serviceType: 'ELECTRICITY', action: 'RESUME', bundleId: 'NONE', provisioningId: '339400' },
+      ],
+    });
+    // ORD-960 was a SUSPEND. A RESUME callback naming it is still refused for
+    // STATE - the order is terminal - which confirms the state check does not
+    // depend on the action matching either.
+    expectRefused(r, 'RESUME on an already-closed SUSPEND order');
+    expect(r.errorCode).toBe('INCORRECT_INPUT');
+    expect(r.errorMsg).toMatch(/already Completed|Cancelled/i);
+  });
+
   test('an empty body returns a null-pointer, which is a DEFECT', async ({ request }) => {
     // KNOWN DEFECT, reproduced 2026-08-30. An empty JSON object produces
     // "Cannot get property 'id' on null object" - a crash, not a validation
