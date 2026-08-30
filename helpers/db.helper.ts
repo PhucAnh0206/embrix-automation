@@ -193,6 +193,68 @@ export class DbHelper {
    * our side, so a rising count is the only evidence the money was actually
    * credited, and a flat count next to a completed charge means it was not.
    */
+  /**
+   * Is revenue tracking on for this tenant?
+   *
+   * jasec-dev runs it on, jasec-preprod off. Every revenue_journal expectation
+   * has to be gated on this or preprod fails for being configured the way the
+   * team deliberately configured it.
+   */
+  async isRevenueTrackingOn(): Promise<boolean> {
+    const rows = await this.query<{ value: string }>(
+      `SELECT value FROM core_config.ccp_properties WHERE property = 'revenueTracking'`,
+    );
+    return (rows[0]?.value ?? '').trim().toLowerCase() === 'true';
+  }
+
+  /**
+   * Count PURCHASE revenue-journal rows for an account's top-up item.
+   *
+   * A top-up posts one row per top-up: revenueactivitytype PURCHASE, itemid
+   * I-100007 (RECARGA SALDO ELECTRICIDAD PREPAGO), amount NEGATIVE because a
+   * credit is negative under JASEC's inverted CRC convention.
+   *
+   * Take this BEFORE and AFTER, and assert the delta. Absolute counts are
+   * useless here - dev carries 155 historical PURCHASE rows and a shared
+   * account may already own several.
+   */
+  async getTopUpJournalCount(accountId: string): Promise<number> {
+    const rows = await this.query<{ n: string }>(
+      `SELECT count(*)::text AS n
+         FROM core_revenue.revenue_journal
+        WHERE accountid = $1
+          AND revenueactivitytype = 'PURCHASE'`,
+      [accountId],
+    );
+    return Number(rows[0]?.n ?? 0);
+  }
+
+  /**
+   * Wait for a top-up's PURCHASE journal row to appear, then report the delta.
+   *
+   * Polls rather than reading once, and RE-QUERIES each time - the journal row
+   * is written by the backend after the gateway returns, so a single read taken
+   * on the redirect is a race that fails intermittently and passes for the wrong
+   * reason when it passes.
+   *
+   * Returns the number of new rows (0 if none appeared within the window).
+   */
+  async waitForTopUpJournal(
+    accountId: string,
+    countBefore: number,
+    timeoutMs = 60_000,
+  ): Promise<number> {
+    const deadline = Date.now() + timeoutMs;
+    let after = countBefore;
+    for (;;) {
+      after = await this.getTopUpJournalCount(accountId);
+      if (after > countBefore) break;
+      if (Date.now() >= deadline) break;
+      await new Promise((r) => setTimeout(r, 3_000));
+    }
+    return after - countBefore;
+  }
+
   async getTopUpCount(accountId: string): Promise<number> {
     const rows = await this.query<{ n: string }>(
       `SELECT count(*)::text AS n

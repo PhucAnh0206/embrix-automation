@@ -224,7 +224,7 @@ test.describe(
         searchAccountsPage, createAccountPage, orderManagementPage, screenshotHelper,
         selfcareLoginPage, selfcareAccountSearchPage,
         selfcareActivityPage, selfcareTopupPage,
-        placeToPayCheckoutPage,
+        placeToPayCheckoutPage, dbHelper,
       }) => {
         const accountId = await ensureSharedAccountAndAttach({
           page, testLogger, accountOrderApiHelper, searchAccountsPage, createAccountPage,
@@ -232,6 +232,16 @@ test.describe(
           selfcareLoginPage, selfcareAccountSearchPage,
           selfcareActivityPage, selfcareTopupPage, placeToPayCheckoutPage,
         });
+
+        // Self Care's top-up goes through the CRM gateway prepaidTopUp route.
+        // The dev team's fix was a config row shared by every transaction path,
+        // so it should cover this one too - but their own words were that two
+        // routes converging on one method is an assumption worth asserting.
+        // This is the canonical customer-facing path, so it is asserted here.
+        const trackingOn = await dbHelper.isRevenueTrackingOn();
+        const journalBefore = trackingOn
+          ? await dbHelper.getTopUpJournalCount(accountId)
+          : 0;
 
         await selfcareActivityPage.navigateToTopUp();
         await selfcareTopupPage.assertLoaded();
@@ -247,6 +257,26 @@ test.describe(
         // isn't visible for LONG_WAIT.
         await selfcareTopupPage.reload(selfcareActivityPage);
         await selfcareTopupPage.assertPaymentSuccess();
+
+        if (trackingOn) {
+          const written = await dbHelper.waitForTopUpJournal(accountId, journalBefore);
+          expect(
+            written,
+            `${accountId} was topped up ${topUp} CRC through Self Care (CRM gateway ` +
+            `prepaidTopUp) and the UI reported success, but no PURCHASE row reached ` +
+            `core_revenue.revenue_journal (count stayed at ${journalBefore}). ` +
+            `revenueTracking is ON, so the accounting entry must exist. This is the ` +
+            `Self Care half of the dev team's fix - the GraphQL route passing does not ` +
+            `prove this one does.`,
+          ).toBeGreaterThan(0);
+          testLogger.log(
+            `✓ TC 2.3a — revenue_journal +${written} PURCHASE row(s) for ${accountId}`,
+          );
+        } else {
+          testLogger.log(
+            `✓ TC 2.3a — revenue_journal not asserted: revenueTracking is off on this tenant`,
+          );
+        }
 
         testLogger.log(`✓ TC 2.3a — account ${accountId} topped up ${topUp} CRC (approved)`);
       },
@@ -846,6 +876,9 @@ test.describe(
       balanceAfter: number | null;
       blockedBy: string;
       calls: string[];
+      revenueTracking: boolean;
+      journalBefore: number;
+      journalAfter: number;
     };
 
     /**
@@ -929,6 +962,15 @@ test.describe(
 
       const topUpsBefore = await f.dbHelper.getTopUpCount(accountId);
       const balanceBefore = await readBalance();
+      // Self Care reaches the backend through the CRM gateway prepaidTopUp route,
+      // not the GraphQL subscriptionTopUp mutation. The dev team's position is
+      // that both converge on createRevenueJournal, so one config fix covers
+      // both - "an assumption we should be asserting, not trusting". This is
+      // that assertion. Deltas only: dev already carries 155 PURCHASE rows.
+      const revenueTracking = await f.dbHelper.isRevenueTrackingOn();
+      const journalBefore = revenueTracking
+        ? await f.dbHelper.getTopUpJournalCount(accountId)
+        : 0;
       let reachedGateway = false;
 
       try {
@@ -1000,6 +1042,10 @@ test.describe(
         ? `${String(v.status)} resultCode=${String(v.resultCode)} "${String(v.message)}"`
         : '(no /verify response seen - the charge was never attempted)';
 
+      const journalAfter = revenueTracking
+        ? await f.dbHelper.getTopUpJournalCount(accountId)
+        : 0;
+
       const probe: TopUpProbe = {
         reachedGateway,
         charged,
@@ -1015,6 +1061,9 @@ test.describe(
         balanceAfter,
         blockedBy,
         calls,
+        revenueTracking,
+        journalBefore,
+        journalAfter,
       };
 
       f.testLogger.log(
@@ -1022,7 +1071,8 @@ test.describe(
         `charged=${probe.charged} (${probe.chargeVerdict}) ` +
         `registerAcked=${String(probe.registerAcked)} registered=${probe.registered} ` +
         `(subscription_topup ${topUpsBefore} -> ${topUpsAfter}, ` +
-        `balance ${String(balanceBefore)} -> ${String(balanceAfter)})` +
+        `balance ${String(balanceBefore)} -> ${String(balanceAfter)}, ` +
+        `revenue_journal ${revenueTracking ? `${journalBefore} -> ${journalAfter}` : 'n/a revenueTracking=off'})` +
         (blockedBy ? ` | blocked: ${blockedBy}` : ''),
       );
       for (const c of calls) f.testLogger.log(`[${label}]   ${c}`);
@@ -1098,6 +1148,34 @@ test.describe(
           `${probe.balanceAfter}). Expected a move of ${(-probe.chargedAmount).toFixed(2)} ` +
           `-- inverted CRC, so a top-up makes the balance more negative.`,
         ).toBe(true);
+      }
+
+      // A REGISTERED TOP-UP MUST REACH THE REVENUE JOURNAL.
+      //
+      // This is the assumption the dev team asked us to assert rather than
+      // trust. Their fix was one config row read by
+      // core_revenue.get_revenue_journal_data, called from createRevenueJournal,
+      // which every transaction-creating route is said to reach - GraphQL
+      // subscriptionTopUp, CRM gateway prepaidTopUp, rating, billing. Self Care
+      // takes the gateway route, so this leg is the only thing that actually
+      // proves the claim for the path a customer uses.
+      //
+      // A missing row here is exactly what NO_RJ_DATA_FOR_ACCOUNT_AND_ITEM looked
+      // like from the outside: the top-up appears to succeed, the balance moves,
+      // and the accounting entry silently never exists.
+      //
+      // Gated on revenueTracking. preprod runs it off by design, so there the
+      // absence of rows is correct and this must not fail.
+      if (probe.revenueTracking && probe.registered) {
+        const written = probe.journalAfter - probe.journalBefore;
+        expect(
+          written,
+          `${accountId} (${what}) registered a top-up and moved the balance, but wrote ` +
+          `${written} PURCHASE row(s) to core_revenue.revenue_journal ` +
+          `(${probe.journalBefore} -> ${probe.journalAfter}). revenueTracking is ON, so a ` +
+          `top-up must post one. This is the shape of NO_RJ_DATA_FOR_ACCOUNT_AND_ITEM: ` +
+          `the customer is credited and the accounting entry never exists.`,
+        ).toBeGreaterThan(0);
       }
 
       // ...and when nothing was registered, nothing may have moved either.
