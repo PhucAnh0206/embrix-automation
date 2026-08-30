@@ -206,6 +206,22 @@ export default defineConfig({
       testMatch: ['**/regression/jasec/notification/ts-05-*.spec.ts'],
     },
 
+    // ── JASEC provisioning: the INBOUND half of suspend/reconnect, i.e. our own
+    // updateProvisioningRequest endpoint that JASEC call to close an order.
+    //
+    // Every case is a REFUSAL, so it needs no fixture and touches nothing: each
+    // payload names either an order id that cannot exist or ORD-960, which is
+    // COMPLETED and terminal. The happy paths are NOT here - closing an order
+    // needs one in PROVISIONING_INITIATED, which only exists once JASEC accept a
+    // dispatched command on a meter they recognise, and both known meters are
+    // contended.
+    //
+    // No browser, no DB, no auth, therefore no VPN - like jasec-billing-read.
+    {
+      name: 'jasec-provisioning',
+      testMatch: ['**/regression/jasec/provisioning/*.spec.ts'],
+    },
+
     // ── JASEC billing via the Core UI Daily Schedule screen.
     // Proves the UI can run a billing cycle. The GraphQL path in ts-02 / ts-05
     // stays the one the suite relies on; this is an addition so a UI regression
