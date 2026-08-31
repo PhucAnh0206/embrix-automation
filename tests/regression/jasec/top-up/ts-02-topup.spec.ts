@@ -46,12 +46,22 @@ import {
   setUpAccountInSelfCare,
   setUpAccountForTopUp,
   attachToAccountInSelfCare,
+  createPrepaidAccountOnly,
+  createPrepaidAccountViaGateway,
   type PrepaidAccountWithOrderRow,
 } from '../../../../fixtures/create-prepaid-account.helper';
 import { SharedAccount } from '../../../../fixtures/shared-account.helper';
 import type { SelfcareActivityPage } from '../../../../pages/selfcare/selfcare-activity.page';
 import type { SelfcareTopupPage } from '../../../../pages/selfcare/selfcare-topup.page';
-import type { PlaceToPayCheckoutPage } from '../../../../pages/selfcare/placetopay-checkout.page';
+import type {
+  PlaceToPayCheckoutPage,
+  PlaceToPayCardVariant,
+} from '../../../../pages/selfcare/placetopay-checkout.page';
+import type { Page, Response } from '@playwright/test';
+import type { TestLogger } from '../../../../helpers/test-logger';
+import type { DbHelper } from '../../../../helpers/db.helper';
+import type { SelfcareLoginPage } from '../../../../pages/selfcare/selfcare-login.page';
+import type { SelfcareAccountSearchPage } from '../../../../pages/selfcare/selfcare-account-search.page';
 
 const dataFile = path.join(process.cwd(), 'test-data', 'jasec-prepaid-accounts.data.json');
 const dataRows: PrepaidAccountWithOrderRow[] = JSON.parse(fs.readFileSync(dataFile, 'utf-8'));
@@ -104,7 +114,11 @@ const groupAAccount = new SharedAccount<GroupAFixtures>({
     await selfcareTopupPage.reload(selfcareActivityPage);
     await selfcareTopupPage.enterAmount(5000);
     await selfcareTopupPage.clickPayNow();
-    await selfcareTopupPage.assertPaymentSuccess();
+      // Pass the activity page so this RE-FETCHES between attempts. The history
+      // table is filled on page load, so a row that lands after the render never
+      // appears by waiting. That failed this very setup on 2026-08-28 and took the
+      // whole file with it, since every case here needs the shared account to exist.
+      await selfcareTopupPage.assertPaymentSuccess(selfcareActivityPage);
 
     return accountId;
   },
@@ -210,7 +224,7 @@ test.describe(
         searchAccountsPage, createAccountPage, orderManagementPage, screenshotHelper,
         selfcareLoginPage, selfcareAccountSearchPage,
         selfcareActivityPage, selfcareTopupPage,
-        placeToPayCheckoutPage,
+        placeToPayCheckoutPage, dbHelper,
       }) => {
         const accountId = await ensureSharedAccountAndAttach({
           page, testLogger, accountOrderApiHelper, searchAccountsPage, createAccountPage,
@@ -218,6 +232,16 @@ test.describe(
           selfcareLoginPage, selfcareAccountSearchPage,
           selfcareActivityPage, selfcareTopupPage, placeToPayCheckoutPage,
         });
+
+        // Self Care's top-up goes through the CRM gateway prepaidTopUp route.
+        // The dev team's fix was a config row shared by every transaction path,
+        // so it should cover this one too - but their own words were that two
+        // routes converging on one method is an assumption worth asserting.
+        // This is the canonical customer-facing path, so it is asserted here.
+        const trackingOn = await dbHelper.isRevenueTrackingOn();
+        const journalBefore = trackingOn
+          ? await dbHelper.getTopUpJournalCount(accountId)
+          : 0;
 
         await selfcareActivityPage.navigateToTopUp();
         await selfcareTopupPage.assertLoaded();
@@ -234,37 +258,117 @@ test.describe(
         await selfcareTopupPage.reload(selfcareActivityPage);
         await selfcareTopupPage.assertPaymentSuccess();
 
+        if (trackingOn) {
+          const written = await dbHelper.waitForTopUpJournal(accountId, journalBefore);
+          expect(
+            written,
+            `${accountId} was topped up ${topUp} CRC through Self Care (CRM gateway ` +
+            `prepaidTopUp) and the UI reported success, but no PURCHASE row reached ` +
+            `core_revenue.revenue_journal (count stayed at ${journalBefore}). ` +
+            `revenueTracking is ON, so the accounting entry must exist. This is the ` +
+            `Self Care half of the dev team's fix - the GraphQL route passing does not ` +
+            `prove this one does.`,
+          ).toBeGreaterThan(0);
+          testLogger.log(
+            `✓ TC 2.3a — revenue_journal +${written} PURCHASE row(s) for ${accountId}`,
+          );
+        } else {
+          testLogger.log(
+            `✓ TC 2.3a — revenue_journal not asserted: revenueTracking is off on this tenant`,
+          );
+        }
+
         testLogger.log(`✓ TC 2.3a — account ${accountId} topped up ${topUp} CRC (approved)`);
       },
     );
 
     // ── TC 2.3b — Pay with PlaceToPay (DECLINE) ───────────────────────
+    //
+    // Strengthened 2026-08-28. This used to end at assertHistoryEmpty(), which
+    // left three holes:
+    //
+    //  - It never confirmed the gateway actually DECLINED. The day the deny test
+    //    card starts being approved, "no history row" becomes the real defect and
+    //    this case would have reported it as a pass.
+    //  - It never checked the BALANCE. A declined charge that still credited the
+    //    account would not show in the history table but would be money invented
+    //    from nothing.
+    //  - assertHistoryEmpty() reads the history table, which is filled by a fetch
+    //    on page load - the same class of check that made the card-on-file
+    //    assertion unreliable. It is kept, but it is no longer the only evidence.
+    //
+    // The verdict is now read off the wire. Captured 2026-08-28:
+    //   deny -> /verify {"successful":false,"status":"REJECTED","resultCode":"05",
+    //                    "message":"No honrar"}  and prepaidTopUp NOT CALLED.
     test(
       '2.3b: Top Up using Pay with PlaceToPay — DECLINE card, no top-up recorded',
       { tag: ['@tc-2-3', '@tc-2-3b'] },
       async ({
-        page, testLogger, accountOrderApiHelper,
+        page, testLogger, dbHelper, accountOrderApiHelper,
         searchAccountsPage, createAccountPage, orderManagementPage, screenshotHelper,
         selfcareLoginPage, selfcareAccountSearchPage,
         selfcareActivityPage, selfcareTopupPage,
         placeToPayCheckoutPage,
       }) => {
+        // Proving a negative needs the full 60s settle window inside the probe.
+        test.setTimeout(600_000);
+
         const accountId = await setUpAccountForTopUp({
           page, testLogger, accountOrderApiHelper, searchAccountsPage, createAccountPage,
           orderManagementPage, screenshotHelper,
           selfcareLoginPage, selfcareAccountSearchPage,
         }, baseRow);
 
-        await selfcareActivityPage.navigateToTopUp();
-        await selfcareTopupPage.assertLoaded();
-        await selfcareTopupPage.enterAmount(500);
-        await selfcareTopupPage.clickPayWithPlaceToPay();
-        await placeToPayCheckoutPage.completePaymentFlow('deny');
+        // 500 explicitly, as this case always used, rather than the account's
+        // displayed minimum - a declined charge is declined at any amount, and
+        // keeping the figure preserves what the case has always exercised.
+        const probe = await probeTopUp(
+          {
+            page, testLogger, dbHelper,
+            selfcareActivityPage, selfcareTopupPage, placeToPayCheckoutPage,
+          },
+          accountId, '2.3b deny', 'deny', 500,
+        );
 
+        // 1. The gateway really declined - not merely "did not approve".
+        expect(
+          probe.chargeVerdict,
+          `2.3b needs a genuine decline from the gateway for ${accountId}. ` +
+          `Verdict was: ${probe.chargeVerdict}. If the deny test card is now being ` +
+          `APPROVED, this case can no longer prove anything and the card data needs ` +
+          `revisiting.`,
+        ).toContain('REJECTED');
+
+        expect(
+          probe.charged,
+          `${accountId}: the deny card was APPROVED [${probe.chargeVerdict}]`,
+        ).toBe(false);
+
+        // 2. Nothing registered, and the register call was never even made.
+        expect(
+          probe.registered,
+          `${accountId}: a declined charge still wrote a subscription_topup row ` +
+          `(${probe.topUpsBefore} -> ${probe.topUpsAfter})`,
+        ).toBe(false);
+
+        expect(
+          probe.registerAcked,
+          `${accountId}: prepaidTopUp was CALLED for a declined charge - it should ` +
+          `not be reached at all. Calls: ${probe.calls.join(' | ')}`,
+        ).toBeNull();
+
+        // 3. Balance untouched, plus the charged/registered biconditional.
+        assertChargeAndRegistrationAgree(probe, accountId, 'declined card');
+
+        // 4. And the original customer-visible check, still worth keeping.
         await selfcareActivityPage.navigateToTopUp();
         await selfcareTopupPage.assertHistoryEmpty();
 
-        testLogger.log(`✓ TC 2.3b — account ${accountId}: declined payment not recorded`);
+        testLogger.log(
+          `✓ TC 2.3b — account ${accountId}: declined payment not recorded ` +
+          `[${probe.chargeVerdict}], balance ${String(probe.balanceBefore)} -> ` +
+          `${String(probe.balanceAfter)}`,
+        );
       },
     );
 
@@ -734,6 +838,570 @@ test.describe(
           .toMatch(new RegExp(`ID\\s+de\\s+Transacci[oó]n[\\.\\s:]*TU[-_]${accountId}[-_][a-f0-9]+`, 'i'));
 
         testLogger.log(`✓ TC 2.10 assertions dispatched — account ${accountId}, amount ${topUpAmount}, date ${testDate}`);
+      },
+    );
+
+
+    // -- TC 2.11 / 2.12 - a top-up must never take money without registering it --
+    //
+    // Reported by dev 2026-08-27. The flow makes TWO calls: one to PlaceToPay to
+    // CHARGE the card, one to the CRM gateway to REGISTER the top-up. They are not
+    // atomic. When the account has no subscription, or its subscription is CLOSED,
+    // the charge still goes through and the registration does not -- the customer
+    // loses money and nothing is credited. ACTIVE and SUSPENDED both work; only
+    // closed or absent triggers it.
+    //
+    // The assertion is a biconditional, which is what dev asked for -- "both must
+    // succeed together or fail together":
+    //
+    //     charged  <=>  registered
+    //
+    // `charged` is only observable ON THE WIRE. The PlaceToPay charge writes no row
+    // on our side; core_engine.subscription_topup is written by the REGISTER call
+    // alone. So every PlaceToPay and CRM-gateway response is recorded and logged --
+    // the automated equivalent of watching the Network tab, which is how dev asked
+    // for this to be checked.
+
+    type TopUpProbe = {
+      reachedGateway: boolean;
+      charged: boolean;
+      chargeVerdict: string;
+      chargedAmount: number | null;
+      registerAcked: boolean | null;
+      registeredAmount: number | null;
+      registered: boolean;
+      topUpsBefore: number;
+      topUpsAfter: number;
+      balanceBefore: number | null;
+      balanceAfter: number | null;
+      blockedBy: string;
+      calls: string[];
+      revenueTracking: boolean;
+      journalBefore: number;
+      journalAfter: number;
+    };
+
+    /**
+     * Drive one top-up and report whether the money moved and whether it was
+     * registered.
+     *
+     * WHERE THE SIGNALS COME FROM. Both are READ off the wire, not inferred.
+     * Captured from a real approve and a real deny on 2026-08-28:
+     *
+     *   POST payment-gateway/transaction/placetopay/verify
+     *     approve -> {"successful":true, "status":"APPROVED","resultCode":"00",
+     *                 "message":"Aprobado","amount":500,...}
+     *     deny    -> {"successful":false,"status":"REJECTED","resultCode":"05",
+     *                 "message":"No honrar","amount":500,...}
+     *
+     *   POST crm-gateway/prepaidTopUp
+     *     approve -> {"accountId":"AC-...","amountRecharged":500,
+     *                 "subscriptionId":"SUB-...","status":"SUCCESS"}
+     *     deny    -> NOT CALLED AT ALL (correct: no charge, nothing to register)
+     *
+     * Two traps this avoids:
+     *
+     *  - HTTP status is useless here. The DECLINED charge also returns 200; the
+     *    rejection lives in the body. An earlier version of this probe inferred
+     *    "charged" from "the approve flow completed without throwing", which would
+     *    have reported a declined payment as a charge and produced a false
+     *    MONEY LOST against an account that was never debited.
+     *  - PlaceToPay's own /process is NOT a usable verdict: on the declined run it
+     *    returned status "ACTIVE", not a rejection. Only /verify is decisive, and
+     *    it has the further advantage of being Embrix's own view of whether money
+     *    moved, on our own domain.
+     */
+    async function probeTopUp(
+      f: {
+        page: Page;
+        testLogger: TestLogger;
+        dbHelper: DbHelper;
+        selfcareActivityPage: SelfcareActivityPage;
+        selfcareTopupPage: SelfcareTopupPage;
+        placeToPayCheckoutPage: PlaceToPayCheckoutPage;
+      },
+      accountId: string,
+      label: string,
+      variant: PlaceToPayCardVariant = 'approve',
+      amountOverride?: number,
+    ): Promise<TopUpProbe> {
+      const calls: string[] = [];
+      let verifyBody: Record<string, unknown> | null = null;
+      let registerBody: Record<string, unknown> | null = null;
+
+      const record = async (res: Response) => {
+        const url = res.url().split('?')[0];
+        if (!/placetopay|crm-gateway/i.test(url)) return;
+        calls.push(`${res.status()} ${res.request().method()} ${url}`);
+        try {
+          if (url.endsWith('/verify')) {
+            verifyBody = (await res.json()) as Record<string, unknown>;
+          } else if (url.endsWith('/prepaidTopUp')) {
+            registerBody = (await res.json()) as Record<string, unknown>;
+          }
+        } catch {
+          // Body not readable (redirect, or the page went away). The DB check
+          // below still decides `registered`, so this is not fatal.
+        }
+      };
+      f.page.on('response', record);
+
+      // Status-agnostic on purpose. getAccountBalance resolves the balance unit
+      // through an ACTIVE subscription, so it returns nothing for a SUSPENDED
+      // account and the balance assertion below would silently skip on the very
+      // leg where a top-up restores service. Null here means the account has no
+      // balance unit at all -- the 2.11 no-subscription case, where "no balance
+      // to move" is the point.
+      const readBalance = async (): Promise<number | null> => {
+        try {
+          return await f.dbHelper.getCrcBalanceAnyState(accountId);
+        } catch {
+          return null;
+        }
+      };
+
+      const topUpsBefore = await f.dbHelper.getTopUpCount(accountId);
+      const balanceBefore = await readBalance();
+      // Self Care reaches the backend through the CRM gateway prepaidTopUp route,
+      // not the GraphQL subscriptionTopUp mutation. The dev team's position is
+      // that both converge on createRevenueJournal, so one config fix covers
+      // both - "an assumption we should be asserting, not trusting". This is
+      // that assertion. Deltas only: dev already carries 155 PURCHASE rows.
+      const revenueTracking = await f.dbHelper.isRevenueTrackingOn();
+      const journalBefore = revenueTracking
+        ? await f.dbHelper.getTopUpJournalCount(accountId)
+        : 0;
+      let reachedGateway = false;
+
+      try {
+        await f.selfcareActivityPage.navigateToTopUp();
+        await f.selfcareTopupPage.assertLoaded();
+
+        // Use the displayed minimum when the screen shows one, so a suspended
+        // account is not refused for topping up below its own minimum.
+        const shownMin = Number(await f.selfcareTopupPage.getDisplayedMinimumAmount());
+        const amount =
+          amountOverride ??
+          (Number.isFinite(shownMin) && shownMin > 0 ? Math.ceil(shownMin) : 500);
+
+        await f.selfcareTopupPage.enterAmount(amount);
+        await f.selfcareTopupPage.clickPayWithPlaceToPay();
+
+        await f.page.waitForURL(/placetopay/i, { timeout: LONG_WAIT });
+        reachedGateway = true;
+
+        await f.placeToPayCheckoutPage.completePaymentFlow(variant);
+      } catch (err) {
+        // Not a failure in itself. Refusing to start the flow is a perfectly good
+        // way to "fail together" -- it means no money moved.
+        f.testLogger.log(
+          `[${label}] flow stopped before completing: ` +
+          `${String((err as Error)?.message ?? err).slice(0, 160)}`,
+        );
+      }
+
+      // If the flow never reached the gateway, record WHY, while the page is still
+      // on the Top Up view. A pass built on a click timeout is worth very little:
+      // Selfcare being down, or the host being slow, produces exactly the same
+      // silence. Reading the button state turns "nothing happened" into "the
+      // product refused", which is a claim that can actually fail.
+      let blockedBy = '';
+      if (!reachedGateway) {
+        const st = await f.selfcareTopupPage.getPayWithPlaceToPayState();
+        blockedBy =
+          `payButton visible=${st.visible} enabled=${st.enabled}` +
+          (st.message ? ` message="${st.message}"` : '');
+      }
+
+      // The register call can lag the redirect back, so allow a settle window
+      // before concluding nothing was written.
+      let topUpsAfter = topUpsBefore;
+      let balanceAfter = balanceBefore;
+      const deadline = Date.now() + 60_000;
+      while (Date.now() < deadline) {
+        topUpsAfter = await f.dbHelper.getTopUpCount(accountId);
+        balanceAfter = await readBalance();
+        const rowAppeared = topUpsAfter > topUpsBefore;
+        const balanceMoved =
+          balanceBefore !== null && balanceAfter !== null &&
+          Math.abs(balanceAfter - balanceBefore) > 0.005;
+        // Wait for BOTH, so a row that lands before the balance catches up is not
+        // read as "credited". If the balance never moves we use the full window
+        // and then report it -- which is exactly the case worth catching.
+        if (rowAppeared && (balanceMoved || balanceBefore === null)) break;
+        await f.page.waitForTimeout(3_000);
+      }
+
+      f.page.off('response', record);
+
+      const v = verifyBody as Record<string, unknown> | null;
+      const r = registerBody as Record<string, unknown> | null;
+
+      const charged = Boolean(v && v.successful === true && v.status === 'APPROVED');
+      const chargeVerdict = v
+        ? `${String(v.status)} resultCode=${String(v.resultCode)} "${String(v.message)}"`
+        : '(no /verify response seen - the charge was never attempted)';
+
+      const journalAfter = revenueTracking
+        ? await f.dbHelper.getTopUpJournalCount(accountId)
+        : 0;
+
+      const probe: TopUpProbe = {
+        reachedGateway,
+        charged,
+        chargeVerdict,
+        chargedAmount: v && typeof v.amount === 'number' ? v.amount : null,
+        registerAcked: r ? r.status === 'SUCCESS' : null,
+        registeredAmount:
+          r && typeof r.amountRecharged === 'number' ? r.amountRecharged : null,
+        registered: topUpsAfter > topUpsBefore,
+        topUpsBefore,
+        topUpsAfter,
+        balanceBefore,
+        balanceAfter,
+        blockedBy,
+        calls,
+        revenueTracking,
+        journalBefore,
+        journalAfter,
+      };
+
+      f.testLogger.log(
+        `[${label}] ${accountId} | reachedGateway=${probe.reachedGateway} ` +
+        `charged=${probe.charged} (${probe.chargeVerdict}) ` +
+        `registerAcked=${String(probe.registerAcked)} registered=${probe.registered} ` +
+        `(subscription_topup ${topUpsBefore} -> ${topUpsAfter}, ` +
+        `balance ${String(balanceBefore)} -> ${String(balanceAfter)}, ` +
+        `revenue_journal ${revenueTracking ? `${journalBefore} -> ${journalAfter}` : 'n/a revenueTracking=off'})` +
+        (blockedBy ? ` | blocked: ${blockedBy}` : ''),
+      );
+      for (const c of calls) f.testLogger.log(`[${label}]   ${c}`);
+      return probe;
+    }
+
+    function assertChargeAndRegistrationAgree(
+      probe: TopUpProbe,
+      accountId: string,
+      what: string,
+    ): void {
+      // If the charge never even reached the gateway, the reason must be POSITIVE
+      // evidence that the product refused it -- an absent or disabled button. A
+      // bare timeout is not evidence: Selfcare being down looks identical, and a
+      // case that accepts silence can pass while proving nothing. This is what
+      // turns 2.11's no-subscription leg from "nothing happened" into "the product
+      // would not let it happen".
+      if (probe.blockedBy) {
+        expect(
+          probe.blockedBy,
+          `${accountId} (${what}) never reached the gateway, but nothing shows the ` +
+          `product prevented it. Recorded: ${probe.blockedBy}. A click timeout on an ` +
+          `ENABLED button means the flow stalled for some other reason, and this leg ` +
+          `proves nothing.`,
+        ).toMatch(/enabled=false|visible=false/);
+      }
+
+      // The money-losing direction, asserted on its own so the failure message says
+      // precisely what went wrong rather than "expected true to be false".
+      expect(
+        probe.charged && !probe.registered,
+        `MONEY LOST: ${accountId} (${what}) was CHARGED at PlaceToPay ` +
+        `[${probe.chargeVerdict}] but the top-up was never registered - ` +
+        `core_engine.subscription_topup stayed at ${probe.topUpsBefore}. ` +
+        `Calls seen: ${probe.calls.join(' | ') || '(none)'}`,
+      ).toBe(false);
+
+      // ...and the converse, so crediting without a charge is caught too.
+      expect(
+        probe.registered && !probe.charged,
+        `${accountId} (${what}) registered a top-up without an approved charge ` +
+        `[${probe.chargeVerdict}]. Calls seen: ${probe.calls.join(' | ') || '(none)'}`,
+      ).toBe(false);
+
+      // When both happened, they must be for the SAME money. A row written for a
+      // different amount is still a defect, and a count-only check would miss it.
+      if (probe.chargedAmount !== null && probe.registeredAmount !== null) {
+        expect(
+          probe.registeredAmount,
+          `${accountId} (${what}) was charged ${probe.chargedAmount} but registered ` +
+          `${probe.registeredAmount}`,
+        ).toBe(probe.chargedAmount);
+      }
+
+      // A ROW IS NOT CREDIT. The customer's balance has to move, by exactly the
+      // amount charged. Without this a top-up recorded but never applied reads as
+      // a success -- the money is gone and the balance is untouched, which is the
+      // same harm as not registering it at all.
+      //
+      // Inverted CRC: credit is NEGATIVE, so a top-up makes the balance MORE
+      // negative. balanceAfter = balanceBefore - amount.
+      if (
+        probe.registered &&
+        probe.balanceBefore !== null &&
+        probe.balanceAfter !== null &&
+        probe.chargedAmount !== null
+      ) {
+        const delta = probe.balanceAfter - probe.balanceBefore;
+        expect(
+          Math.abs(delta + probe.chargedAmount) < 0.01,
+          `${accountId} (${what}) registered a top-up of ${probe.chargedAmount} but the ` +
+          `balance moved by ${delta.toFixed(2)} (${probe.balanceBefore} -> ` +
+          `${probe.balanceAfter}). Expected a move of ${(-probe.chargedAmount).toFixed(2)} ` +
+          `-- inverted CRC, so a top-up makes the balance more negative.`,
+        ).toBe(true);
+      }
+
+      // A REGISTERED TOP-UP MUST REACH THE REVENUE JOURNAL.
+      //
+      // This is the assumption the dev team asked us to assert rather than
+      // trust. Their fix was one config row read by
+      // core_revenue.get_revenue_journal_data, called from createRevenueJournal,
+      // which every transaction-creating route is said to reach - GraphQL
+      // subscriptionTopUp, CRM gateway prepaidTopUp, rating, billing. Self Care
+      // takes the gateway route, so this leg is the only thing that actually
+      // proves the claim for the path a customer uses.
+      //
+      // A missing row here is exactly what NO_RJ_DATA_FOR_ACCOUNT_AND_ITEM looked
+      // like from the outside: the top-up appears to succeed, the balance moves,
+      // and the accounting entry silently never exists.
+      //
+      // Gated on revenueTracking. preprod runs it off by design, so there the
+      // absence of rows is correct and this must not fail.
+      if (probe.revenueTracking && probe.registered) {
+        const written = probe.journalAfter - probe.journalBefore;
+        expect(
+          written,
+          `${accountId} (${what}) registered a top-up and moved the balance, but wrote ` +
+          `${written} PURCHASE row(s) to core_revenue.revenue_journal ` +
+          `(${probe.journalBefore} -> ${probe.journalAfter}). revenueTracking is ON, so a ` +
+          `top-up must post one. This is the shape of NO_RJ_DATA_FOR_ACCOUNT_AND_ITEM: ` +
+          `the customer is credited and the accounting entry never exists.`,
+        ).toBeGreaterThan(0);
+      }
+
+      // ...and when nothing was registered, nothing may have moved either.
+      if (
+        !probe.registered &&
+        probe.balanceBefore !== null &&
+        probe.balanceAfter !== null
+      ) {
+        const delta = probe.balanceAfter - probe.balanceBefore;
+        expect(
+          Math.abs(delta) < 0.01,
+          `${accountId} (${what}) registered NO top-up, yet the balance moved by ` +
+          `${delta.toFixed(2)} (${probe.balanceBefore} -> ${probe.balanceAfter}).`,
+        ).toBe(true);
+      }
+    }
+
+    /**
+     * Attach to the first account in `state` that Self Care will actually open.
+     *
+     * Not every account in a given state is usable: AC-QCSMOKE-* carry a CLOSED
+     * subscription but are smoke-test artefacts with no usable Self Care profile,
+     * and attaching to one times out after 180s. Seen 2026-08-28, when picking
+     * only the newest CLOSED subscription hit exactly that. So try candidates in
+     * order and report a skip if none open, rather than failing on test data.
+     */
+    async function attachToFirstUsableAccount(
+      dbHelper: DbHelper,
+      testLogger: TestLogger,
+      selfcareLoginPage: SelfcareLoginPage,
+      selfcareAccountSearchPage: SelfcareAccountSearchPage,
+      state: 'CLOSED' | 'ACTIVE' | 'SUSPENDED',
+    ): Promise<string | null> {
+      const candidates = await dbHelper.findAccountsBySubscriptionState(state, 3);
+      if (!candidates.length) {
+        testLogger.log(
+          `! no account with a ${state} subscription on this environment. ` +
+          `Data state, not a defect.`,
+        );
+        return null;
+      }
+      for (const accountId of candidates) {
+        try {
+          // Safe to call unconditionally: attachToAccountInSelfCare skips the
+          // login when a session already exists. It used to need an
+          // alreadyLoggedIn flag from every caller, because a second login inside
+          // one test waits out its full 180s for a form that cannot appear -- but
+          // that is now handled at the source, so callers no longer have to know.
+          await attachToAccountInSelfCare(
+            { selfcareLoginPage, selfcareAccountSearchPage }, accountId,
+          );
+          return accountId;
+        } catch (err) {
+          testLogger.log(
+            `  ${accountId} (${state}) could not be opened in Self Care, trying the ` +
+            `next: ${String((err as Error)?.message ?? err).slice(0, 100)}`,
+          );
+        }
+      }
+      testLogger.log(
+        `! none of the ${candidates.length} ${state} account(s) could be opened in ` +
+        `Self Care: ${candidates.join(', ')}. Data state, not a defect.`,
+      );
+      return null;
+    }
+
+    test(
+      '2.11: No subscription or a CLOSED one - the customer must not be charged',
+      { tag: ['@tc-2-11'] },
+      async ({
+        page, testLogger, dbHelper,
+        searchAccountsPage, createAccountPage,
+        selfcareLoginPage, selfcareAccountSearchPage,
+        selfcareActivityPage, selfcareTopupPage, placeToPayCheckoutPage,
+      }) => {
+        // Two legs, each of which creates or opens an account and then waits out a
+        // 60s registration settle window. The default budget is not enough.
+        test.setTimeout(900_000);
+
+        const f = {
+          page, testLogger, dbHelper,
+          selfcareActivityPage, selfcareTopupPage, placeToPayCheckoutPage,
+        };
+
+        await test.step('account with NO subscription', async () => {
+          // Created without an order on purpose - that is what leaves an account
+          // with no subscription, and TS-01 already relies on such accounts
+          // working in Self Care.
+          const accountId = await createPrepaidAccountOnly(
+            page, searchAccountsPage, createAccountPage, baseRow, testLogger,
+          );
+          await attachToAccountInSelfCare(
+            { selfcareLoginPage, selfcareAccountSearchPage }, accountId,
+          );
+
+          const probe = await probeTopUp(f, accountId, '2.11 no-subscription');
+          assertChargeAndRegistrationAgree(probe, accountId, 'no subscription');
+        });
+
+        await test.step('account with a CLOSED subscription', async () => {
+          const accountId = await attachToFirstUsableAccount(
+            dbHelper, testLogger, selfcareLoginPage, selfcareAccountSearchPage, 'CLOSED',
+          );
+          if (!accountId) {
+            testLogger.log('! 2.11 CLOSED leg SKIPPED - see reason above.');
+            return;
+          }
+
+          const probe = await probeTopUp(f, accountId, '2.11 closed-subscription');
+          assertChargeAndRegistrationAgree(probe, accountId, 'subscription CLOSED');
+        });
+      },
+    );
+
+    test(
+      '2.12: Active and suspended subscriptions both charge AND register',
+      { tag: ['@tc-2-12'] },
+      async ({
+        page, testLogger, dbHelper, accountOrderApiHelper,
+        searchAccountsPage, createAccountPage, orderManagementPage, screenshotHelper,
+        selfcareLoginPage, selfcareAccountSearchPage,
+        selfcareActivityPage, selfcareTopupPage, placeToPayCheckoutPage,
+      }) => {
+        // Two legs, each a full Self Care journey plus a 60s registration settle
+        // window, and the second may have to create an account first.
+        test.setTimeout(900_000);
+
+        const f = {
+          page, testLogger, dbHelper,
+          selfcareActivityPage, selfcareTopupPage, placeToPayCheckoutPage,
+        };
+
+        // The controls for 2.11. Without them, a build that simply refused every
+        // top-up would satisfy 2.11 perfectly while being far more broken.
+
+        await test.step('ACTIVE subscription', async () => {
+          // CREATED, not found - but the file's SHARED created account rather than
+          // a brand new one per run.
+          //
+          // Created matters: searching for an "ACTIVE" account bit us on
+          // 2026-08-28, when the newest match had effectivedate 2027-01-09 against
+          // a clock of 2026-07-15. It was not actually in effect, so its
+          // registration legitimately failed and read as MONEY LOST. A created
+          // account is in effect by construction.
+          //
+          // Shared matters because jasec-dev already carries 876 accounts, 220 of
+          // them subscription-less test residue, and a fresh account per run adds
+          // to that for no benefit here. The shared one comes with prior top-up
+          // history, which is fine: every assertion below is on DELTAS, not on
+          // absolute counts or balances.
+          const accountId = await ensureSharedAccountAndAttach({
+            page, testLogger, accountOrderApiHelper,
+            searchAccountsPage, createAccountPage, orderManagementPage, screenshotHelper,
+            selfcareLoginPage, selfcareAccountSearchPage,
+            selfcareActivityPage, selfcareTopupPage, placeToPayCheckoutPage,
+          });
+
+          const probe = await probeTopUp(f, accountId, '2.12 active');
+          assertChargeAndRegistrationAgree(probe, accountId, 'subscription ACTIVE');
+
+          expect
+            .soft(probe.charged, `${accountId} (ACTIVE) was never charged`)
+            .toBe(true);
+          expect
+            .soft(
+              probe.registered,
+              `${accountId} (ACTIVE) was charged but no top-up was registered`,
+            )
+            .toBe(true);
+        });
+
+        await test.step('SUSPENDED subscription', async () => {
+          // Prefer a REAL suspended account: one that got there through the
+          // product, which is a truer fixture than anything we can fabricate.
+          let accountId = await attachToFirstUsableAccount(
+            dbHelper, testLogger, selfcareLoginPage, selfcareAccountSearchPage, 'SUSPENDED',
+          );
+          let synthetic = false;
+
+          if (!accountId) {
+            // Fallback: make one. Driving an account into debt and waiting for
+            // CREDIT_LIMIT_ACTIONS is ts-04's job and costs ~17 minutes, so the
+            // subscription is suspended directly instead. Created via the gateway
+            // WITHOUT logging in again -- a second Self Care login inside one test
+            // leaves the form unrendered and everything after it times out.
+            testLogger.log(
+              '2.12 SUSPENDED: no existing suspended account usable - creating one ' +
+              'and forcing the state (SYNTHETIC, subscription row only).',
+            );
+            accountId = await createPrepaidAccountViaGateway(
+              { testLogger, accountOrderApiHelper }, baseRow,
+            );
+            const subId = await dbHelper.setSubscriptionStatus(accountId, 'SUSPENDED');
+            testLogger.log(`2.12 SUSPENDED: ${accountId} / ${subId} forced to SUSPENDED`);
+            synthetic = true;
+
+            await attachToAccountInSelfCare(
+              { selfcareLoginPage, selfcareAccountSearchPage }, accountId,
+            );
+          }
+
+          // Confirm the state actually under test, rather than trusting either
+          // the search or the forced update.
+          const status = await dbHelper.getSubscriptionStatus(accountId);
+          expect(
+            status,
+            `2.12 SUSPENDED leg expected a SUSPENDED subscription for ${accountId}`,
+          ).toBe('SUSPENDED');
+          testLogger.log(
+            `2.12 SUSPENDED: using ${accountId} (${synthetic ? 'synthetic' : 'real'}), ` +
+            `subscription status ${status}`,
+          );
+
+          const probe = await probeTopUp(f, accountId, '2.12 suspended');
+          assertChargeAndRegistrationAgree(probe, accountId, 'subscription SUSPENDED');
+
+          expect
+            .soft(probe.charged, `${accountId} (SUSPENDED) was never charged`)
+            .toBe(true);
+          expect
+            .soft(
+              probe.registered,
+              `${accountId} (SUSPENDED) was charged but no top-up was registered`,
+            )
+            .toBe(true);
+        });
       },
     );
 
