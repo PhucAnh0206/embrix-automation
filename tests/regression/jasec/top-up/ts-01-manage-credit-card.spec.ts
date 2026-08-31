@@ -85,6 +85,37 @@ const cardedAccount = new SharedAccount<CardFixtures>({
  * SKIPS the DB leg with the reason printed -- the UI settle window still ran, and
  * a blocked precondition is never reported as proof.
  */
+/**
+ * Is the card in core_engine.credit_card? Used ONLY to classify a UI timeout.
+ *
+ * Returns true / false, or null when the DB cannot be reached - in which case the
+ * caller must report the original UI error rather than guess. A blocked oracle
+ * never becomes evidence either way.
+ */
+async function confirmCardInDb(
+  accountId: string,
+  testLogger: { log: (message: string) => void },
+): Promise<boolean | null> {
+  const db = new DbHelper();
+  try {
+    await db.connect();
+  } catch (err) {
+    testLogger.log(
+      `! DB oracle unavailable for ${accountId} ` +
+      `(${String((err as Error)?.message ?? err).split('\n')[0]}). ` +
+      `Cannot tell a slow render from a card that never saved.`,
+    );
+    return null;
+  }
+  try {
+    const n = await db.getSavedCardCount(accountId);
+    testLogger.log(`  DB oracle: ${n} card row(s) for ${accountId}`);
+    return n > 0;
+  } finally {
+    await db.disconnect?.().catch(() => { });
+  }
+}
+
 async function confirmNoCardInDb(
   accountId: string,
   testLogger: { log: (message: string) => void },
@@ -135,7 +166,41 @@ test.describe(
 
         await selfcareActivityPage.clickSaveWithPlaceToPay();
         await placeToPayCheckoutPage.completeTokenization('approve');
-        await selfcareActivityPage.assertCardOnFilePopulated();
+
+        // SEPARATE "the card was saved" FROM "Self Care rendered it in time".
+        //
+        // These are different questions and the UI cannot tell them apart: an
+        // empty token field looks the same whether nothing saved or the render
+        // is late. On 2026-08-31 a tester hit the second case - eight re-fetches
+        // over 69s all empty, while the card was in core_engine.credit_card the
+        // whole time - and the suite reported it as a card-saving failure, which
+        // reads as "the product is broken" when the product had worked.
+        //
+        // So on a UI timeout, ask the database what actually happened. The DB is
+        // consulted ONLY to classify a failure, never to excuse one: no card in
+        // credit_card still fails, and fails harder.
+        try {
+          await selfcareActivityPage.assertCardOnFilePopulated();
+        } catch (uiErr) {
+          const saved = await confirmCardInDb(accountId, testLogger);
+          if (saved === true) {
+            throw new Error(
+              `${accountId}: the card WAS saved - core_engine.credit_card holds it - but ` +
+              `Self Care did not render it inside the wait window. This is a UI/latency ` +
+              `finding, NOT a card-saving failure. Raise JASEC_CARD_WAIT_MS for this ` +
+              `environment, and report the render delay separately. UI error: ` +
+              `${String((uiErr as Error)?.message ?? uiErr).split('\n')[0]}`,
+            );
+          }
+          if (saved === false) {
+            throw new Error(
+              `${accountId}: no card in core_engine.credit_card AND the UI never showed ` +
+              `one. The card genuinely was not saved - this is the real failure. ` +
+              `UI error: ${String((uiErr as Error)?.message ?? uiErr).split('\n')[0]}`,
+            );
+          }
+          throw uiErr;   // DB unreachable - cannot classify, so report as-is
+        }
 
         testLogger.log(`✓ TC 1.1 — account ${accountId} has card saved`);
         expect(accountId).toMatch(/^(ACT|AC)-\d+$/);

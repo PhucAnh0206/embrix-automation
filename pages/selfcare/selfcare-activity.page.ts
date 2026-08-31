@@ -50,6 +50,25 @@ export class SelfcareActivityPage extends BasePage {
     await expect(this.saveWithPlaceToPayButton).toBeVisible({ timeout: LONG_WAIT });
   }
 
+  /**
+   * Activity -> Make Payment.
+   *
+   * Distinct from Top Up: Make Payment settles an OPEN INVOICE (an
+   * `core_engine.invoice_unit` row with status ACTIVE and due > 0), while Top Up
+   * adds wallet credit with no invoice involved. The two screens look similar and
+   * are one dropdown apart, so the nav is asserted on arrival rather than trusted.
+   */
+  async navigateToMakePayment(): Promise<void> {
+    await this.openActivityDropdown();
+    await this.page
+      .getByRole('link', { name: /Make\s*Payment/i })
+      .or(this.page.getByText(/Make\s*Payment/i))
+      .first()
+      .click();
+    await this.page.waitForLoadingToDisappear();
+    await this.page.waitForLoadState('networkidle', { timeout: 5000 }).catch(() => { });
+  }
+
   async navigateToTopUp(): Promise<void> {
     await this.openActivityDropdown();
     await this.page
@@ -111,14 +130,45 @@ export class SelfcareActivityPage extends BasePage {
     // core_engine.credit_card the whole time and rendered fine when opened later.
     //
     // Re-fetching on every attempt removes the timing dependency entirely.
+    // THE WINDOW IS TUNABLE, because 60s is not universally enough.
+    //
+    // On 2026-08-31 a tester on a different network re-fetched EIGHT times over
+    // 69 seconds after returning from PlaceToPay and read value="" every time,
+    // while the card sat in core_engine.credit_card and rendered fine when they
+    // opened the page by hand later. Each re-navigation costs ~5s on their
+    // machine against ~2s here, so they get a third of the attempts in the same
+    // budget - and the round-trip they are waiting on is slower to begin with.
+    //
+    // Raising the default to 120s covers the observed case; JASEC_CARD_WAIT_MS
+    // lets a slower environment go further without a code change.
+    const cardWindow = Number(process.env.JASEC_CARD_WAIT_MS ?? 120_000);
+    const startedAt = Date.now();
+
     if (!populatedFast) {
-      await expect(async () => {
-        await this.navigateToManagePaymentProfile();
-        expect(await tokenInput.inputValue()).not.toBe('');
-      }).toPass({
-        timeout: VERY_LONG_WAIT,
-        intervals: [1000, 2000, 3000, 5000],
-      });
+      try {
+        await expect(async () => {
+          await this.navigateToManagePaymentProfile();
+          expect(await tokenInput.inputValue()).not.toBe('');
+        }).toPass({
+          timeout: cardWindow,
+          intervals: [1000, 2000, 3000, 5000],
+        });
+      } catch (err) {
+        // Re-throw with the ONE number a reader needs. Without it the next
+        // person has to open the trace to find out how long we actually waited,
+        // which is exactly what happened with this failure.
+        const waited = ((Date.now() - startedAt) / 1000).toFixed(0);
+        throw new Error(
+          `Card On File was still empty after re-fetching the page for ${waited}s ` +
+          `(budget ${(cardWindow / 1000).toFixed(0)}s). The token field is filled by a ` +
+          `fetch on page load, and this re-navigated on every attempt, so the value ` +
+          `genuinely had not arrived yet. Raise JASEC_CARD_WAIT_MS if this environment ` +
+          `is slower. If the card IS in core_engine.credit_card for this account, the ` +
+          `card SAVED correctly and this is Self Care being slow to render it - NOT a ` +
+          `card-saving failure. Original: ` +
+          String((err as Error)?.message ?? err).split('\n')[0],
+        );
+      }
     }
 
     await expect(tokenInput).not.toHaveValue('', { timeout: LONG_WAIT });
