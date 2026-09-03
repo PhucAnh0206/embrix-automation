@@ -202,6 +202,22 @@ export class NotificationDbHelper {
                 ON bub.id = bal.id AND bub.currencyid = 'CRC'
         WHERE a.accountcategory = 'PREPAID'
           AND a.status = 'ACTIVE'
+          -- AN ACTIVE SUBSCRIPTION IS NOT ENOUGH: THE SERVICE UNIT MUST BE ACTIVE TOO.
+          --
+          -- A service unit suspended independently of its parent does NOT resume
+          -- when the subscription does. So an account can sit here with
+          -- subscription.status = ACTIVE and service_unit.status = SUSPENDED, pass
+          -- every other filter, get picked to carry an event - and then produce
+          -- nothing, because a suspended service is not billed.
+          --
+          -- Exactly what happened on 2026-09-03: AC-990001, AC-990002 and AC-990005
+          -- were selected for the three Event 1 variants, all three had SUSPENDED
+          -- service units left behind by earlier provisioning work, and cases 1.1,
+          -- 1.2 and 1.3 all reported "no notification" against a product that was
+          -- behaving correctly.
+          AND EXISTS (
+                SELECT 1 FROM core_engine.service_unit su
+                 WHERE su.accountid = a.id AND su.status = 'ACTIVE')
           AND bp.nextaccountingdate + core_engine.get_future_cycle_date(a.id) = $1::date
           AND ($2::varchar IS NULL OR pp.paymentmethod = $2::varchar)
           AND ($3::varchar IS NULL OR EXISTS (

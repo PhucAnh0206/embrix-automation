@@ -424,7 +424,7 @@ test.describe('TS-05 — threshold email tier boundaries', () => {
             // Bug 3.4, not a tier failure. Recorded, and only fatal for a
             // scenario if BOTH its accounts stayed silent.
             silent.push(a);
-            outcomes.push({ id: s.id, account: a, verdict: 'no email (bug 3.4)' });
+            outcomes.push({ id: s.id, account: a, verdict: 'no email (cause unconfirmed)' });
             continue;
           }
 
@@ -488,7 +488,7 @@ test.describe('TS-05 — threshold email tier boundaries', () => {
       if (silent.length) {
         console.log(`\n[TS-05] silent accounts (bug 3.4 evidence): ${silent.join(' ')}`);
         test.info().annotations.push({
-          type: 'bug-3.4',
+          type: 'threshold-silent',
           description: `${silent.length}/${all.length} eligible accounts crossed the threshold and produced no email: ${silent.join(' ')}`,
         });
       }
@@ -499,8 +499,16 @@ test.describe('TS-05 — threshold email tier boundaries', () => {
         expect
           .soft(
             bothSilent,
-            `Case ${s.id} is UNRESOLVED — both ${s.accounts.join(' and ')} produced no threshold ` +
-            `email, so the tier could not be observed. Blocked by bug 3.4, not a tier failure.`,
+            `Case ${s.id} is UNRESOLVED — both ${s.accounts.join(' and ')} crossed their ` +
+            `threshold and produced no email, so the tier could not be observed. This is NOT ` +
+            `a tier failure: the boundary was never exercised.
+` +
+            `Do NOT attribute this to case 3.4 — that defect was fixed and re-verified on ` +
+            `2026-08-14, and blaming it sends people to a closed ticket. Check instead: ` +
+            `(a) does each account still carry credit-limit thresholds (42.3% of prepaid ` +
+            `accounts on this tenant do not), (b) did the staged balance survive to billing ` +
+            `time, and (c) is there a template row for CREDIT_THRESHOLD_BREACH. Those three ` +
+            `look identical from here.`,
           )
           .toBe(false);
       }
