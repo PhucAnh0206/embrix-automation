@@ -440,12 +440,57 @@ test.describe('TS-02 — staged billing run', () => {
      */
     const skippedForCapacity: string[] = [];
 
+    /**
+     * 1B NEEDS AN ACCOUNT WHOSE CHARGE IS PREDICTABLE. 1A DOES NOT.
+     *
+     * C is measured from the last non-zero invoice, which is a forecast of THIS
+     * cycle's charge, not a fact. Work out what each band can absorb:
+     *
+     *   1A stages -(X+C) - max(5000, 2C), so post <= -X holds unless the real
+     *      charge exceeds the measured one by more than max(5000, 2C). Very
+     *      tolerant, and a smaller charge only makes it more sufficient.
+     *
+     *   1B stages -(C + X/2), so post = Cactual - Cmeasured - X/2. The band
+     *      -X < post <= 0 therefore holds only while |Cactual - Cmeasured| < X/2,
+     *      which on this tenant is about +/-1500 CRC.
+     *
+     * That asymmetry is exactly what the 2026-09-03 run showed: 1.1 passed and
+     * 1.2 did not. ACT-100384 was picked for 1B with invoice totals of 2,319 /
+     * 8,633,222 / 964,842 / 621,591 - C was measured at 964,842 and the real
+     * charge came in at 621,591, out by 343,251. The staged balance stayed below
+     * -X, so PREPAID_SUFFICIENT_CREDIT fired instead and 1B reported silence
+     * against a product that had done nothing wrong.
+     *
+     * So for 1B, require an account whose recent non-zero charges sit inside a
+     * window the band can absorb. Conservative on purpose: X is around 2920-3300
+     * here, so 1000 stays clear of X/2 for any account without needing X first.
+     */
+    const STABLE_CHARGE_SPREAD = 1000;
+    const pickStableChargeIdx = async (): Promise<number> => {
+      for (let i = 0; i < pool.length; i++) {
+        const totals = (await notifyDb.getInvoiceTotals(pool[i].accountId, 4))
+          .map((t) => Number(t.total))
+          .filter((t) => t > 0);
+        if (totals.length < 2) continue;   // nothing to judge stability from
+        if (Math.max(...totals) - Math.min(...totals) <= STABLE_CHARGE_SPREAD) return i;
+      }
+      return -1;
+    };
+
     for (const w of ordered) {
       // Event 3 needs an account whose kWh we fully control AND that is capable of
       // warning at all.
-      const idx = needsCreditProfile(w.event)
+      let idx = needsCreditProfile(w.event)
         ? await pickCapableIdx(w.event === 'CREDIT_THRESHOLD_BREACH')
         : 0;
+      // 1B only - see pickStableChargeIdx. Falls back to the first candidate so a
+      // tenant with no stable account still runs, and the assertion below then
+      // reports the reason instead of the run mis-landing silently.
+      if (w.event === 'PREPAID_INSUFFICIENT_CREDIT') {
+        const stable = await pickStableChargeIdx();
+        if (stable >= 0) idx = stable;
+        else console.log('[TS-02] no account with a stable charge for 1B; using the first candidate');
+      }
       if (needsCreditProfile(w.event) && idx < 0) {
         skippedForCapacity.push(
           w.event === 'CREDIT_THRESHOLD_BREACH'
@@ -514,11 +559,41 @@ test.describe('TS-02 — staged billing run', () => {
 
       // Fail the PLAN, not the run. A band that lands in the wrong event costs a
       // billing period, and the accounts cannot be reused for it.
+      //
+      // NOTE THIS GUARD IS TAUTOLOGICAL AND CANNOT FAIL. stageFor and branchFor
+      // are given the SAME C, so it only re-checks the arithmetic - which was
+      // never in doubt. Work it through: 1B stages -(C + X/2), so branchFor sees
+      // post = -X/2, always inside -X < post <= 0. It is kept because it would
+      // catch a future edit that broke either function, but it does NOT protect
+      // the run. What actually decides whether the band lands is whether C was
+      // right, and the check below is the one that tests that.
       if (w.event === 'PREPAID_SUFFICIENT_CREDIT' || w.event === 'PREPAID_INSUFFICIENT_CREDIT') {
         expect(
           branchFor(stagedBalance, X, C),
           `${acct.accountId} staged at ${stagedBalance} (X=${X}, C=${C}) would not produce ${w.event}`,
         ).toBe(w.event);
+      }
+
+      // THE ASSUMPTION, NOT THE ARITHMETIC: can this account's charge vary by
+      // more than the 1B band can absorb? Tolerance is |Cactual - C| < X/2.
+      // Soft, because a mis-land is worth reporting with numbers rather than
+      // stopping twelve other cases that ride on the same billing run.
+      if (w.event === 'PREPAID_INSUFFICIENT_CREDIT') {
+        const totals = (await notifyDb.getInvoiceTotals(acct.accountId, 4))
+          .map((t) => Number(t.total))
+          .filter((t) => t > 0);
+        const spread = totals.length >= 2 ? Math.max(...totals) - Math.min(...totals) : 0;
+        expect
+          .soft(
+            spread < X / 2,
+            `1B RISK — ${acct.accountId} charges span ${spread.toFixed(2)} across ` +
+              `[${totals.map((t) => t.toFixed(2)).join(', ')}], but the 1B band can only ` +
+              `absorb X/2 = ${(X / 2).toFixed(2)}. C was measured at ${C} from the last ` +
+              `non-zero invoice; if this cycle's charge differs by more than that, the ` +
+              `staged balance lands in 1A or crosses zero, and 1B will look silent when ` +
+              `the product is fine. Pick an account with a steadier charge.`,
+          )
+          .toBe(true);
       }
       if (w.event === 'CREDIT_LIMIT_BREACH') {
         expect(
