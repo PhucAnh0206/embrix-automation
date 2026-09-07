@@ -286,23 +286,28 @@ test.describe('JASEC provisioning - inbound callback contract', () => {
     expect(r.errorMsg).toMatch(/already Completed|Cancelled/i);
   });
 
-  test('an empty body returns a null-pointer, which is a DEFECT', async ({ request }) => {
-    // KNOWN DEFECT, reproduced 2026-08-30. An empty JSON object produces
-    // "Cannot get property 'id' on null object" - a crash, not a validation
-    // message. That exact string accounts for 9 of the 74 historical refusals on
-    // jasec-dev, so JASEC have hit it in the wild.
+  test('an empty body is refused with a validation message, not a crash', async ({ request }) => {
+    // WAS A DEFECT, now FIXED and verified. Until 2026-09-04 an empty JSON
+    // object produced "Cannot get property 'id' on null object" - a crash
+    // rather than a validation message, because validateProvisioningUpdatePayload
+    // read order.id before checking an order had been resolved at all.
     //
-    // Asserted as CURRENT behaviour so the suite stays green and the defect
-    // stays visible. When it is fixed this test fails, and that failure is the
-    // signal to rewrite it as "an empty body is refused with INCORRECT_INPUT".
+    // Fixed in edb6473 on feature/jasec-integration. Confirmed live on
+    // jasec-dev after the provision-gateway pod restarted 2026-09-04 14:29Z:
+    // this case failed on the old assertion and the new message came back
+    // exactly as the team described it.
+    //
+    // The team say the same guard is on all three inbound routes, and that a
+    // callback carrying a real order behaves exactly as before - which the
+    // cases above this one are what prove.
     const r = await callback(request, {});
     expectRefused(r, 'empty body');
     expect(
       r.errorMsg,
-      'The empty-body crash appears to be FIXED - it no longer returns a null ' +
-      'pointer. Good. Rewrite this case to assert a proper INCORRECT_INPUT ' +
-      'refusal and tell the team the defect is closed.',
-    ).toContain("Cannot get property 'id' on null object");
-    expect(r.errorCode).toBe('SYSTEM_ERROR');
+      'Expected the validation message introduced by edb6473. If a null-pointer ' +
+      'is back, the fix has been reverted or jasec-dev has been rolled onto an ' +
+      'image that predates it - check the running image before re-filing.',
+    ).toMatch(/Payload is empty or no field matched|OrderId can not be empty/i);
+    expect(r.errorMsg).not.toContain("Cannot get property 'id' on null object");
   });
 });

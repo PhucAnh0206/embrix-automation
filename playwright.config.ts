@@ -206,20 +206,59 @@ export default defineConfig({
       testMatch: ['**/regression/jasec/notification/ts-05-*.spec.ts'],
     },
 
-    // ── JASEC provisioning: the INBOUND half of suspend/reconnect, i.e. our own
-    // updateProvisioningRequest endpoint that JASEC call to close an order.
+    // ── JASEC provisioning (JEPYP-27): suspend/reconnect, both directions plus
+    // the config they depend on. One project so the whole flow runs from one
+    // command instead of half here and half over ssh.
     //
-    // Every case is a REFUSAL, so it needs no fixture and touches nothing: each
-    // payload names either an order id that cannot exist or ORD-960, which is
-    // COMPLETED and terminal. The happy paths are NOT here - closing an order
-    // needs one in PROVISIONING_INITIATED, which only exists once JASEC accept a
-    // dispatched command on a meter they recognise, and both known meters are
-    // contended.
+    //   inbound-contract   our updateProvisioningRequest endpoint. Every case is
+    //                      a REFUSAL, so it needs no fixture and touches
+    //                      nothing: each payload names either an order id that
+    //                      cannot exist or ORD-960, which is COMPLETED and
+    //                      terminal. No browser, no DB, no auth, no VPN.
+    //   outbound-contract  the payload contract, the template, the gateway
+    //                      config and the current order state. Read only, every
+    //                      statement a SELECT. NEEDS THE VPN - if the database
+    //                      is unreachable every case SKIPS with the reason
+    //                      printed, because a dropped VPN is an unmet
+    //                      precondition and not a defect.
+    //   dispatch           builds and sends a real command: the reconnect
+    //                      payload, the retry interval and the batch size.
+    //                      REACHES JASEC'S LIVE AMI, so it is gated behind
+    //                      JASEC_DISPATCH_RUN and skips on a normal run. Its
+    //                      guard excludes any meter JASEC has ever answered 00
+    //                      for, so it cannot consume an order staged for a
+    //                      session.
     //
-    // No browser, no DB, no auth, therefore no VPN - like jasec-billing-read.
+    // The happy paths are NOT here and cannot be: closing an order needs one in
+    // PROVISIONING_INITIATED, which only exists once JASEC accept a dispatched
+    // command on a meter they recognise, and dispatching consumes the single
+    // meter they have released.
+    // ui-*.spec.ts is excluded here and runs in jasec-provisioning-ui below,
+    // because it needs a browser and a logged-in session and these do not.
     {
       name: 'jasec-provisioning',
       testMatch: ['**/regression/jasec/provisioning/*.spec.ts'],
+      testIgnore: ['**/regression/jasec/provisioning/ui-*.spec.ts'],
+    },
+
+    // ── JASEC provisioning through the Core UI.
+    //
+    // Currently one case: the "Submit order" button on the order detail page,
+    // which is the manual reprocess the ticket asks for ("the UI need to be able
+    // to reprocess manually"). The UI path is a strict superset of the API one -
+    // button, mutation, OMS queue, sequence re-run, dispatch - so this is the
+    // only test for that requirement rather than one of a pair.
+    //
+    // Needs a browser, a session and therefore the VPN. Gated on top of that
+    // behind JASEC_UI_REPROCESS_RUN because it dispatches to JASEC's live AMI.
+    {
+      name: 'jasec-provisioning-ui',
+      testMatch: ['**/regression/jasec/provisioning/ui-*.spec.ts'],
+      dependencies: ['setup'],
+      use: {
+        ...devices['Desktop Chrome'],
+        storageState: 'playwright/.auth/user.json',
+      },
     },
 
     // ── JASEC billing via the Core UI Daily Schedule screen.
