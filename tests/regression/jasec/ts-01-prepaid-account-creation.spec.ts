@@ -64,7 +64,19 @@ test.describe('TS-01 — Prepaid Account Creation (Energia Prepago)', {
       contact: row.contact,
       address: row.address,
       paymentProfile: row.paymentProfile,
-      billingProfile: row.billingProfile,
+      // BDOM is overridable so a seeded account can be given a PRIVATE billing
+      // date. Every JASEC prepaid account is BDOM 1 (1,031 of 1,040 on dev), and
+      // the cycle offset is 8 days, so they all bill on the 9th - 267 of them on
+      // one date. A bill unit's period is fixed when it is created and the
+      // account can only ever be billed on the date it was born with, so a
+      // freshly seeded BDOM-1 account CANNOT be billed in isolation: the only
+      // options are billing the whole cohort or giving the account a BDOM nobody
+      // else uses. Default is unchanged (the data file's 1), so this is inert
+      // unless JASEC_BDOM is set.
+      billingProfile: {
+        ...row.billingProfile,
+        billingDom: Number(process.env.JASEC_BDOM ?? row.billingProfile.billingDom),
+      },
     };
 
     const accountId = await createAccountPage.createPrepaidAccount(payload);
