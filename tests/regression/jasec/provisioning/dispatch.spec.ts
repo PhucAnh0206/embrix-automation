@@ -71,6 +71,9 @@ const PASS = process.env.EMBRIX_PASSWORD ?? '';
 const STAGED_ACCOUNTS = ['ACT-100064', '01365966', '031201', 'ACT-100774'];
 
 /** accion values, from ccp_properties provisioningUtilities{Suspend,Resume}SubType. */
+const CALLBACK_URL =
+  process.env.JASEC_PROVISION_CALLBACK_URL ?? 'https://provision-gateway.jasec-dev.embrix.org/updateProvisioningRequest';
+
 const ACCION_SUSPEND = 'D';
 const ACCION_RESUME = 'C';
 
@@ -429,5 +432,111 @@ test.describe('JEPYP-27 - dispatch cases that need no JASEC input', () => {
       'JASEC returned no response at all to the reconnect command. A refusal is ' +
       'expected and fine on a rejected meter - silence is not.',
     ).not.toBe('');
+  });
+
+  /**
+   * TC-116. An accepted callback drives the full effect chain.
+   *
+   * WHY THIS IS SAFE TO AUTOMATE, having previously been thought not to be.
+   * The belief was that an order can only be closed by a callback once JASEC
+   * accept a dispatched command, which would make every run cost the one meter
+   * they have released. That is wrong, and the disproof was already in the
+   * data: ORD-960/961/962/968 were all driven to COMPLETED by callbacks we
+   * generated ourselves. What the endpoint requires is that a dispatch was
+   * ATTEMPTED - that is what instantiates order_prov_sequence_list - not that
+   * it succeeded. A dispatch JASEC REFUSE satisfies it exactly as well.
+   *
+   * So this raises its own subject on a meter JASEC always refuse, lets the
+   * refusal land, and then closes the order with our own callback. Nothing
+   * scarce is consumed and no real device is involved.
+   *
+   * WHAT IT PROVES that the refusal cases in inbound-contract.spec.ts cannot:
+   * that ACCEPTANCE propagates. Order COMPLETED, the order service COMPLETED,
+   * the service unit SUSPENDED - and the subscription still ACTIVE, because
+   * suspending a service must not cancel the customer's subscription.
+   */
+  test('an accepted callback drives the full effect chain', async ({ request }) => {
+    gate();
+    token = await signIn(request);
+    expect(token, 'Could not sign in.').not.toBe('');
+
+    const cs = await candidates(1);
+    test.skip(cs.length < 1, 'BLOCKED: no clean candidate account available.');
+    const c = cs[0];
+    await assertSafeToDispatch(c);
+
+    // The service unit must start ACTIVE, or SUSPENDED afterwards proves nothing.
+    const before = await db.query<{ status: string }>(
+      `SELECT status FROM core_engine.service_unit WHERE id = $1`, [c.svc]);
+    expect(before[0]?.status, `${c.svc} is not ACTIVE to begin with.`).toBe('ACTIVE');
+
+    const n0 = await commandCount();
+    const order = await raiseAndDispatch(request, c, 'SUSPEND');
+    await waitForCommands(n0 + 1);
+
+    // Poll for the sequence row: that is what makes the order callback-eligible,
+    // and it is written by the ATTEMPT, whatever JASEC answer.
+    let seq = 0;
+    for (let i = 0; i < 24 && seq === 0; i++) {
+      const r = await db.query<{ n: string }>(
+        `SELECT count(*)::text AS n FROM core_oms.order_prov_sequence_list WHERE id = $1`,
+        [order]);
+      seq = Number(r[0]?.n ?? 0);
+      if (seq === 0) await new Promise(r2 => setTimeout(r2, 5_000));
+    }
+    expect(seq, `${order} never instantiated a provisioning sequence, so no ` +
+      `callback can be accepted for it. The dispatch was not attempted.`).toBeGreaterThan(0);
+
+    const res = await request.post(CALLBACK_URL, {
+      headers: { 'Content-Type': 'application/json' },
+      data: {
+        orderId: order,
+        accountId: c.accountid,
+        status: 'COMPLETED',
+        services: [{
+          serviceType: 'ELECTRICITY', action: 'SUSPEND',
+          bundleId: c.bundleid || 'NONE', provisioningId: c.provisioningid,
+        }],
+      },
+      timeout: 120_000,
+    });
+    const raw = await res.text();
+    expect(raw, `The callback was refused, so nothing downstream can be asserted. ` +
+      `Body: ${raw.slice(0, 400)}`).toContain('FINALIZADO');
+
+    // Poll each link of the chain - the callback is processed asynchronously,
+    // so re-read rather than re-check one read.
+    const settled = async () => {
+      const r = await db.query<{ ord: string; svc: string; unit: string; sub: string }>(
+        `SELECT o.status AS ord,
+                coalesce((SELECT string_agg(DISTINCT s.status,'/') FROM core_oms.order_services s
+                           WHERE s.id = o.id),'') AS svc,
+                coalesce((SELECT su.status FROM core_engine.service_unit su
+                           WHERE su.id = $2),'') AS unit,
+                coalesce((SELECT string_agg(DISTINCT sb.status,'/') FROM core_engine.subscription sb
+                           WHERE sb.accountid = o.accountid),'') AS sub
+           FROM core_oms."order" o WHERE o.id = $1`, [order, c.svc]);
+      return r[0];
+    };
+    let end = await settled();
+    for (let i = 0; i < 36 && end?.ord !== 'COMPLETED'; i++) {
+      await new Promise(r2 => setTimeout(r2, 5_000));
+      end = await settled();
+    }
+
+    expect(end?.ord, `${order} did not complete on an accepted callback.`).toBe('COMPLETED');
+    expect(end?.svc, `${order}'s order service did not complete.`).toBe('COMPLETED');
+    expect(end?.unit,
+      `The service unit is ${end?.unit}, not SUSPENDED. The callback was accepted ` +
+      `and the order completed, but the suspension did not reach the service - ` +
+      `an operator would see a green order over a customer still being supplied.`,
+    ).toBe('SUSPENDED');
+    expect(end?.sub,
+      `The subscription is ${end?.sub}. Suspending a service must NOT change the ` +
+      `subscription - billing continues while supply is cut.`,
+    ).toBe('ACTIVE');
+
+    console.log(`[TC-116] ${order} on ${c.accountid}: order ${end?.ord}, ` +
+      `service ${end?.svc}, unit ${end?.unit}, subscription ${end?.sub}`);
   });
 });

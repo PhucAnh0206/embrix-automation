@@ -98,6 +98,23 @@ test.describe('JEPYP-27 - manual reprocess through the UI', () => {
       `the sequence loop, so this test would prove nothing.`,
     ).toBe('CREATED');
 
+    // The order must not be dated ahead of the CCP clock. createddate is not a
+    // real date here - the tenant runs on a frozen clock - and an order dated in
+    // the future makes the re-submit schedule a FUTURE_ORDERS job for that date.
+    // If no Job Schedule Config row exists for it the order fails THERE, before
+    // provisioning is reached, and the run looks like a reprocess defect.
+    // Cost one run and ORD-965's usable state on 2026-09-08.
+    const dated = await db.query<{ ahead: boolean; created: string }>(
+      `SELECT o.createddate > now() AS ahead, o.createddate::date::text AS created
+         FROM core_oms."order" o WHERE o.id = $1`, [ORDER]);
+    expect(
+      dated[0]?.ahead,
+      `${ORDER} is dated ${dated[0]?.created}, ahead of the clock. Re-submitting ` +
+      `it schedules a FUTURE_ORDERS job for that date, which is almost certainly ` +
+      `not configured, and the order fails before provisioning runs - proving ` +
+      `nothing about reprocess. Pick an order dated in the past.`,
+    ).toBe(false);
+
     // Never reprocess onto a meter JASEC actually act on.
     const accepted = await db.query<{ medidor: string }>(
       `SELECT DISTINCT substring(request::text from '<medidor>([^<]+)') AS medidor

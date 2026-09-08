@@ -15,7 +15,7 @@
  * account with our own automation does NOT produce one: our accounts carry
  * prov-ACT-nnn meters, JASEC reject those, and the order lands in
  * PROVISIONING_ERROR instead. Three orders are staged for sessions right now
- * (ORD-1059, ORD-1322, ORD-1323) and this spec must never touch them.
+ * (ORD-1059, ORD-1322, ORD-1323, ORD-1381) and this spec must never touch them.
  *
  * So every case below is a REFUSAL, which needs no fixture at all. The two happy
  * paths stay manual session work until we are given a spare meter.
@@ -53,7 +53,7 @@ const ENDPOINT =
  * valid callback would CLOSE it, and each order can be closed exactly once.
  * Kept as a guard: the helper below refuses to send a payload naming one.
  */
-const DO_NOT_TOUCH = ['ORD-1059', 'ORD-1322', 'ORD-1323'];
+const DO_NOT_TOUCH = ['ORD-1059', 'ORD-1322', 'ORD-1323', 'ORD-1381'];
 
 /** COMPLETED and therefore terminal. A callback on it is refused by design. */
 const TERMINAL_ORDER = { orderId: 'ORD-960', accountId: 'AC-990001' };
