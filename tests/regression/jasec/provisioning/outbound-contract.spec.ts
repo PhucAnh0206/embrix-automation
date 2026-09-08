@@ -212,6 +212,35 @@ test.describe('JASEC provisioning - outbound contract and config', () => {
     ).toBe('00');
   });
 
+  test('the mandated SOAPAction is the one that will be sent', async () => {
+    requireDb();
+    // SETTLED 2026-09-08 by reading feature/jasec-integration, the branch dev
+    // actually runs. Do not re-derive this from `develop`.
+    //
+    //   PGProvisioningGatewayService.resolveSoapAction(api) takes
+    //   'provisioningSoapAction.<API>' first, then tenant-wide
+    //   'provisioningSoapAction', then null; RestClientService then writes
+    //   conn.setRequestProperty('SOAPAction', action ?: '#POST').
+    //
+    // So '#POST' is the fallback for vendors integrated before the header was
+    // configurable - NOT a hardcode that defeats the property, which is what
+    // reading develop alone suggested. If this row is deleted the fallback
+    // silently takes over, and .NET ASMX stacks dispatch on SOAPAction and
+    // fault when it does not match - hence a test rather than a comment.
+    const row = await one<{ value: string }>(
+      `SELECT coalesce(value,'') AS value
+         FROM core_config.ccp_properties
+        WHERE property = $1`,
+      [`provisioningSoapAction.${AMI_API}`],
+    );
+    expect(
+      row?.value ?? '',
+      `The ticket mandates SOAPAction http://IntegracionAMI/ComandoRemotoAMI. ` +
+      `With no per-operation row the gateway falls back to '#POST', which is ` +
+      `not what JASEC published.`,
+    ).toBe('http://IntegracionAMI/ComandoRemotoAMI');
+  });
+
   test('both halves of the conversation are configured', async () => {
     requireDb();
     const out = await one<{ n: string }>(
