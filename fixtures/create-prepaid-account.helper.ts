@@ -417,8 +417,14 @@ export interface SwitchableSetupFixtures extends SetUpWithOrderFixtures {
 /**
  * Account setup for the top-up suites, switchable at RUN TIME.
  *
- *   default            → CRM gateway  (fast: ~2.2s to create)
- *   JASEC_ACCOUNT_SETUP=ui → Core UI wizard (original: ~95s to create)
+ *   default                     → Core UI wizard (~95s to create)
+ *   JASEC_ACCOUNT_SETUP=gateway → CRM gateway    (fast: ~2.2s to create)
+ *
+ * DEFAULT IS THE UI PATH. A real customer is created through the Core UI, so
+ * that is what the suite exercises by default. The gateway is a speed
+ * optimisation and produces an account a real user would not have: it ignores
+ * the legalEntity supplied and stores 'US' regardless, which changes which
+ * credit profile the account matches.
  *
  * Measured on jasec-preprod 2026-08-25, same test (TC 3.3) both ways:
  * gateway 1.7 min vs UI 4.9 min — about 3.2 minutes per test.
@@ -428,8 +434,8 @@ export interface SwitchableSetupFixtures extends SetUpWithOrderFixtures {
  * edit, no redeploy and nothing to un-comment, and both paths stay compiled so
  * neither can silently rot.
  *
- *   npx playwright test --project=jasec-top-up          # gateway (default)
- *   JASEC_ACCOUNT_SETUP=ui npx playwright test ...      # back to the UI path
+ *   npx playwright test --project=jasec-top-up               # Core UI (default)
+ *   JASEC_ACCOUNT_SETUP=gateway npx playwright test ...      # fast gateway path
  *
  * DO NOT route a test through here if it needs a METER. The gateway cannot
  * attach one — both provisioning endpoints were tested on 2026-08-25 and are
@@ -442,10 +448,11 @@ export async function setUpAccountForTopUp(
   fixtures: SwitchableSetupFixtures,
   baseRow: PrepaidAccountWithOrderRow,
 ): Promise<string> {
-  const mode = (process.env.JASEC_ACCOUNT_SETUP ?? 'gateway').trim().toLowerCase();
-  if (mode === 'ui') {
-    fixtures.testLogger.log('account setup: UI wizard (JASEC_ACCOUNT_SETUP=ui)');
-    return setUpAccountInSelfCare(fixtures, baseRow);
+  const mode = (process.env.JASEC_ACCOUNT_SETUP ?? 'ui').trim().toLowerCase();
+  if (mode === 'gateway') {
+    fixtures.testLogger.log('account setup: CRM gateway (JASEC_ACCOUNT_SETUP=gateway)');
+    return setUpAccountInSelfCareViaGateway(fixtures, baseRow);
   }
-  return setUpAccountInSelfCareViaGateway(fixtures, baseRow);
+  fixtures.testLogger.log('account setup: Core UI wizard (default)');
+  return setUpAccountInSelfCare(fixtures, baseRow);
 }
