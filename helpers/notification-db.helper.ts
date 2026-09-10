@@ -4,7 +4,7 @@ import { BillingEvent } from './notification-bands';
 import { TestLogger } from './test-logger';
 
 /**
- * NotificationDbHelper — everything the JEPYP-230 notification suite needs from
+ * NotificationDbHelper — everything the notification suite needs from
  * Postgres: staging, per-account measurement, and reading back what the engine
  * actually rendered.
  *

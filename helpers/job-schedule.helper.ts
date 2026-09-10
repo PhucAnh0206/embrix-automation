@@ -4,7 +4,7 @@ import { TestLogger } from './test-logger';
 /**
  * JobScheduleHelper — create and run an Embrix job schedule over GraphQL.
  *
- * This is the trigger side of the JEPYP-230 notification suite. Everything the
+ * This is the trigger side of the notification suite. Everything the
  * runbook does with a hand-edited shell script lives here instead.
  *
  * THREE CONSTRAINTS THAT COST A RUN IF YOU GET THEM WRONG:

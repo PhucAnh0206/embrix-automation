@@ -12,7 +12,7 @@ import {
 import type { NotificationContext } from '../../../../test-data/notifications/types';
 
 /**
- * TS-05 — JEPYP-230 cases 3.7 / 3.8 / 3.9: the tier boundaries of the
+ * TS-05 — cases 3.7 / 3.8 / 3.9: the tier boundaries of the
  * low-balance email's tax paragraph.
  *
  * WHAT IS UNTESTED AND WHY IT MATTERS. Cases 3.1-3.3 already cover the three

@@ -29,7 +29,7 @@ import type {
  *    it. That keeps the suite usable as a regression gate while defects are
  *    open. Delete the property when the fix lands and it becomes blocking.
  *
- * Template-agnostic — reused unchanged by every JEPYP-230 notification.
+ * Template-agnostic — reused unchanged by every notification.
  */
 export class NotificationReportHelper {
   constructor(private readonly logger?: TestLogger) { }

@@ -5,7 +5,7 @@ import { TestLogger } from './test-logger';
 /**
  * EmailHelper — IMAP client for asserting Embrix notification emails.
  *
- * Reads a real mailbox rather than a mail catcher on purpose: the JEPYP-230
+ * Reads a real mailbox rather than a mail catcher on purpose: the
  * notification work was blocked for a week by a transport defect (no STARTTLS,
  * JavaMail pinned to TLSv1), and a catcher that bypasses the tenant's real SMTP
  * server would have reported green the whole time. Slower, but it tests the
@@ -22,7 +22,7 @@ import { TestLogger } from './test-logger';
 
 // ── Formatting / parsing utilities ──────────────────────────────────────
 
-/** Divisor used by Embrix for `Saldo kWh Aproximados` (confirmed by dev, JEPYP-49). */
+/** Divisor used by Embrix for `Saldo kWh Aproximados` (confirmed by dev). */
 export const KWH_DIVISOR = 123.067;
 
 /**
@@ -30,7 +30,7 @@ export const KWH_DIVISOR = 123.067;
  *
  * Uses the absolute value because JASEC stores credit as a NEGATIVE balance
  * while the email renders it unsigned. Once the sign-convention defect on
- * JEPYP-49 is fixed, revisit this — a debt balance must render 0 kWh, not
+ * the top-up confirmation template is fixed, revisit this — a debt balance must render 0 kWh, not
  * floor(debt / divisor).
  */
 export function expectedKwh(crcBalance: number): number {
@@ -54,7 +54,7 @@ export function normalizeValue(value: string): string {
     .replace(/[\s\u00a0]+/g, ' ')
     .replace(/[\u20a1\u00a2]/g, '\u20a1')
     // The live template renders "₡ 5.000,00" (space after the symbol) while
-    // formatCRC produces "₡5.000,00". Confirmed against the real JEPYP-49
+    // formatCRC produces "₡5.000,00". Confirmed against the real top-up confirmation
     // emails on ACT-100525 / ACT-100527. Treat the two as equal rather than
     // baking the spacing into every expected value, so a template tweak to
     // the spacing does not fail the amount checks.

@@ -1,5 +1,5 @@
 /**
- * TS-02 — JEPYP-230 live staged billing run. Sections 1, 3, 4, 5 and 7.
+ * TS-02 — live staged billing run. Sections 1, 3, 4, 5 and 7.
  *
  * This is the TRIGGER half of the notification suite. TS-03 verifies rendered
  * bodies that already exist; this spec makes them exist — measure each account's
@@ -875,7 +875,7 @@ test.describe('TS-02 — assertions on the completed run', () => {
    * four fields the manual pass found broken:
    *   - identification shows the ACCOUNT's id, not JASEC's 3007045087
    *   - service address matches the account's address (was dropped entirely)
-   *   - "Días facturados" is populated (was blank; 57 for the ISP-282 case)
+   *   - "Días facturados" is populated (was blank; 57 for the proration case)
    *   - energy table line descriptions are not pipe-packed
    */
   test('step 4b — Event 7 invoice artifact (PDF content deferred while stamping is on)', async () => {

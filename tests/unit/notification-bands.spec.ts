@@ -1,5 +1,5 @@
 /**
- * Unit tests for the JEPYP-230 balance-band arithmetic.
+ * Unit tests for the balance-band arithmetic.
  *
  * These encode the numbers the runbook verified by hand over several billing
  * runs. The band maths is the part that costs a whole run when it is wrong —

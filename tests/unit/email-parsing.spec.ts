@@ -9,7 +9,7 @@
  * contains an accent. That failure mode is invisible in a live run (it just
  * looks like the field is missing from the email), so it is caught here.
  *
- * The fixture below mirrors the real JEPYP-49 email observed on ACT-100527,
+ * The fixture below mirrors a real top-up confirmation email observed on ACT-100527,
  * using the worst-case layout: label and value in separate <td> cells, and
  * accented characters as named entities.
  *
@@ -147,7 +147,7 @@ test.describe('email helper — formatting', { tag: ['@unit'] }, () => {
 
   /**
    * The live template renders a space after the colón sign — "₡ 5.000,00" —
-   * confirmed against the real JEPYP-49 emails on ACT-100525 / ACT-100527.
+   * confirmed against real top-up confirmation emails on ACT-100525 / ACT-100527.
    * formatCRC emits no space, so normalizeValue has to reconcile them or
    * every amount check fails.
    */

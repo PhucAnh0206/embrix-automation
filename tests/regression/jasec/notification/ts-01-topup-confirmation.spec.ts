@@ -1,8 +1,8 @@
 /**
- * TS-01 — Notifications (JEPYP-230)
+ * TS-01 — Notifications
  *
  * Tests:
- *   4.1  Top-Up Confirmation email — field-by-field content check (JEPYP-49)
+ *   4.1  Top-Up Confirmation email — field-by-field content check
  *
  * Creates a fresh prepaid account whose billing contact carries the
  * IMAP-monitored address, triggers the event, waits for the email, then
@@ -15,7 +15,7 @@
  * Output: a Jira-ready 3-column table, written to
  * test-results/notification-reports/ and attached to the HTML report.
  *
- * FUTURE TEMPLATES (JEPYP-50 low balance, -51 balance ended, -52 reconnection,
+ * FUTURE TEMPLATES (low balance, balance ended, reconnection,
  * -53 minimum top-up, -54 invoice + statement): add a template file next to
  * topup-confirmation.template.ts and a test below that triggers the event.
  * EmailHelper, NotificationReportHelper and the report format need no changes.

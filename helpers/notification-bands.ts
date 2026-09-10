@@ -1,5 +1,5 @@
 /**
- * Balance-band arithmetic for the JEPYP-230 prepaid notification events.
+ * Balance-band arithmetic for the prepaid notification events.
  *
  * Source of truth: notes/RUNBOOK-QA-all-events.md §1.
  *

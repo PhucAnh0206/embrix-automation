@@ -1,5 +1,5 @@
 /**
- * JEPYP-27: the manual reprocess, through the UI - which is what the ticket asks
+ * Provisioning: the manual reprocess, through the UI - which is what the ticket asks
  * for. "If max retries is reached, then stop, the UI need to be able to
  * reprocess manually."
  *

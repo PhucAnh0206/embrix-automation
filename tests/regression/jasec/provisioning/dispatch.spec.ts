@@ -1,5 +1,5 @@
 /**
- * JEPYP-27 dispatch cases that need NO input from JASEC.
+ * Provisioning dispatch cases that need NO input from JASEC.
  *
  * Both cases below looked blocked on JASEC and are not. The insight is that for
  * these two questions a REFUSAL proves the point exactly as well as an

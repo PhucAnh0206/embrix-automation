@@ -28,7 +28,7 @@
  *
  * THE CONTRACT. The two correlation elements are <numeroOrden> and
  * <numeroCuenta>. JASEC published that as their final payload on 2026-09-01 and
- * template v10 matches it. JEPYP-27's description still shows numOrder /
+ * template v10 matches it. the ticket description still shows numOrder /
  * numCuenta and is STALE - do not "fix" the template back to those. A defect
  * raised on 2026-09-04 calling v10 a regression was wrong and is retracted; the
  * measured history is 48 commands with neither field, 68 with numeroOrden, 19
