@@ -4,8 +4,9 @@ node_modules/
 # Auth state — contains credentials, never commit
 playwright/.auth/
 
-# Environment variables — contains secrets
-#.env
+# Environment variables — contains secrets. Copy .env.example to .env and
+# fill in your own values; never commit the result.
+.env
 # Per-env sources of truth for switch-env.ps1 (contain real credentials).
 # The active one gets copied to .env by the switcher.
 .env.dev

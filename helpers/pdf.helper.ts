@@ -21,7 +21,7 @@ export interface PdfSummary {
  *
  * A valid JASEC invoice is ~100 KB. A ~15-byte file that starts `%PDF-1.4` and
  * has no `%%EOF` is the XSL stylesheet aborting mid-render — the empty-table-body
- * defect fixed in `jasec_invoice_v3.xsl` (RUNBOOK-QA-all-events.md §4). That is a
+ * defect fixed in `jasec_invoice_v3.xsl`. That is a
  * renderer bug, NOT a stamping consequence: stamping is disabled on jasec-dev
  * (`ccp_properties.pacEnabled = false`) and PDFs generate fine.
  */
