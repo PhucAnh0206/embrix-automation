@@ -13,6 +13,8 @@ playwright/.auth/
 .env.staging
 .env.local
 .env.bak
+.env.coopeg
+.env.congero
 
 # Test output
 test-results/

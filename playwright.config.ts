@@ -139,6 +139,22 @@ export default defineConfig({
       },
     },
 
+    // ── Dev: documentation / scratch specs. NOT part of regression ────
+    // `read-context.spec.ts` demonstrates the test-context helper by writing
+    // placeholder ids. While it lived under regression/coopeguanacaste it ran
+    // on every regression pass and wrote those fakes into the then-shared
+    // context file, which other suites read back as real data. Keep demo specs
+    // out of `regression`.
+    {
+      name: 'dev',
+      testMatch: ['**/dev/*.spec.ts'],
+      dependencies: ['setup'],
+      use: {
+        ...devices['Desktop Chrome'],
+        storageState: 'playwright/.auth/user.json',
+      },
+    },
+
     // ── JASEC regression: prepaid account creation + JASEC-specific flows
     {
       name: 'jasec-regression',
