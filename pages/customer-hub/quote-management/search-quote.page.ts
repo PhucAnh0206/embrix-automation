@@ -22,6 +22,10 @@ export class SearchQuote extends BasePage {
   async navigateQuoteViaNav(): Promise<void> {
     await this.hoverNavMenu(/Customer Hub/i);
     await this.clickNavLink(/Quote Management/i, /quote/i);
+    // The Customer Hub dropdown stays open over the page after navigating, and
+    // its "Quote Management" item sits on top of CREATE NEW — the click was
+    // intercepted and retried until it timed out.
+    await this.dismissDropdowns();
   }
 
   /** Click the CLEAR button on the Search Quote screen. */

@@ -10,6 +10,18 @@ export class ServerHelper {
     private graphqlUrl = process.env.GRAPH_URLS ?? 'https://transactional.coopeg.embrix.org/graphql';
     private logger?: TestLogger;
     private static cachedToken: string | null = null;
+    /**
+     * Which auth scheme this endpoint actually wants. Resolved once, on the
+     * first userLogin, and cached per-process alongside the token.
+     *
+     * - 'bearer' — post-2026-07 builds (JASEC dev/preprod): userLogin returns a
+     *   token and every call must carry `Authorization: Bearer`.
+     * - 'legacy' — older builds still deployed for CoopeG / the Embrix platform
+     *   tenants: `userLogin` returns `UserDetails`, which has NO `token` field,
+     *   and these endpoints do not require a token at all. Demanding one here
+     *   threw `userLogin returned no token` and killed the whole suite at TC-00.
+     */
+    private static authMode: 'bearer' | 'legacy' | null = null;
 
     /**
      * @param request - Playwright's APIRequestContext for making API requests.
@@ -55,12 +67,38 @@ export class ServerHelper {
             throw new Error(`userLogin returned no token: ${JSON.stringify(body.errors || body)}`);
         }
         ServerHelper.cachedToken = token;
+        ServerHelper.authMode = 'bearer';
         this.logger?.log('ServerHelper: acquired Bearer token via userLogin');
         return token;
     }
 
     private async authHeaders(): Promise<Record<string, string>> {
+        if (ServerHelper.authMode === null) await this.resolveAuthMode();
+        if (ServerHelper.authMode === 'legacy') {
+            // Older backends authenticate off these headers (the Core UI's own
+            // adapter sets them); they also accept the call unauthenticated.
+            return {
+                'X-Auth-Username': process.env.EMBRIX_USER ?? '',
+                'X-Auth-Password': process.env.EMBRIX_PASSWORD ?? '',
+            };
+        }
         return { Authorization: `Bearer ${await this.getToken()}` };
+    }
+
+    /**
+     * Decide once whether this endpoint issues Bearer tokens. A backend whose
+     * schema has no `UserDetails.token` field answers with a ValidationError
+     * rather than a token — that is a definitive "legacy", not a failure, so we
+     * record it and carry on instead of throwing.
+     */
+    private async resolveAuthMode(): Promise<void> {
+        try {
+            await this.getToken();
+        } catch (err) {
+            if (!/no token|token'? in type/i.test(String(err))) throw err;
+            ServerHelper.authMode = 'legacy';
+            this.logger?.log('ServerHelper: endpoint issues no token — using legacy header auth');
+        }
     }
 
     /**

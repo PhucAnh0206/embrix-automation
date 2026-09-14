@@ -81,10 +81,17 @@ export class CreateOrderPage extends BasePage {
   /**
   * Click on radio button of the first row
   */
-  async clickRadioButtonById(): Promise<void> {
+  /**
+   * Select the offer row matching `rowText` in the Choose Price Offers dialog.
+   *
+   * `rowText` used to be a hardcoded 'PO_FR', which meant this page object
+   * could only ever order one offer, on one tenant — the caller's choice was
+   * silently ignored.
+   */
+  async clickRadioButtonById(rowText: string): Promise<void> {
 
     const targetRow = this.popup.locator('table tr').filter({
-      hasText: 'PO_FR'
+      hasText: rowText
 
     });
     await targetRow.click();
