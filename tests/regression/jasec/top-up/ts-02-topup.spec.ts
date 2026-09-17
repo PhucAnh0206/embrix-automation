@@ -902,10 +902,10 @@ test.describe(
      * Two traps this avoids:
      *
      *  - HTTP status is useless here. The DECLINED charge also returns 200; the
-     *    rejection lives in the body. An earlier version of this probe inferred
-     *    "charged" from "the approve flow completed without throwing", which would
-     *    have reported a declined payment as a charge and produced a false
-     *    MONEY LOST against an account that was never debited.
+     *    rejection lives in the body. Never infer "charged" from "the approve
+     *    flow completed without throwing" - that reports a declined payment as
+     *    a charge and produces a false MONEY LOST against an account that was
+     *    never debited.
      *  - PlaceToPay's own /process is NOT a usable verdict: on the declined run it
      *    returned status "ACTIVE", not a rejection. Only /verify is decisive, and
      *    it has the further advantage of being Embrix's own view of whether money

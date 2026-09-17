@@ -261,8 +261,8 @@ export async function attachToAccountInSelfCare(
 
   // Idempotent on purpose. Called a second time inside one test this would
   // otherwise wait out its full 180s for a login form that cannot appear: an
-  // authenticated session routes goto() straight to the app. Verified
-  // 2026-08-28. Switching accounts is all a logged-in caller needs.
+  // authenticated session routes goto() straight to the app.
+  // Switching accounts is all a logged-in caller needs.
   if (!(await selfcareLoginPage.isAuthenticated())) {
     const { username, password } = embrixCredentials();
     await selfcareLoginPage.goto();
@@ -311,7 +311,7 @@ export async function setUpAccountAndEnterManagePaymentProfile(
  * wizard, then log into Self Care against it.
  *
  * Drop-in for `setUpAccountInSelfCare` for tests that need an account with a
- * working subscription but NOT a meter. Measured on jasec-dev 2026-08-21:
+ * working subscription but NOT a meter. The gateway is fast:
  * the gateway returns in ~3s where the Core UI wizard takes ~95s (41s account
  * + 53s order across ~15 sequential clicks).
  *
@@ -357,7 +357,7 @@ export async function createPrepaidAccountViaGateway(
     accountSubType: 'PREPAID',
     customerSegment: 'B2C',
     currency: 'CRC',
-    legalEntity: 'Jasec',
+    legalEntity: 'US',   // the Create Account form's own default; see the note on legalEntity below
     country: 'Costa Rica',
     state: 'Cartago',
     city: 'Cartago',
@@ -389,7 +389,7 @@ export async function createPrepaidAccountViaGateway(
  * Split from createPrepaidAccountViaGateway so a caller that is ALREADY logged
  * in can create an account without logging in again -- repeating the Self Care
  * login inside one test leaves the form unrendered and every following action
- * times out (seen 2026-08-28). Such a caller creates, then navigates and
+ * times out. Such a caller creates, then navigates and
  * searches, rather than calling this.
  */
 export async function setUpAccountInSelfCareViaGateway(
@@ -420,25 +420,36 @@ export interface SwitchableSetupFixtures extends SetUpWithOrderFixtures {
  *   default                     → Core UI wizard (~95s to create)
  *   JASEC_ACCOUNT_SETUP=gateway → CRM gateway    (fast: ~2.2s to create)
  *
+ * Across a full test, both ways:
+ * gateway 1.7 min vs UI 4.9 min — about 3.2 minutes per test.
+ *
  * DEFAULT IS THE UI PATH. A real customer is created through the Core UI, so
  * that is what the suite exercises by default. The gateway is a speed
- * optimisation and produces an account a real user would not have: it ignores
- * the legalEntity supplied and stores 'US' regardless, which changes which
- * credit profile the account matches.
+ * optimisation and produces an account a real user would not have.
  *
- * Measured on jasec-preprod 2026-08-25, same test (TC 3.3) both ways:
- * gateway 1.7 min vs UI 4.9 min — about 3.2 minutes per test.
+ * Test data carries legalEntity `US`, which is what the Create Account form
+ * defaults to and therefore what a real user gets. This is load-bearing: credit
+ * profiles are attribute-matched on legalentity, and an account carrying `Jasec`
+ * matches no profile at all, making it unrepresentative of production.
+ *
+ * The creation CHANNEL does not affect this. The gateway ignores the field and
+ * stores `US` regardless; the UI pre-fills it. Do not reintroduce a per-path
+ * legalEntity difference - there is none.
  *
  * Why a switch and not commented-out code: reverting has to be instant and
  * total. One env var puts every call site back on the Core UI path with no
  * edit, no redeploy and nothing to un-comment, and both paths stay compiled so
  * neither can silently rot.
  *
+ * The gateway path is KEPT and still compiled — it is legitimate when you need
+ * a throwaway account fast and the account shape is irrelevant to the
+ * assertion.
+ *
  *   npx playwright test --project=jasec-top-up               # Core UI (default)
  *   JASEC_ACCOUNT_SETUP=gateway npx playwright test ...      # fast gateway path
  *
  * DO NOT route a test through here if it needs a METER. The gateway cannot
- * attach one — both provisioning endpoints were tested on 2026-08-25 and are
+ * attach one — both provisioning endpoints were tested and are
  * closed for this tenant, so the account is created without a meter and can
  * never be rated. TC 2.10 asserts "Medidor" on the receipt PDF and must keep
  * calling setUpAccountInSelfCare directly. Same for anything that rates:
@@ -450,7 +461,11 @@ export async function setUpAccountForTopUp(
 ): Promise<string> {
   const mode = (process.env.JASEC_ACCOUNT_SETUP ?? 'ui').trim().toLowerCase();
   if (mode === 'gateway') {
-    fixtures.testLogger.log('account setup: CRM gateway (JASEC_ACCOUNT_SETUP=gateway)');
+    fixtures.testLogger.log(
+      'account setup: CRM gateway (JASEC_ACCOUNT_SETUP=gateway) — NOTE this ' +
+      'creates legalentity=US, which DOES match a credit profile, unlike a ' +
+      'real UI-created account',
+    );
     return setUpAccountInSelfCareViaGateway(fixtures, baseRow);
   }
   fixtures.testLogger.log('account setup: Core UI wizard (default)');
