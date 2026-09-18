@@ -7,10 +7,6 @@
     "test:headed": "playwright test --headed",
     "test:ui": "playwright test --ui",
     "test:setup": "playwright test --project=setup",
-    "test:smoke:coopeg": "playwright test --project=smoke --env=coopeg-sandbox",
-    "test:smoke:coopeg:headed": "playwright test --project=smoke --env=coopeg-sandbox --headed",
-    "test:regression:coopeg": "playwright test --project=regression --env=coopeg-sandbox",
-    "test:regression:coopeg:headed": "playwright test --project=regression --env=coopeg-sandbox --headed",
     "test:unit": "playwright test --project=unit",
     "typecheck": "tsc --noEmit",
     "test:jasec:regression": "playwright test --project=jasec-regression",
@@ -26,7 +22,12 @@
     "report": "playwright show-report",
     "postinstall": "playwright install",
     "test:notification:safe": "npm run test:unit && npm run test:notification:content",
-    "test:jasec:billing:read": "playwright test --project=jasec-billing-read"
+    "test:jasec:billing:read": "playwright test --project=jasec-billing-read",
+    "test:smoke": "playwright test --project=smoke",
+    "test:smoke:headed": "playwright test --project=smoke --headed",
+    "test:embrix-platform": "playwright test --project=embrix-platform",
+    "test:embrix-platform:headed": "playwright test --project=embrix-platform --headed",
+    "test:coopeg-lifecycle": "playwright test --project=coopeg-lifecycle"
   },
   "devDependencies": {
     "@playwright/test": "^1.49.0",

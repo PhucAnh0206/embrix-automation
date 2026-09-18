@@ -3,6 +3,7 @@ import * as dotenv from 'dotenv';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as Timeouts from './helpers/timeouts.helper';
+import { resolveTenant, assertSuiteAllowed } from './config/tenants';
 
 dotenv.config();
 
@@ -21,55 +22,41 @@ if (!process.env.TEST_WORKER_INDEX && process.env.CLEAN_LOGS_ON_START === 'true'
   }
 }
 
-const ENV = process.env.TEST_ENV ?? 'sandbox';
+// ── Tenant resolution ──────────────────────────────────────────────────────
+// One tenant per run, named by TEST_ENV and validated against config/tenants.ts.
+// There is no fallback: the old resolution silently used CoopeG when it could
+// not work out the target, which is how a preprod run once raised an order on
+// dev (ORD-1582).
+const { name: TENANT_NAME, tenant: TENANT } = resolveTenant();
 
-const BASE_URLS: Record<string, string> = {
-  'coopeg-sandbox': 'https://coreui.coopeg.embrix.org/',
-  'embrix-sandbox': 'https://core-ui.congero.embrix.org/',
-  'congero-sandbox': 'http://embrix.157.151.130.59.nip.io/',
-  'jasec-dev': 'https://core-ui.jasec-dev.embrix.org/',
-  'jasec-preprod': 'https://core-ui.jasec-preprod.embrix.org/',
-};
+const baseURL = TENANT.baseUrl;
 
-const GraphQL_URLS: Record<string, string> = {
-  'coopeg-sandbox': 'https://transactional.coopeg.embrix.org/graphql',
-  'embrix-sandbox': 'https://service-transactional.congero.embrix.org/graphql',
-  'congero-sandbox': 'http://graphiql.embrix.157.151.130.59.nip.io/graphiql',
-  'jasec-dev': 'https://service-transactional.jasec-dev.embrix.org/graphql',
-  'jasec-preprod': 'https://service-transactional.jasec-preprod.embrix.org/graphql',
-};
+// Exposed for helper classes, which read these rather than the registry.
+process.env.TEST_ENV = TENANT_NAME;
+process.env.EMBRIX_BASE_URL = TENANT.baseUrl;
+process.env.GRAPH_URLS = TENANT.graphqlUrl;
+process.env.EMBRIX_GRAPHQL_URL = TENANT.graphqlUrl;
+if (TENANT.selfcareUrl) process.env.SELFCARE_BASE_URL = TENANT.selfcareUrl;
+if (TENANT.crmGatewayUrl) process.env.CRM_GATEWAY_URL = TENANT.crmGatewayUrl;
 
-const CRM_GATEWAY_URLS: Record<string, string> = {
-  'coopeg-sandbox': 'https://crm-gateway.coopegsbx.embrix.org',
-  'jasec-dev': 'https://crm-gateway.jasec-dev.embrix.org',
-  'jasec-preprod': 'https://crm-gateway.jasec-preprod.embrix.org',
-};
+// Refuse a suite that does not belong to this tenant, before a browser opens.
+for (const arg of process.argv) {
+  const m = /^--project=(.+)$/.exec(arg);
+  if (m) assertSuiteAllowed(m[1].trim(), TENANT_NAME);
+}
 
-const baseURL = process.env.EMBRIX_BASE_URL ?? BASE_URLS[ENV] ?? BASE_URLS['coopeg-sandbox'];
+// Workers re-evaluate this file, so print once from the runner only.
+if (!process.env.TEST_WORKER_INDEX) {
+  console.log(`[tenant] ${TENANT_NAME} -> ${TENANT.baseUrl}`);
+  if (TENANT.note) console.log(`[tenant] note: ${TENANT.note}`);
+}
 
-// Expose env vars for helper classes
-process.env.GRAPH_URLS = process.env.EMBRIX_GRAPHQL_URL ?? GraphQL_URLS[ENV] ?? GraphQL_URLS['coopeg-sandbox'];
-
-// ── JEPYP-230 live-run gate ────────────────────────────────────────────────
-// The live notification suite moves the tenant-global CCP clock and spends a
-// job_schedule slot, so it must only fire when asked for BY NAME. This detection
-// has to live HERE, in the main process: a spec sees the WORKER's process.argv,
-// which does not carry --project, so gating inside the spec always reads false
-// and silently skips. Workers inherit this env var (same mechanism as
-// GRAPH_URLS above), so the spec reads it correctly.
 if (process.argv.join(' ').includes('jasec-notification-live')) {
   process.env.JEPYP230_LIVE_RUN = 'true';
 }
-// TS-05 (tier boundaries) needs the SAME protection for the same reason, and for a
-// while did not have it: it calls setAndVerifyCcpTime and creates a schedule, so a
-// bare `npx playwright test` — which runs every project — would move the shared
-// clock (potentially BACKWARD, e.g. from 2027-11-09 to its 2026-11-09 default) and
-// spend a slot. Gated separately from the live run so naming one project does not
-// silently enable the other; they must never share a date.
 if (process.argv.join(' ').includes('jasec-notification-tiers')) {
   process.env.JEPYP230_TIER_RUN = 'true';
 }
-process.env.CRM_GATEWAY_URL = process.env.EMBRIX_CRM_GATEWAY_URL ?? CRM_GATEWAY_URLS[ENV] ?? CRM_GATEWAY_URLS['coopeg-sandbox'];
 
 export default defineConfig({
   testDir: './tests',
@@ -127,11 +114,23 @@ export default defineConfig({
 
     // ── Regression: (reuse saved session) ─────────────
     {
-      name: 'regression',
-      testMatch: [
-        '**/regression/embrixPlatform/*.spec.ts',
-        '**/regression/coopeguanacaste/*.spec.ts',
-      ],
+      // ts-02 — the Embrix platform suite. Runs on any tenant with a catalog.
+      name: 'embrix-platform',
+      testMatch: ['**/regression/embrixPlatform/*.spec.ts'],
+      dependencies: ['setup'],
+      use: {
+        ...devices['Desktop Chrome'],
+        storageState: 'playwright/.auth/user.json',
+      },
+    },
+
+    {
+      // ts-01 — the CoopeG full-lifecycle suite. Split out of the old single
+      // `regression` project: both lived under one name, so a bare
+      // --project=regression silently ran this one too, with its billing jobs
+      // and extra clock moves.
+      name: 'coopeg-lifecycle',
+      testMatch: ['**/regression/coopeguanacaste/*.spec.ts'],
       dependencies: ['setup'],
       use: {
         ...devices['Desktop Chrome'],
