@@ -56,7 +56,11 @@ export const TENANTS: Record<string, Tenant> = {
   'jasec-preprod': {
     baseUrl: 'https://core-ui.jasec-preprod.embrix.org/',
     graphqlUrl: 'https://service-transactional.jasec-preprod.embrix.org/graphql',
-    selfcareUrl: 'https://selfcare-ui.jasec-preprod.embrix.org/',
+    // No `-ui` on preprod. dev is selfcare-ui.jasec-dev, preprod is
+    // selfcare.jasec-preprod - the `-ui` form does not resolve here, and this
+    // registry overwrites SELFCARE_BASE_URL from .env, so a correct .env
+    // cannot save you.
+    selfcareUrl: 'https://selfcare.jasec-preprod.embrix.org/',
     crmGatewayUrl: 'https://crm-gateway.jasec-preprod.embrix.org',
     dbName: 'coredb-jasec-preprod',
     suites: ['jasec-'],
