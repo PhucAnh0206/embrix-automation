@@ -2,7 +2,16 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 /**
- * TestLogger — Writes structured log entries to a file in test-results/logs/.
+ * TestLogger — Writes structured log entries to a file in artifacts/logs/.
+ *
+ * NOT `test-results/`, and this is not cosmetic. Playwright CLEARS test-results
+ * around a run, and this class creates its directory ONCE in the constructor
+ * then writes to it later — so the directory could vanish in between and
+ * `flush()` threw `ENOENT`, failing tests whose assertions had all passed.
+ * Measured 2026-09-08: it took down top-up TC 1.1 and TC 1.3, and then
+ * ts-08-topup-before-billing AFTER its top-up had already succeeded and been
+ * confirmed in the database. Three false failures from a logging side effect.
+ * `.gitignore` already documents artifacts/ as the place evidence survives.
  *
  * Categories:
  *   [LOG]   – General information
@@ -24,7 +33,7 @@ export class TestLogger {
       .replace(/_+/g, '_')
       .substring(0, 80);
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-    const dir = path.join(process.cwd(), 'test-results', 'logs');
+    const dir = path.join(process.cwd(), 'artifacts', 'logs');
     if (!fs.existsSync(dir)) {
       fs.mkdirSync(dir, { recursive: true });
     }
@@ -70,10 +79,22 @@ export class TestLogger {
     this.write('ERROR', `${message}${extra}`);
   }
 
-  /** Flush buffer to disk. Safe to call multiple times. */
+  /**
+   * Flush buffer to disk. Safe to call multiple times.
+   *
+   * Re-creates the directory first, and NEVER throws. A logger must not be able
+   * to fail a test whose assertions all passed: this was a bare writeFileSync,
+   * so when the directory had been cleared it raised ENOENT at end of test and
+   * reported a PASS as a FAIL.
+   */
   flush(): void {
     if (this.flushed || this.buffer.length === 0) return;
-    fs.writeFileSync(this.filePath, this.buffer.join('\n') + '\n', 'utf-8');
+    try {
+      fs.mkdirSync(path.dirname(this.filePath), { recursive: true });
+      fs.writeFileSync(this.filePath, this.buffer.join('\n') + '\n', 'utf-8');
+    } catch (e) {
+      console.log(`[LOG] TestLogger could not write ${this.filePath}: ${String(e)}`);
+    }
     this.flushed = true;
   }
 

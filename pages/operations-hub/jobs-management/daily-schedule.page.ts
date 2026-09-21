@@ -118,6 +118,37 @@ export class DailySchedulePage extends BasePage {
     /**
      * Check if the job cards list is visible on the page (i.e., jobs exist for the selected date)
      */
+    /**
+     * Per-job status as RENDERED on the Job Schedule screen.
+     *
+     * The chain is not a table — it is one `.card` per job whose text reads
+     * "BILL_CHECK Status: Completed Schedule Time Type Automatic", which is why
+     * tableCount is 0 on this screen. Measured 2026-09-11: all nine jobs
+     * (BILL_CHECK, INVOICE_CHECK, COLLECTION_CREATE, COLLECTION_ACTIONS,
+     * CANCEL_SUBSCRIPTION, CRDR_NOTES, CREDIT_LIMIT_ACTIONS, FUTURE_CANCEL,
+     * FUTURE_PURCHASE) expose their status this way.
+     *
+     * This is the UI equivalent of the `job chain = BILL_CHECK=COMPLETED | ...`
+     * line that ts-06-billing-run reads out of the database, so a billing run can
+     * assert what an operator actually sees rather than only what the tables say.
+     *
+     * Cards that are not job cards (the header, the column legend) carry no
+     * "Status:" and are skipped by the pattern rather than filtered by position,
+     * which would break the moment a card is added.
+     *
+     * @returns JOB_NAME -> upper-cased status, e.g. { BILL_CHECK: 'COMPLETED' }
+     */
+    async jobStatuses(): Promise<Record<string, string>> {
+        const out: Record<string, string> = {};
+        const texts = await this.jobCards.allInnerTexts().catch(() => [] as string[]);
+        for (const raw of texts) {
+            const t = String(raw).replace(/\s+/g, ' ').trim();
+            const m = t.match(/([A-Z][A-Z0-9_]{2,})\s+Status:\s*([A-Za-z_]+)/);
+            if (m) out[m[1]] = m[2].toUpperCase();
+        }
+        return out;
+    }
+
     async isJobListVisible(): Promise<boolean> {
         return (await this.jobCards.count()) > 0;
     }

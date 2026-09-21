@@ -45,6 +45,33 @@ async function gridIsEmpty(table: Locator): Promise<boolean> {
   return (await rows.first().locator('td[colspan]').count()) > 0;
 }
 
+
+/**
+ * What the catalog says a bundle costs, summed over its components.
+ *
+ * Asked of the API rather than hardcoded so the expectation cannot drift from
+ * the tenant it is checked against — the same reason the JASEC suites derive
+ * their expected amounts instead of storing them.
+ */
+async function bundleGross(page: any, bundleId: string): Promise<number> {
+  const res = await page.request.post(process.env.GRAPH_URLS!, {
+    headers: {
+      'content-type': 'application/json',
+      'X-Auth-Username': process.env.EMBRIX_USER ?? '',
+      'X-Auth-Password': process.env.EMBRIX_PASSWORD ?? '',
+    },
+    data: {
+      query: `{ getBundleById(input: {id: "${bundleId}"}) { components { priceOfferId offerPrice } } }`,
+    },
+  });
+  const body = await res.json();
+  const components = body?.data?.getBundleById?.components;
+  if (!components?.length) {
+    throw new Error(`Cannot price bundle '${bundleId}' from the catalog: ${JSON.stringify(body).slice(0, 200)}`);
+  }
+  return components.reduce((sum: number, c: any) => sum + Number(c.offerPrice ?? 0), 0);
+}
+
 const state: Partial<SuiteState> = {};
 
 // Catalog + seed values for the tenant this run targets.
@@ -570,6 +597,26 @@ test.describe('REGRESSION: Test Suite - 02', () => {
       page.getByText(/^PI-\d+ - ACTIVE/).first(),
       'No ACTIVE installment plan after save'
     ).toBeVisible();
+
+    // The rule this screen exists to enforce: the instalments must account for
+    // the whole invoice. The product rejects a split that does not total 100
+    // with PERCENTAGE_SPLIT_TOTAL_MUST_BE_100, so a saved plan that sums to
+    // anything else means the rule did not hold on the way in.
+    await page.getByText(/^PI-\d+ - /).first().click();
+    await page.waitForLoadState('networkidle');
+
+    const percentInputs = page.locator('#percent input, input[name="percent"]');
+    const rows = await percentInputs.count();
+    if (rows === 0) {
+      testLogger.log('No percentage rows on this plan (fixed-instalment mode) — split check not applicable');
+    } else {
+      let total = 0;
+      for (let i = 0; i < rows; i++) {
+        total += Number((await percentInputs.nth(i).inputValue()).replace(/[^0-9.-]/g, '') || 0);
+      }
+      testLogger.data('Instalment split', { rows, total });
+      expect(total, `Instalment percentages total ${total}, not 100`).toBeCloseTo(100, 2);
+    }
   });
 
   test('TC-46: Account Data / Exchange Rates – External Purchase Order Configuration', async ({ embrixAccount,
@@ -1019,7 +1066,7 @@ test.describe('REGRESSION: Test Suite - 02', () => {
 
 
 
-  test('TC-57: Billing Data / Rated Usage Inquiry – Filter Rated Usage Transactions', async ({ embrixAccount,
+  test('TC-60: Billing Data / Rated Usage Inquiry – Filter Rated Usage Transactions', async ({ embrixAccount,
     page, billsPage, screenshotHelper, testLogger
   }) => {
 
@@ -1054,7 +1101,7 @@ test.describe('REGRESSION: Test Suite - 02', () => {
   });
 
 
-  test('TC-58: Billing Data / Usage Records – Filter and Export Usage Data', async ({ embrixAccount,
+  test('TC-61: Billing Data / Usage Records – Filter and Export Usage Data', async ({ embrixAccount,
     page, billsPage, screenshotHelper, testLogger
   }) => {
 
@@ -1079,7 +1126,7 @@ test.describe('REGRESSION: Test Suite - 02', () => {
   });
 
 
-  test('TC-59: Subscription & Billing Data / AR Request Log – Filter AR Requests', async ({ embrixAccount,
+  test('TC-62: Subscription & Billing Data / AR Request Log – Filter AR Requests', async ({ embrixAccount,
     page, billsPage, screenshotHelper, testLogger
   }) => {
 
@@ -1092,7 +1139,7 @@ test.describe('REGRESSION: Test Suite - 02', () => {
     await billsPage.selectType();
     await billsPage.clickSearchButton();
     await page.waitForTimeout(SHORT_WAIT);
-    // "...displaying the corresponding AR requests." Same reasoning as TC-57:
+    // "...displaying the corresponding AR requests." Same reasoning as TC-60:
     // assert the grid resolved to exactly one definite state, so a stuck or
     // errored surface is a failure rather than a silent pass.
     const rowCount = await billsPage.getRowCount();
@@ -1147,7 +1194,7 @@ test.describe('REGRESSION: Test Suite - 02', () => {
   });
 
 
-  test('TC-64: Billing Data / Account Statement – Filter, Export and View Notes', async ({ embrixAccount,
+  test('TC-67: Billing Data / Account Statement – Filter, Export and View Notes', async ({ embrixAccount,
     page, billsPage, screenshotHelper, testLogger
   }) => {
 
@@ -1175,7 +1222,7 @@ test.describe('REGRESSION: Test Suite - 02', () => {
 
 
 
-  test('TC-65: Billing Data / Shared Charge Configuration – Create New Shared Charge', async ({ embrixAccount,
+  test('TC-68: Billing Data / Shared Charge Configuration – Create New Shared Charge', async ({ embrixAccount,
     page, billsPage, screenshotHelper, testLogger
   }) => {
 
@@ -1211,7 +1258,7 @@ test.describe('REGRESSION: Test Suite - 02', () => {
       picker,
       'Clicking Subscription ID did not open a subscription picker'
     ).toBeVisible({ timeout: MEDIUM_WAIT });
-    await screenshotHelper.captureAndAttach('TC-65-subscription-picker');
+    await screenshotHelper.captureAndAttach('TC-68-subscription-picker');
   });
 
 
@@ -1343,7 +1390,7 @@ test.describe('REGRESSION: Test Suite - 02', () => {
 
 
 
-  test('TC-61: Billing Data / Payments – Filter Payments by Date, Status, Reference and Invoice', async ({ embrixAccount,
+  test('TC-64: Billing Data / Payments – Filter Payments by Date, Status, Reference and Invoice', async ({ embrixAccount,
     page, manualPaymentPage, billsPage, screenshotHelper, testLogger
   }) => {
 
@@ -1419,7 +1466,7 @@ test.describe('REGRESSION: Test Suite - 02', () => {
     await expect(popup).not.toBeVisible();
   });
 
-  test('TC-60: Billing Data / AR Operation Units – Filter by Item ID', async ({ embrixAccount,
+  test('TC-63: Billing Data / AR Operation Units – Filter by Item ID', async ({ embrixAccount,
     page, billsPage, screenshotHelper, testLogger
   }) => {
 
@@ -1539,7 +1586,7 @@ test.describe('REGRESSION: Test Suite - 02', () => {
   });
 
 
-  test('TC-63: Billing Data / Credit and Debit Notes – Filter by Date Range and Note Type', async ({ embrixAccount,
+  test('TC-66: Billing Data / Credit and Debit Notes – Filter by Date Range and Note Type', async ({ embrixAccount,
     page, billsPage, testLogger
   }) => {
     await page.goto(state.quickAccUrl!);
@@ -1673,6 +1720,39 @@ test.describe('REGRESSION: Test Suite - 02', () => {
     await newQuote.clickTopNextButton();
     await newQuote.clickTopNextButton();
     await newQuote.clickGetQuoteButton();
+
+    // ── The quote's whole purpose is the price, so read it. ──────────────
+    //
+    // The documented case stops at "a quotation is generated", and the suite
+    // used to click straight through to Save without looking at a number. The
+    // expected value is not a guess: the bundle declares what each component
+    // costs, so we ask the catalog and compare.
+    const quote = page.locator('[role="dialog"]').last();
+    await expect(quote).toBeVisible();
+
+    const expected = await bundleGross(page, data.bundleId);
+    testLogger.data('Catalog gross for bundle', expected);
+
+    // Header totals. Gross and Quote are inputs; Discount is blank when none.
+    const num = (t: string) => Number(String(t).replace(/[^0-9.-]/g, ''));
+    const headerGross = num(await quote.locator('input').nth(0).inputValue());
+    const headerQuote = num(await quote.locator('input').nth(2).inputValue());
+
+    expect(headerGross, 'Quoted gross does not match the catalog price').toBeCloseTo(expected, 2);
+
+    // With no discount offer on the bundle, Quote must equal Gross. This is the
+    // arithmetic the screen exists to perform.
+    expect(headerQuote, 'Quote should equal Gross when there is no discount').toBeCloseTo(headerGross, 2);
+
+    // The three sections must agree with each other. A total that disagrees
+    // with the lines that produced it is the defect worth catching here.
+    const serviceQuote = num(await quote.locator('table').nth(0).locator('tbody tr').first().locator('td').last().innerText());
+    const lineQuote = num(await quote.locator('table').nth(1).locator('tbody tr').first().locator('td').last().innerText());
+    testLogger.data('Quote totals', { headerGross, headerQuote, serviceQuote, lineQuote });
+
+    expect(serviceQuote, 'Service Summary disagrees with the header total').toBeCloseTo(headerQuote, 2);
+    expect(lineQuote, 'Line Summary disagrees with the header total').toBeCloseTo(headerQuote, 2);
+
     await newQuote.clickCancelQuoteButton();
     await newQuote.clickSaveQuoteButton();
   });

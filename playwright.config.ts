@@ -23,10 +23,10 @@ if (!process.env.TEST_WORKER_INDEX && process.env.CLEAN_LOGS_ON_START === 'true'
 }
 
 // ── Tenant resolution ──────────────────────────────────────────────────────
-// One tenant per run, named by TEST_ENV and validated against config/tenants.ts.
-// There is no fallback: the old resolution silently used CoopeG when it could
-// not work out the target, which is how a preprod run once raised an order on
-// dev (ORD-1582).
+// One tenant per run, named by TEST_ENV and validated against the registry in
+// config/tenants.ts. There is no fallback: the old resolution silently used
+// CoopeG when it could not work out the target, which is how a preprod run
+// once raised an order on dev.
 const { name: TENANT_NAME, tenant: TENANT } = resolveTenant();
 
 const baseURL = TENANT.baseUrl;
@@ -114,7 +114,8 @@ export default defineConfig({
 
     // ── Regression: (reuse saved session) ─────────────
     {
-      // ts-02 — the Embrix platform suite. Runs on any tenant with a catalog.
+      // ts-02 — the 41-case Embrix platform suite. Runs on any tenant that
+      // carries a normal catalog.
       name: 'embrix-platform',
       testMatch: ['**/regression/embrixPlatform/*.spec.ts'],
       dependencies: ['setup'],
@@ -125,10 +126,11 @@ export default defineConfig({
     },
 
     {
-      // ts-01 — the CoopeG full-lifecycle suite. Split out of the old single
-      // `regression` project: both lived under one name, so a bare
-      // --project=regression silently ran this one too, with its billing jobs
-      // and extra clock moves.
+      // ts-01 — the CoopeG full-lifecycle suite (account -> provisioning ->
+      // billing -> collections). Split out of the old single `regression`
+      // project: both lived under one name, so `--project=regression` without a
+      // spec path silently ran this one too, with its billing jobs and extra
+      // clock moves.
       name: 'coopeg-lifecycle',
       testMatch: ['**/regression/coopeguanacaste/*.spec.ts'],
       dependencies: ['setup'],
@@ -140,10 +142,10 @@ export default defineConfig({
 
     // ── Dev: documentation / scratch specs. NOT part of regression ────
     // `read-context.spec.ts` demonstrates the test-context helper by writing
-    // placeholder ids. While it lived under regression/coopeguanacaste it ran
-    // on every regression pass and wrote those fakes into the then-shared
-    // context file, which other suites read back as real data. Keep demo specs
-    // out of `regression`.
+    // placeholder ids (INV-FIXTURE-67890, INV-DIRECT-12345). While it lived
+    // under regression/coopeguanacaste it ran on every regression pass and
+    // wrote those fakes into the then-shared context file, which other suites
+    // read back as real data. Keep demo specs out of `regression`.
     {
       name: 'dev',
       testMatch: ['**/dev/*.spec.ts'],
@@ -221,6 +223,85 @@ export default defineConfig({
       testMatch: ['**/regression/jasec/notification/ts-05-*.spec.ts'],
     },
 
+    // ── JASEC provisioning (JEPYP-27): suspend/reconnect, both directions plus
+    // the config they depend on. One project so the whole flow runs from one
+    // command instead of half here and half over ssh.
+    //
+    //   inbound-contract   our updateProvisioningRequest endpoint. Every case is
+    //                      a REFUSAL, so it needs no fixture and touches
+    //                      nothing: each payload names either an order id that
+    //                      cannot exist or ORD-960, which is COMPLETED and
+    //                      terminal. No browser, no DB, no auth, no VPN.
+    //   outbound-contract  the payload contract, the template, the gateway
+    //                      config and the current order state. Read only, every
+    //                      statement a SELECT. NEEDS THE VPN - if the database
+    //                      is unreachable every case SKIPS with the reason
+    //                      printed, because a dropped VPN is an unmet
+    //                      precondition and not a defect.
+    //   dispatch           builds and sends a real command: the reconnect
+    //                      payload, the retry interval and the batch size.
+    //                      REACHES JASEC'S LIVE AMI, so it is gated behind
+    //                      JASEC_DISPATCH_RUN and skips on a normal run. Its
+    //                      guard excludes any meter JASEC has ever answered 00
+    //                      for, so it cannot consume an order staged for a
+    //                      session.
+    //
+    // The happy paths are NOT here and cannot be: closing an order needs one in
+    // PROVISIONING_INITIATED, which only exists once JASEC accept a dispatched
+    // command on a meter they recognise, and dispatching consumes the single
+    // meter they have released.
+    // ui-*.spec.ts is excluded here and runs in jasec-provisioning-ui below,
+    // because it needs a browser and a logged-in session and these do not.
+    {
+      name: 'jasec-provisioning',
+      testMatch: ['**/regression/jasec/provisioning/*.spec.ts'],
+      testIgnore: ['**/regression/jasec/provisioning/ui-*.spec.ts'],
+    },
+
+    // ── JASEC provisioning through the Core UI.
+    //
+    // Currently one case: the "Submit order" button on the order detail page,
+    // which is the manual reprocess the ticket asks for ("the UI need to be able
+    // to reprocess manually"). The UI path is a strict superset of the API one -
+    // button, mutation, OMS queue, sequence re-run, dispatch - so this is the
+    // only test for that requirement rather than one of a pair.
+    //
+    // Needs a browser, a session and therefore the VPN. Gated on top of that
+    // behind JASEC_UI_REPROCESS_RUN because it dispatches to JASEC's live AMI.
+    {
+      name: 'jasec-provisioning-ui',
+      testMatch: ['**/regression/jasec/provisioning/ui-*.spec.ts'],
+      dependencies: ['setup'],
+      use: {
+        ...devices['Desktop Chrome'],
+        storageState: 'playwright/.auth/user.json',
+      },
+    },
+
+    // ── JASEC billing via the Core UI Daily Schedule screen.
+    // Proves the UI can run a billing cycle. The GraphQL path in ts-02 / ts-05
+    // stays the one the suite relies on; this is an addition so a UI regression
+    // cannot stop the regression suite from billing.
+    //
+    // IRREVERSIBLE: moves the tenant CCP clock, spends a job_schedule slot, and
+    // bills real accounts (advancing their cycle). Gated behind
+    // JASEC_BILL_UI_RUN=true inside the spec and refuses to start without an
+    // explicit JASEC_BILL_UI_DATE, so a broad run can never trigger it.
+    // Needs a browser and the DB, therefore the VPN.
+    {
+      name: 'jasec-billing-ui',
+      testMatch: [
+        '**/regression/jasec/billing/ts-06-*.spec.ts',
+        '**/regression/jasec/billing/ts-07-*.spec.ts',
+        '**/regression/jasec/billing/ts-08-*.spec.ts',
+      ],
+      dependencies: ['setup'],
+      use: {
+        ...devices['Desktop Chrome'],
+        storageState: 'playwright/.auth/user.json',
+      },
+    },
+
     // ── JASEC billing EXPLORATORY: the invoice as a DOCUMENT, read through Core UI.
     // NOT PART OF THE OFFICIAL SUITE. There is no EPDP sub-task for billing or
     // invoicing; this project exists to find out whether the area is worth
@@ -254,8 +335,81 @@ export default defineConfig({
     // Cases here carry no TC number on purpose — numbering is assigned from the
     // EPDP-348 sub-task list once a proposal is accepted.
     {
+    // ── BILLING FILE NUMBERS ARE LOAD-BEARING ────────────────────────────
+    // Renamed 2026-09-11 from read-* / ui-* to the ts-NN-* convention the rest
+    // of the suite uses. The prefix used to say what a spec needed; now the
+    // NUMBER does, and nothing in the filename warns you any more:
+    //
+    //   ts-06 .. ts-08   MUTATING    browser + DB + VPN, bills REAL accounts
+    //                                irreversibly, needs a private BDOM.
+    //                                THIS BAND IS RESERVED - do not reuse it.
+    //   every other ts-NN  READ-ONLY  no browser, no DB, no VPN, safe in CI
+    //                                (today: ts-01..ts-05, ts-09)
+    //   explore-NN       spike, not official coverage
+    //
+    // So a new billing spec must be numbered into the right range, not just
+    // appended. Putting a mutating spec at ts-04 would silently place it in the
+    // read-only project, which runs inside `-Block all`.
       name: 'jasec-billing-read',
-      testMatch: ['**/regression/jasec/billing/read-*.spec.ts'],
+      testMatch: [
+        '**/regression/jasec/billing/ts-01-*.spec.ts',
+        '**/regression/jasec/billing/ts-02-*.spec.ts',
+        '**/regression/jasec/billing/ts-03-*.spec.ts',
+        '**/regression/jasec/billing/ts-04-*.spec.ts',
+        '**/regression/jasec/billing/ts-05-*.spec.ts',
+        '**/regression/jasec/billing/ts-09-*.spec.ts',
+      ],
+    },
+
+    // ── JASEC ACCOUNTING: the EBS / ERP extract (point 10 of the E2E guide).
+    //
+    // ACCOUNTING FILE NUMBERS ARE LOAD-BEARING, exactly as in billing/:
+    //
+    //   ts-01 .. ts-05   READ-ONLY   no clock move, no extract run. ts-01 and
+    //                                ts-02 need no browser and no VPN either;
+    //                                ts-03 reads the DB, so it needs the VPN.
+    //   ts-06 .. ts-08   MUTATING    RESERVED. Runs `ebsExtract`, which CONSUMES
+    //                                a day's journals, flips them to POSTED and
+    //                                stamps them with a batch id. There is no
+    //                                un-extract. Do not reuse this band.
+    //
+    // A mutating spec numbered ts-04 would land silently in the read-only
+    // project, which is safe to run at any time — and would then run itself.
+    {
+      name: 'jasec-accounting',
+      testMatch: [
+        '**/regression/jasec/accounting/ts-01-*.spec.ts',
+        '**/regression/jasec/accounting/ts-02-*.spec.ts',
+        '**/regression/jasec/accounting/ts-03-*.spec.ts',
+      ],
+    },
+
+    // MUTATING half. Gated inside the spec behind JASEC_EBS_RUN=true and it
+    // refuses to start without one, so a broad run can never trigger an extract.
+    // Needs the DB, therefore the VPN. No browser.
+    {
+      name: 'jasec-accounting-run',
+      testMatch: ['**/regression/jasec/accounting/ts-06-*.spec.ts'],
+    },
+
+    // ── JASEC billing TRUE-UP: the 0-30 kWh fixed charge and the cycle length
+    // it depends on. MUTATING and it MOVES THE TENANT-GLOBAL CCP CLOCK, so it is
+    // its own project rather than part of the ts-06..08 billing band — a clock
+    // move is a heavier conflict than billing one account, and it must never be
+    // picked up by a broad run. Gated inside the spec behind JASEC_TRUEUP_RUN=true.
+    {
+      name: 'jasec-billing-trueup',
+      testMatch: ['**/regression/jasec/billing/ts-10-*.spec.ts'],
+    },
+
+    // ── JASEC USAGE: the credit breach, the parked reading and its replay.
+    // MUTATING — seeds an account, drops real MDR files through the loader and
+    // moves balances. Gated inside the spec behind JASEC_USAGE_RUN=true. Needs
+    // SSH to the control server and the DB, therefore the VPN. No browser.
+    // ts-06+ is the mutating band here too; keep read-only usage specs at ts-01..05.
+    {
+      name: 'jasec-usage-run',
+      testMatch: ['**/regression/jasec/usage/ts-06-*.spec.ts'],
     },
 
     // ── JASEC top-up: Self Care card mgmt, top-up, Min Amount business logic

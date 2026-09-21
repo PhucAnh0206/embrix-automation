@@ -22,6 +22,7 @@ import * as path from 'path';
 import { test, expect } from '../../../fixtures/jasec-fixtures';
 import type { PrepaidAccountPayload } from '../../../pages/customer-hub/customer-management/create-account.page';
 import { uniqueRunSuffix, type PrepaidAccountWithOrderRow } from '../../../fixtures/create-prepaid-account.helper';
+import { OrderOutcomeHelper } from '../../../helpers/order-outcome.helper';
 
 const dataFile = path.join(process.cwd(), 'test-data', 'jasec-prepaid-accounts.data.json');
 const rows: PrepaidAccountWithOrderRow[] = JSON.parse(fs.readFileSync(dataFile, 'utf-8'));
@@ -60,11 +61,40 @@ test.describe('TS-01 — Prepaid Account Creation (Energia Prepago)', {
     await createAccountPage.clickCreateNew();
 
     const payload: PrepaidAccountPayload = {
-      accountInfo: { ...row.accountInfo, customerId },
+      // legalEntity is overridable for the SAME reason BDOM is: one value cannot
+      // serve both shapes the suite needs, and the choice belongs to the caller.
+      //
+      //   US    -> attribute-matches Prepaid Energy Profile, so the account HAS a
+      //            credit profile. This is the default and what almost every case
+      //            wants.
+      //   Jasec -> matches NO credit profile, but it is the only shape the
+      //            fixed-charge cases (TC-53..TC-56) select on
+      //            (run-mdr-fixedcharge.sh requires legalentity ILIKE 'jasec').
+      //            All 831 dev candidates for those cases are Jasec accounts.
+      //
+      // Default stays 'US' from the data file, so this is inert unless set.
+      // Do NOT set it casually: a Jasec account can never warn or suspend.
+      accountInfo: {
+        ...row.accountInfo,
+        customerId,
+        legalEntity: process.env.JASEC_LEGAL_ENTITY ?? row.accountInfo.legalEntity,
+      },
       contact: row.contact,
       address: row.address,
       paymentProfile: row.paymentProfile,
-      billingProfile: row.billingProfile,
+      // BDOM is overridable so a seeded account can be given a PRIVATE billing
+      // date. Every JASEC prepaid account is BDOM 1 (1,031 of 1,040 on dev), and
+      // the cycle offset is 8 days, so they all bill on the 9th - 267 of them on
+      // one date. A bill unit's period is fixed when it is created and the
+      // account can only ever be billed on the date it was born with, so a
+      // freshly seeded BDOM-1 account CANNOT be billed in isolation: the only
+      // options are billing the whole cohort or giving the account a BDOM nobody
+      // else uses. Default is unchanged (the data file's 1), so this is inert
+      // unless JASEC_BDOM is set.
+      billingProfile: {
+        ...row.billingProfile,
+        billingDom: Number(process.env.JASEC_BDOM ?? row.billingProfile.billingDom),
+      },
     };
 
     const accountId = await createAccountPage.createPrepaidAccount(payload);
@@ -126,16 +156,57 @@ test.describe('TS-01 — Prepaid Account Creation (Energia Prepago)', {
     await orderManagementPage.clickRefresh();
     await orderManagementPage.verifyOrderCompletedWithBundle('TARIFICACION ENERGIA PREAPGO');
 
+    // ── Step 3: did the order actually PRODUCE a usable contract? ────
+    /**
+     * "COMPLETED with the right bundle" is a screen state, not an outcome. Up to
+     * 2026-09-15 this test stopped there, which meant an account could pass TS-01
+     * and still be impossible to rate or bill — and because TS-02, TS-03 and the
+     * tariff scripts all build on this path, the failure surfaced much later and
+     * looked like a rating bug.
+     *
+     * The checklist below is point 3 of Huy's 2026-09-15 E2E guide. The one that
+     * matters most is the meter: rating matches the MDR against a
+     * `service_provision` row of type METER, and the service unit's own
+     * `provisioningId` is a generated placeholder that looks like a meter and is
+     * not one.
+     *
+     * GraphQL only — no DB, so this adds no VPN dependency to TS-01.
+     */
+    const outcome = new OrderOutcomeHelper(testLogger);
+    const problems = await outcome.readAndVerify(accountId, {
+      meter: provisioningId,
+      bundleId: row.bundleId,
+    });
+    expect(
+      problems,
+      `order ${orderId} completed but did not produce a usable prepaid contract`,
+    ).toEqual([]);
+
     testLogger.log(`✓ TS-01 completed — account ${accountId}, order ${orderId} (SUBMITTED, meter ${provisioningId})`);
 
     if (isCalcMode) {
-      const handoffPath = path.join(process.cwd(), 'test-results', 'jasec-latest-meter.json');
-      fs.mkdirSync(path.dirname(handoffPath), { recursive: true });
-      fs.writeFileSync(
-        handoffPath,
-        JSON.stringify({ accountId, provisioningId, orderId, lecturaInicialKwh: '0' }, null, 2),
-      );
-      testLogger.log(`↳ Calc-mode handoff written: ${handoffPath}`);
+      // WRITTEN TO BOTH PLACES ON PURPOSE.
+      //
+      // `test-results/` is managed by Playwright and gets cleared around runs,
+      // so a handoff left only there can vanish between the spec writing it and
+      // the PowerShell caller reading it. That is not theoretical: on
+      // 2026-09-14 seed-two-cycle-account.ps1 logged the write, reported
+      // "2 passed", and then died on `Handoff file not found` for the path it
+      // had just been told about. The file was genuinely gone.
+      //
+      // `artifacts/` is the suite's established home for anything that has to
+      // survive a run, so that is now the primary. test-results/ is still
+      // written so that any consumer not yet updated keeps working - five
+      // scripts read this file and they should not have to change in lockstep.
+      // Readers should prefer artifacts/ and fall back.
+      const payload = JSON.stringify(
+        { accountId, provisioningId, orderId, lecturaInicialKwh: '0' }, null, 2);
+      for (const dir of ['artifacts', 'test-results']) {
+        const handoffPath = path.join(process.cwd(), dir, 'jasec-latest-meter.json');
+        fs.mkdirSync(path.dirname(handoffPath), { recursive: true });
+        fs.writeFileSync(handoffPath, payload);
+        testLogger.log(`↳ Calc-mode handoff written: ${handoffPath}`);
+      }
     }
   });
 });

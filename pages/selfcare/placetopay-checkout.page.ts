@@ -230,6 +230,17 @@ export class PlaceToPayCheckoutPage extends BasePage {
     await this.pagarButton.click();
   }
 
+  /**
+   * Full-page screenshot of wherever the flow currently is.
+   *
+   * For evidence on the payment path: "no payment row was created" is ambiguous
+   * until you can see whether the gateway approved, declined, or never got the
+   * submission.
+   */
+  async screenshotForEvidence(): Promise<Buffer> {
+    return this.page.screenshot({ fullPage: true });
+  }
+
   /** Full payment flow: handle email step if present, fill card, submit, return. */
   async completePaymentFlow(variant: PlaceToPayCardVariant = 'approve'): Promise<void> {
     await this.page.waitForURL(/checkout-test\.placetopay\.com/i, {
@@ -246,6 +257,77 @@ export class PlaceToPayCheckoutPage extends BasePage {
     await this.fillTokenizationForm(variant);
     await this.clickPagar();
     await this.returnToSelfCare();
+  }
+
+  /**
+   * Submit a payment, read what PlaceToPay decided, then return to Self Care.
+   *
+   * `completePaymentFlow` leaves the gateway's verdict unrecorded, which makes a
+   * missing payment row unattributable: "the gateway declined" and "the gateway
+   * approved and Embrix dropped it" produce the same empty DB. That distinction
+   * decides who owns the bug, so capture it.
+   *
+   * The state page renders the verdict in Spanish — "Transacción Aprobada" /
+   * "Transacción Rechazada" — and shows the charged amount WITH ITS CURRENCY,
+   * which is worth returning too: a USD session against a CRC invoice is its own
+   * finding (jasec-dev has USD-currency prepaid accounts among the CRC ones).
+   */
+  async completePaymentAndReadOutcome(
+    variant: PlaceToPayCardVariant = 'approve',
+  ): Promise<{ approved: boolean; declined: boolean; verdictText: string; chargedText: string }> {
+    await this.page.waitForURL(/checkout-test\.placetopay\.com/i, {
+      timeout: EXTRA_LONG_WAIT,
+    });
+    await this.page.waitForLoadState('networkidle', { timeout: 5000 }).catch(() => { });
+
+    if (await this.isOnEmailStep()) {
+      await this.fillEmailAndContinue();
+    } else {
+      await this.cardNumberInput.waitFor({ state: 'visible', timeout: LONG_WAIT });
+    }
+
+    // Read the charged amount out of the "Total a pagar" panel.
+    //
+    // Anchored on that label, not on `h1`: the page has several h1s and which one
+    // comes first changes with the step, so a bare `h1` read returned the card-form
+    // heading ("Tarjeta de Crédito / Débito / Prepago") instead of the amount. The
+    // amount matters here because it carries the CURRENCY — a USD session against a
+    // CRC invoice is the whole point of the non-base-currency case.
+    const chargedText = (
+      (await this.page
+        .locator(
+          'xpath=//*[contains(normalize-space(.),"Total a pagar") or contains(normalize-space(.),"Total to pay")]/following::h1[1]',
+        )
+        .first()
+        .textContent()
+        .catch(() => null)) ?? ''
+    )
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    await this.fillTokenizationForm(variant);
+    await this.clickPagar();
+
+    const verdict = this.page
+      .getByText(/Transacci[oó]n\s*(Aprobada|Rechazada)|Payment\s*(approved|declined)/i)
+      .first();
+    const verdictText = (
+      (await verdict
+        .waitFor({ state: 'visible', timeout: EXTRA_LONG_WAIT })
+        .then(() => verdict.textContent())
+        .catch(() => null)) ?? ''
+    )
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    await this.returnToSelfCare();
+
+    return {
+      approved: /Aprobada|approved/i.test(verdictText),
+      declined: /Rechazada|declined/i.test(verdictText),
+      verdictText,
+      chargedText,
+    };
   }
 
   /**

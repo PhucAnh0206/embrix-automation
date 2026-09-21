@@ -17,6 +17,8 @@ import { SelfcareLoginPage } from '../pages/selfcare/selfcare-login.page';
 import { SelfcareAccountSearchPage } from '../pages/selfcare/selfcare-account-search.page';
 import { SelfcareActivityPage } from '../pages/selfcare/selfcare-activity.page';
 import { SelfcareTopupPage } from '../pages/selfcare/selfcare-topup.page';
+import { SelfcareMakePaymentPage } from '../pages/selfcare/selfcare-make-payment.page';
+import { SelfcarePaymentsPage } from '../pages/selfcare/selfcare-payments.page';
 import { PlaceToPayCheckoutPage } from '../pages/selfcare/placetopay-checkout.page';
 import { DbHelper } from '../helpers/db.helper';
 import { EmailHelper } from '../helpers/email.helper';
@@ -71,6 +73,10 @@ type JasecFixtures = {
   selfcareAccountSearchPage: SelfcareAccountSearchPage;
   selfcareActivityPage: SelfcareActivityPage;
   selfcareTopupPage: SelfcareTopupPage;
+  /** Activity → Make Payment (invoice settlement). Not the wallet screen. */
+  selfcareMakePaymentPage: SelfcareMakePaymentPage;
+  /** Billing Data → Payments, the CUSTOMER-facing grid (Core UI's is a different one). */
+  selfcarePaymentsPage: SelfcarePaymentsPage;
   placeToPayCheckoutPage: PlaceToPayCheckoutPage;
   dbHelper: DbHelper;
   /**
@@ -108,6 +114,14 @@ export const test = base.extend<JasecFixtures & JasecOptions>({
 
   selfcareTopupPage: async ({ page }, use) => {
     await use(new SelfcareTopupPage(page));
+  },
+
+  selfcareMakePaymentPage: async ({ page }, use) => {
+    await use(new SelfcareMakePaymentPage(page));
+  },
+
+  selfcarePaymentsPage: async ({ page }, use) => {
+    await use(new SelfcarePaymentsPage(page));
   },
 
   placeToPayCheckoutPage: async ({ page }, use) => {

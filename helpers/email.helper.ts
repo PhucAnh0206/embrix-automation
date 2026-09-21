@@ -5,8 +5,8 @@ import { TestLogger } from './test-logger';
 /**
  * EmailHelper — IMAP client for asserting Embrix notification emails.
  *
- * Reads a real mailbox rather than a mail catcher on purpose: the notification
- * work was blocked for a week by a transport defect (no STARTTLS,
+ * Reads a real mailbox rather than a mail catcher on purpose: the JEPYP-230
+ * notification work was blocked for a week by a transport defect (no STARTTLS,
  * JavaMail pinned to TLSv1), and a catcher that bypasses the tenant's real SMTP
  * server would have reported green the whole time. Slower, but it tests the
  * thing that actually broke.
@@ -22,15 +22,15 @@ import { TestLogger } from './test-logger';
 
 // ── Formatting / parsing utilities ──────────────────────────────────────
 
-/** Divisor used by Embrix for `Saldo kWh Aproximados` (confirmed by dev). */
+/** Divisor used by Embrix for `Saldo kWh Aproximados` (confirmed by dev, JEPYP-49). */
 export const KWH_DIVISOR = 123.067;
 
 /**
  * Expected `Saldo kWh Aproximados` for a given CRC balance.
  *
  * Uses the absolute value because JASEC stores credit as a NEGATIVE balance
- * while the email renders it unsigned. Once the sign-convention defect in the
- * top-up confirmation template is fixed, revisit this — a debt balance must render 0 kWh, not
+ * while the email renders it unsigned. Once the sign-convention defect on
+ * JEPYP-49 is fixed, revisit this — a debt balance must render 0 kWh, not
  * floor(debt / divisor).
  */
 export function expectedKwh(crcBalance: number): number {
@@ -54,8 +54,8 @@ export function normalizeValue(value: string): string {
     .replace(/[\s\u00a0]+/g, ' ')
     .replace(/[\u20a1\u00a2]/g, '\u20a1')
     // The live template renders "₡ 5.000,00" (space after the symbol) while
-    // formatCRC produces "₡5.000,00". Confirmed against real top-up
-    // confirmation emails on ACT-100525 / ACT-100527. Treat the two as equal rather than
+    // formatCRC produces "₡5.000,00". Confirmed against the real JEPYP-49
+    // emails on ACT-100525 / ACT-100527. Treat the two as equal rather than
     // baking the spacing into every expected value, so a template tweak to
     // the spacing does not fail the amount checks.
     .replace(/\u20a1\s+/g, '\u20a1')
@@ -171,11 +171,30 @@ export class ParsedEmail {
     readonly attachments: EmailAttachment[] = [],
   ) { }
 
-  /** First attachment whose filename or content type looks like a PDF. */
-  pdfAttachment(): EmailAttachment | null {
-    return this.attachments.find(
+  /**
+   * EVERY attachment that looks like a PDF, in the order the message carries them.
+   *
+   * Use this, not `pdfAttachment()`, whenever a message is supposed to deliver more
+   * than one document. The JASEC invoice mail is subject "Factura y Estado de Cuenta"
+   * and JEPYP-54 is "Email Invoice and Account Statement PDF files" — two documents —
+   * so a single-attachment accessor cannot tell "both arrived" from "only the first
+   * arrived". Measured 2026-09-09: 6 of 6 invoice mails carried logo.png plus ONE
+   * `INVOICE_*.pdf` and no statement, which the singular accessor hid completely.
+   */
+  pdfAttachments(): EmailAttachment[] {
+    return this.attachments.filter(
       (a) => a.contentType === 'application/pdf' || /\.pdf$/i.test(a.filename),
-    ) ?? null;
+    );
+  }
+
+  /**
+   * First attachment whose filename or content type looks like a PDF.
+   *
+   * Kept as-is for the callers that genuinely want one document. If you are
+   * checking DELIVERY rather than reading a document, use `pdfAttachments()`.
+   */
+  pdfAttachment(): EmailAttachment | null {
+    return this.pdfAttachments()[0] ?? null;
   }
 
   /**

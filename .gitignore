@@ -4,8 +4,7 @@ node_modules/
 # Auth state — contains credentials, never commit
 playwright/.auth/
 
-# Environment variables — contains secrets. Copy .env.example to .env and
-# fill in your own values; never commit the result.
+# Environment variables — contains secrets
 .env
 # Per-env sources of truth for switch-env.ps1 (contain real credentials).
 # The active one gets copied to .env by the switcher.
@@ -19,6 +18,10 @@ playwright/.auth/
 
 # Test output
 test-results/
+# Recon/evidence dumps written by the explore-* specs. Deliberately NOT under
+# test-results/ — Playwright clears that folder around a run and the evidence
+# went with it.
+artifacts/
 playwright-report/
 # Captured console output from local runs (full-run.log, verify-*.log, etc.)
 *.log
@@ -40,3 +43,4 @@ tests/examples/
 *.bak
 *.bak-*
 *.orig
+.env.congero-oci

@@ -15,7 +15,69 @@ import * as Timeouts from '../helpers/timeouts.helper';
 
 const authFile = path.join('playwright', '.auth', 'user.json');
 
+/**
+ * Reuse a still-valid session instead of paying a full browser login.
+ *
+ * WHY: this setup re-authenticated UNCONDITIONALLY on every Playwright
+ * invocation - browser launch, SPA hydration (the comment below measures the
+ * cold bundle at 67s), form fill, login. Measured 2026-09-17 over three runs:
+ * 25.5s / 36.6s / 47.0s, mean ~36s, paid once PER INVOCATION. Block E alone
+ * makes 12 of them.
+ *
+ * SAFETY, in order of what would hurt most:
+ *
+ *  1. TENANT. The saved state records its origin, and reusing a jasec-dev
+ *     session against jasec-preprod would be the same cross-environment fault
+ *     class fixed elsewhere on 2026-09-17. The origin must MATCH baseURL.
+ *  2. VALIDITY. The token is opaque - no readable expiry - so age would be a
+ *     guess, and a guess that is wrong means 401s across the whole suite. So
+ *     the session is VERIFIED with one cheap authenticated GraphQL call
+ *     (~0.3s) rather than assumed.
+ *  3. FAIL CLOSED. Anything unexpected - missing file, unreadable JSON, no
+ *     token, non-200, GraphQL error, network failure - falls through to the
+ *     full login. The slow path is always correct.
+ *
+ * Kill switch: JASEC_FORCE_RELOGIN=true always does the full login.
+ */
+async function reusableSession(baseURL: string | undefined): Promise<boolean> {
+  if (process.env.JASEC_FORCE_RELOGIN === 'true') return false;
+  if (!baseURL) return false;
+  try {
+    if (!fs.existsSync(authFile)) return false;
+    const state = JSON.parse(fs.readFileSync(authFile, 'utf-8'));
+    const want = new URL(baseURL).origin;
+    const origin = (state.origins ?? []).find((o: any) => o.origin === want);
+    if (!origin) {
+      console.log(`[auth] saved session is for a DIFFERENT tenant; logging in fresh.`);
+      return false;
+    }
+    const token = (origin.localStorage ?? [])
+      .find((kv: any) => kv.name === 'authToken')?.value;
+    if (!token) return false;
+
+    // core-ui.<tenant>.embrix.org -> service-transactional.<tenant>.embrix.org
+    const gql = want.replace('//core-ui.', '//service-transactional.') + '/graphql';
+    const res = await fetch(gql, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+      // getCcpDateTime REQUIRES a dummy argument - without it the server answers
+      // 200 with a ValidationError and the check rejects a session that is fine.
+      body: JSON.stringify({ query: '{ getCcpDateTime(dummy: "authcheck") { ccpTime } }' }),
+    });
+    if (!res.ok) return false;
+    const body: any = await res.json();
+    if (body.errors?.length) return false;
+    if (!body.data?.getCcpDateTime) return false;
+    console.log(`[auth] reusing the saved ${want} session (verified live).`);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 setup('authenticate', async ({ page, baseURL }) => {
+  if (await reusableSession(baseURL)) return;
+
   const username = process.env.EMBRIX_USER;
   const password = process.env.EMBRIX_PASSWORD;
 

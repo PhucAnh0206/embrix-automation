@@ -57,6 +57,7 @@ import {
   SavedContext
 } from '../helpers/test-context.helper';
 import { InvoicePage } from '../pages/billing-hub/Bulk-operations/invoices.page';
+import { InvoiceDetailPage } from '../pages/billing-hub/invoice-detail.page';
 
 /**
  * All fixture types merged into a single test context.
@@ -94,6 +95,7 @@ type AllFixtures = {
   gLSetupPage: GLSetupPage;
   paymentHistoryPage: PaymentHistoryPage;
   invoicePage: InvoicePage;
+  invoiceDetailPage: InvoiceDetailPage;
   corrspondencePage: CorrspondencePage;
   manualPaymentPage: ManualPaymentPage;
   collectionPage: CollectionPage;
@@ -255,6 +257,10 @@ export const test = base.extend<AllFixtures>({
   paymentHistoryPage: async ({ page }, use) => {
     await use(new PaymentHistoryPage(page));
   },
+  invoiceDetailPage: async ({ page }, use) => {
+    await use(new InvoiceDetailPage(page));
+  },
+
   invoicePage: async ({ page }, use) => {
     await use(new InvoicePage(page));
   },
