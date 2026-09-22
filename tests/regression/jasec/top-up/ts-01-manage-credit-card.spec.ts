@@ -184,22 +184,34 @@ test.describe(
         } catch (uiErr) {
           const saved = await confirmCardInDb(accountId, testLogger);
           if (saved === true) {
-            throw new Error(
-              `${accountId}: the card WAS saved - core_engine.credit_card holds it - but ` +
-              `Self Care did not render it inside the wait window. This is a UI/latency ` +
-              `finding, NOT a card-saving failure. Raise JASEC_CARD_WAIT_MS for this ` +
-              `environment, and report the render delay separately. UI error: ` +
-              `${String((uiErr as Error)?.message ?? uiErr).split('\n')[0]}`,
-            );
-          }
-          if (saved === false) {
+            // The failure screenshot can be captured a few seconds after the
+            // assertion times out. In the observed run the card appeared in
+            // exactly that gap, making the screenshot contradict the result.
+            // Once the DB proves tokenization succeeded, give the UI one short
+            // final refresh window before classifying this as render latency.
+            try {
+              await selfcareActivityPage.assertCardOnFilePopulated({ waitMs: 30_000 });
+              testLogger.log(
+                `! ${accountId}: card rendered during the 30s post-DB grace window`,
+              );
+            } catch (graceErr) {
+              throw new Error(
+                `${accountId}: the card WAS saved - core_engine.credit_card holds it - but ` +
+                `Self Care did not render during the main wait or the 30s post-DB grace ` +
+                `window. This is a UI/latency finding, NOT a card-saving failure. ` +
+                `Main UI error: ${String((uiErr as Error)?.message ?? uiErr).split('\n')[0]}. ` +
+                `Grace error: ${String((graceErr as Error)?.message ?? graceErr).split('\n')[0]}`,
+              );
+            }
+          } else if (saved === false) {
             throw new Error(
               `${accountId}: no card in core_engine.credit_card AND the UI never showed ` +
               `one. The card genuinely was not saved - this is the real failure. ` +
               `UI error: ${String((uiErr as Error)?.message ?? uiErr).split('\n')[0]}`,
             );
+          } else {
+            throw uiErr;   // DB unreachable - cannot classify, so report as-is
           }
-          throw uiErr;   // DB unreachable - cannot classify, so report as-is
         }
 
         testLogger.log(`✓ TC 1.1 — account ${accountId} has card saved`);

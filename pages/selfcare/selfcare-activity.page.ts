@@ -37,13 +37,26 @@ export class SelfcareActivityPage extends BasePage {
   }
 
   async navigateToManagePaymentProfile(): Promise<void> {
-    await this.openActivityDropdown();
-    const item = this.page
-      .getByRole('link', { name: /Manage\s*Payment\s*Profile/i })
-      .or(this.page.getByText(/Manage\s*Payment\s*Profile/i))
-      .first();
-    await item.waitFor({ state: 'visible', timeout: MEDIUM_WAIT });
-    await item.click();
+    const alreadyOnPaymentProfile =
+      new URL(this.page.url()).pathname.replace(/\/$/, '') === '/manage-credit-card';
+
+    if (alreadyOnPaymentProfile) {
+      // Clicking the current SPA route does not reliably mount the view again
+      // or repeat its card fetch. A real reload is required for backend changes
+      // (such as the PlaceToPay token callback) to appear.
+      await this.page.reload({ waitUntil: 'domcontentloaded' });
+    } else {
+      await this.openActivityDropdown();
+      const item = this.page
+        .getByRole('link', { name: /Manage\s*Payment\s*Profile/i })
+        .or(this.page.getByText(/Manage\s*Payment\s*Profile/i))
+        .first();
+      await item.waitFor({ state: 'visible', timeout: MEDIUM_WAIT });
+      await item.click();
+      await this.page.waitForURL(/\/manage-credit-card\/?(?:[?#].*)?$/i, {
+        timeout: LONG_WAIT,
+      });
+    }
     await this.page.waitForLoadingToDisappear();
     await this.page.waitForLoadState('networkidle', { timeout: 3000 }).catch(() => { });
 
@@ -102,7 +115,7 @@ export class SelfcareActivityPage extends BasePage {
    * label all present). If the initial view shows stale/empty state after
    * returning from PlaceToPay, re-navigate to force a fresh fetch.
    */
-  async assertCardOnFilePopulated(): Promise<void> {
+  async assertCardOnFilePopulated(opts: { waitMs?: number } = {}): Promise<void> {
     await this.page.waitForURL(selfcareHostRe(), {
       timeout: EXTRA_LONG_WAIT,
     });
@@ -141,7 +154,7 @@ export class SelfcareActivityPage extends BasePage {
     //
     // Raising the default to 120s covers the observed case; JASEC_CARD_WAIT_MS
     // lets a slower environment go further without a code change.
-    const cardWindow = Number(process.env.JASEC_CARD_WAIT_MS ?? 120_000);
+    const cardWindow = opts.waitMs ?? Number(process.env.JASEC_CARD_WAIT_MS ?? 120_000);
     const startedAt = Date.now();
 
     if (!populatedFast) {

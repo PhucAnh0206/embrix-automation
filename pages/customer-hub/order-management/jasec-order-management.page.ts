@@ -156,12 +156,14 @@ export class JasecOrderManagementPage extends OrderManagementPage {
 
   /**
    * Assert the order reached COMPLETED status and the expected bundle is
-   * attached. Status field renders either as a disabled <input> or a
-   * react-select; we poll both shapes.
+   * attached. Order processing happens on the backend and this page does not
+   * update its status in place, so every retry must reload before reading it.
+   * Status renders either as a disabled <input> or a react-select.
    */
   async verifyOrderCompletedWithBundle(expectedBundleName: string): Promise<void> {
-    await this.page.waitForFunction(
-      () => {
+    await expect(async () => {
+      await this.clickRefresh();
+      const completed = await this.page.evaluate(() => {
         const groups = Array.from(document.querySelectorAll('div')).filter((d) => {
           const span = d.querySelector(':scope > span');
           return (
@@ -177,10 +179,12 @@ export class JasecOrderManagementPage extends OrderManagementPage {
           if (sv && /^COMPLETED$/i.test((sv.textContent || '').trim())) return true;
         }
         return false;
-      },
-      undefined,
-      { timeout: 2 * EXTRA_LONG_WAIT },
-    );
+      });
+      expect(completed, 'order status after refreshing the detail page').toBe(true);
+    }).toPass({
+      timeout: 2 * EXTRA_LONG_WAIT,
+      intervals: [5000, 10_000, 15_000],
+    });
 
     const bundleText = this.page.getByText(expectedBundleName, { exact: false }).first();
     await expect(bundleText).toBeVisible({ timeout: LONG_WAIT });
