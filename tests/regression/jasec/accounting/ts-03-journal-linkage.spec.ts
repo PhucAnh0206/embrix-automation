@@ -64,7 +64,7 @@ const KNOWN_BATCHES_WITHOUT_FILE = [
 let db: DbHelper;
 let acct: AccountingDbHelper;
 
-test.describe('JASEC accounting — journal linkage', { tag: ['@jasec', '@accounting', '@tc-142'] }, () => {
+test.describe('JASEC accounting — journal linkage', { tag: ['@jasec', '@accounting', '@tc-143'] }, () => {
 
   test.beforeAll(async () => {
     db = new DbHelper();
@@ -155,7 +155,10 @@ test.describe('JASEC accounting — journal linkage', { tag: ['@jasec', '@accoun
               min(h.inputdate)::text      AS header_inputdate,
               max(j.revenueenddate)::text AS max_journal_end,
               min(j.revenueenddate)::text AS min_journal_end,
-              count(j.*)::int             AS journal_rows
+              count(j.*)::int             AS journal_rows,
+              count(*) FILTER (
+                WHERE j.revenueenddate::date = h.inputdate::date
+              )::int                      AS rows_on_target_day
          FROM core_revenue.ebs_header_extract h
          JOIN core_revenue.revenue_journal   j ON j.extractbatchid = h.batchid
         GROUP BY h.batchid, h.extractstatus
@@ -163,15 +166,58 @@ test.describe('JASEC accounting — journal linkage', { tag: ['@jasec', '@accoun
     );
 
     blockedIf(rows.length === 0, 'no batch on this tenant has any journal linked to it');
-    console.log(`\n  ${rows.length} batch/status group(s) checked\n`);
 
-    for (const r of rows) {
+    /**
+     * A BATCH THAT TOOK ONLY STRAGGLERS CANNOT SATISFY THIS RULE, AND THAT IS
+     * CORRECT BEHAVIOUR.
+     *
+     * The rule reads MAX(revenueenddate) == inputdate. It holds when the target
+     * day actually had journals. When the target day had NONE, the extract still
+     * runs and still sweeps up stragglers — the older unextracted rows described
+     * above — so MAX is the straggler date and the comparison fails against a
+     * product doing exactly what it should.
+     *
+     * Measured on jasec-preprod 2026-09-22: batches 10003..10011 each carried
+     * 3-7 journals, every one ending 2026-07-15, and ZERO rows on their own
+     * inputdate (2026-08-23 .. 2026-09-20). All nine were reported as failures.
+     * The 18/18 pass on jasec-dev came from dense daily journals, where every
+     * batch had rows of its own — so this assertion had a dev-shaped assumption
+     * baked into it.
+     *
+     * Batches with no row on their target day are therefore reported and skipped
+     * rather than failed. Skipping silently would hide a tenant where NO batch
+     * can be judged, so the count is printed and the case blocks if that is all
+     * there is.
+     */
+    const judgeable = rows.filter((r) => r.rows_on_target_day > 0);
+    const stragglersOnly = rows.filter((r) => r.rows_on_target_day === 0);
+
+    console.log(
+      `\n  ${rows.length} batch/status group(s): ${judgeable.length} judgeable, `
+      + `${stragglersOnly.length} carried stragglers only\n`,
+    );
+    for (const r of stragglersOnly) {
+      console.log(
+        `  [skip] batch ${r.batchid}: no journal on its own inputdate `
+        + `${r.header_inputdate}; ${r.journal_rows} straggler row(s) ending ${r.max_journal_end}`,
+      );
+    }
+
+    blockedIf(
+      judgeable.length === 0,
+      `all ${rows.length} batch(es) on this tenant consumed stragglers only, so the `
+      + 'day-before rule cannot be evidenced here. Extract a day that has journals of '
+      + 'its own and re-run.',
+    );
+
+    for (const r of judgeable) {
       expect
         .soft(
           r.header_inputdate,
           `batch ${r.batchid} (${r.extractstatus}): the extract stamped inputdate ` +
           `${r.header_inputdate} but the newest journal it consumed ends ${r.max_journal_end} ` +
-          `(${r.journal_rows} rows, oldest ${r.min_journal_end})`,
+          `(${r.journal_rows} rows, ${r.rows_on_target_day} on the target day, ` +
+          `oldest ${r.min_journal_end})`,
         )
         .toBe(r.max_journal_end);
     }

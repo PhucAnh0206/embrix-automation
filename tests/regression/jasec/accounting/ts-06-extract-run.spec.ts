@@ -50,7 +50,7 @@ import { blockedIf } from '../../../../helpers/blocked.helper';
 const RUN_ENABLED = String(process.env.JASEC_EBS_RUN ?? '').trim().toLowerCase() === 'true';
 
 /**
- * A SECOND, SEPARATE gate for TC-143. JASEC_EBS_RUN alone must never be enough to
+ * A SECOND, SEPARATE gate for TC-144. JASEC_EBS_RUN alone must never be enough to
  * reach a case that posts into a customer's live accounting system.
  */
 const GATEWAY_RUN = String(process.env.JASEC_GATEWAY_RUN ?? '').trim().toLowerCase() === 'true';
@@ -61,7 +61,7 @@ let db: DbHelper;
 let acct: AccountingDbHelper;
 let gql: AccountingGqlHelper;
 
-test.describe('JASEC accounting — extract run (MUTATING)', { tag: ['@jasec', '@accounting', '@tc-140'] }, () => {
+test.describe('JASEC accounting — extract run (MUTATING)', { tag: ['@jasec', '@accounting', '@tc-141'] }, () => {
   // 200+ journal rows in a batch; the mutation does real work.
   test.setTimeout(10 * 60 * 1000);
 
@@ -106,14 +106,14 @@ test.describe('JASEC accounting — extract run (MUTATING)', { tag: ['@jasec', '
      * customer's live accounting system, and until Jeremy's change lands
      * (idOperacion taken from the batch id rather than the extract id) every send
      * creates a NEW idOperacion on their side, so a retry will not deduplicate".
-     * That run is TC-143 and is done WITH the team, never incidentally.
+     * That run is TC-144 and is done WITH the team, never incidentally.
      */
     blockedIf(
       !fileMode,
       'batchFinancialExtract is FALSE — this is GATEWAY mode, the Phase 1 delivery ' +
       'path. An extract would POST to JASEC\'s /centroContable and create a new ' +
       'idOperacion on their side that will NOT deduplicate on retry. Refusing to ' +
-      'run incidentally: that is TC-143, run jointly with the team in an agreed ' +
+      'run incidentally: that is TC-144, run jointly with the team in an agreed ' +
       'window. See BLOCK-J_accounting-extract.md.',
     );
 
@@ -247,15 +247,44 @@ test.describe('JASEC accounting — extract run (MUTATING)', { tag: ['@jasec', '
      * rows on 2028-08-09 sit on bill units INVOICE_CHECK refused, so no extract
      * can ever take them. See INVOICED_BILL_UNIT_SQL for the measurement.
      */
-    const consumed = await db.query<any>(
-      `SELECT id, status, extractbatchid
-         FROM core_revenue.revenue_journal
-        WHERE id = ANY($1::text[])`,
-      [journalIdsBefore],
-    );
-
-    const notPosted = consumed.filter((r) => r.status !== 'POSTED');
-    const notStamped = consumed.filter((r) => r.extractbatchid !== batchId);
+    /**
+     * POLL, AND RE-FETCH INSIDE THE POLL. `ebsExtract` returns as soon as the
+     * batch header exists; flipping the journals to POSTED and stamping them
+     * happens after that. Reading once, immediately, catches them mid-flight.
+     *
+     * That is not hypothetical. On jasec-preprod 2026-09-22 this step reported
+     * "extractable journals on 2027-01-09 that did not move to POSTED" and
+     * "not stamped with batch 10015". Checked afterwards, all 36 journals on
+     * that date were POSTED and carried batch 10015 — the assertion had simply
+     * run too early, and a real product failure and a read-too-soon looked
+     * identical in the report.
+     *
+     * The query is re-issued each round rather than the filter re-applied to a
+     * stale result: retrying the check alone would spin on the same rows.
+     */
+    const settleDeadline = Date.now() + 120_000;
+    let consumed: any[] = [];
+    let notPosted: any[] = [];
+    let notStamped: any[] = [];
+    for (;;) {
+      consumed = await db.query<any>(
+        `SELECT id, status, extractbatchid
+           FROM core_revenue.revenue_journal
+          WHERE id = ANY($1::text[])`,
+        [journalIdsBefore],
+      );
+      notPosted = consumed.filter((r) => r.status !== 'POSTED');
+      notStamped = consumed.filter((r) => r.extractbatchid !== batchId);
+      if (!notPosted.length && !notStamped.length) break;
+      if (Date.now() >= settleDeadline) {
+        console.log(
+          `\n[extract] ${notPosted.length} not POSTED and ${notStamped.length} not stamped `
+          + `after 120s — reporting as a real failure, not a read-too-soon.\n`,
+        );
+        break;
+      }
+      await new Promise((r) => setTimeout(r, 3_000));
+    }
 
     expect
       .soft(
@@ -341,7 +370,7 @@ test.describe('JASEC accounting — extract run (MUTATING)', { tag: ['@jasec', '
   });
 
   /**
-   * TC-143 — GATEWAY MODE. EPDP-509. The Phase 1 delivery path.
+   * TC-144 — GATEWAY MODE. EPDP-509. The Phase 1 delivery path.
    *
    * This is the only case in the suite that puts data into a CUSTOMER'S LIVE
    * ACCOUNTING SYSTEM. There is no JASEC test instance: dev, preprod and
@@ -395,7 +424,7 @@ test.describe('JASEC accounting — extract run (MUTATING)', { tag: ['@jasec', '
    *
    * Owner: Anh Tran (QC). Run jointly with the team.
    */
-  test('TC-143 — gateway delivers the batch to JASEC, and a resend deduplicates', async () => {
+  test('TC-144 — gateway delivers the batch to JASEC, and a resend deduplicates', async () => {
     blockedIf(
       !RUN_ENABLED,
       'JASEC_EBS_RUN is not "true". This consumes a day of revenue journals irreversibly.',
@@ -413,7 +442,7 @@ test.describe('JASEC accounting — extract run (MUTATING)', { tag: ['@jasec', '
     blockedIf(
       fileMode,
       'batchFinancialExtract is TRUE, so this tenant is in FILE mode and nothing would ' +
-      'be posted. TC-143 needs the team to set it false for the window and back to true ' +
+      'be posted. TC-144 needs the team to set it false for the window and back to true ' +
       'afterwards — we never flip it ourselves. See BLOCK-J_accounting-extract.md.',
     );
 
