@@ -39,7 +39,7 @@ let gql: AccountingGqlHelper;
 let headers: EbsHeader[] = [];
 const detailsOf = new Map<string, EbsDetail[]>();
 
-test.describe('JASEC accounting — extract invariants', { tag: ['@jasec', '@accounting', '@tc-141'] }, () => {
+test.describe('JASEC accounting — extract invariants', { tag: ['@jasec', '@accounting', '@tc-142'] }, () => {
 
   test.beforeAll(async () => {
     gql = new AccountingGqlHelper();

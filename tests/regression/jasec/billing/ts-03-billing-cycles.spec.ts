@@ -29,8 +29,62 @@
 import { test, expect } from '@playwright/test';
 import { BillingGqlHelper, energiaKwh, lineName, summaryTotal, type InvoiceDoc } from '../../../../helpers/billing-gql.helper';
 
-/** Account with two consecutive BILLED cycles. */
-const ACCOUNT = process.env.JASEC_TWO_CYCLE_ACCOUNT ?? '';
+/**
+ * Account with two consecutive BILLED cycles.
+ *
+ * `let`, not `const`: when the caller supplies nothing, the subject is
+ * RE-RESOLVED from this tenant in `beforeAll` rather than the whole describe
+ * skipping. See `resolveTwoCycleAccount` for why that is safe.
+ */
+let ACCOUNT = process.env.JASEC_TWO_CYCLE_ACCOUNT ?? '';
+
+/**
+ * Find a PREPAID account on THIS tenant carrying at least two billed cycles.
+ *
+ * WHY. `run-suite.ps1 -Block billing` seeds these subjects and exports them, so
+ * the block is complete when driven that way. A bare
+ * `npx playwright test --project=jasec-billing-read` sets nothing, and all five
+ * cases in this file then skipped — a green 66/17 that had silently judged
+ * nothing here. Coverage should not depend on which command started the run.
+ *
+ * WHY IT IS SAFE TO TAKE AN ARBITRARY ACCOUNT. Every case below already guards
+ * its own premise and reports BLOCKED, not FAILED, when the subject does not
+ * satisfy it — the ledger-chain assertion holds for any account, and the
+ * carry-over case checks for itself that two cycles came in under 30 kWh.
+ * Verified on jasec-preprod 2026-09-23: with ACT-100008 (an ordinary 5-invoice
+ * account, not purpose-built) the two general cases PASS and the carry-over case
+ * blocks with "needs 2 cycles that each consumed under 30 kWh; this account
+ * has 0". A resolved subject can therefore recover coverage but cannot
+ * manufacture a failure.
+ *
+ * A SUPPLIED ACCOUNT ALWAYS WINS, so the seeded path is bit-for-bit unchanged.
+ *
+ * Grouping happens BEFORE the category lookup on purpose: `accountCategory` is
+ * one GraphQL round trip per distinct account, so filtering 200 invoices first
+ * would cost up to 200 calls to find one subject.
+ */
+async function resolveTwoCycleAccount(g: BillingGqlHelper): Promise<string> {
+  for (let page = 1; page <= 4; page++) {
+    const batch = await g.searchInvoices(page, 200).catch(() => []);
+    if (!batch.length) break;
+
+    const byAccount = new Map<string, number>();
+    for (const inv of batch) {
+      const id = String(inv.accountId ?? '');
+      if (id) byAccount.set(id, (byAccount.get(id) ?? 0) + 1);
+    }
+    // Most invoices first: the best chance of two comparable consecutive cycles.
+    const candidates = [...byAccount.entries()]
+      .filter(([, n]) => n >= 2)
+      .sort((a, b) => b[1] - a[1])
+      .map(([id]) => id);
+
+    for (const id of candidates) {
+      if ((await g.accountCategory(id).catch(() => '')) === 'PREPAID') return id;
+    }
+  }
+  return '';
+}
 
 /** JASEC includes the first 30 kWh in the monthly fixed charge. */
 const MIN_BILLED_KWH = 30;
@@ -55,7 +109,16 @@ let statement: Awaited<ReturnType<BillingGqlHelper['getAccountStatement']>> = []
 let setupNote = '';
 
 test.beforeAll(async () => {
-  if (!ACCOUNT) { setupNote = `no account given. ${HOW_TO_SEED}`; return; }
+  if (!ACCOUNT) {
+    ACCOUNT = await resolveTwoCycleAccount(gql).catch(() => '');
+    if (ACCOUNT) {
+      console.log(
+        `\n[two-cycle] no account supplied; resolved ${ACCOUNT} from this tenant. `
+        + `Seed a purpose-built one for the carry-over case: ${HOW_TO_SEED}\n`,
+      );
+    }
+  }
+  if (!ACCOUNT) { setupNote = `no account given, and none could be resolved from this tenant. ${HOW_TO_SEED}`; return; }
 
   statement = await gql.getAccountStatement(ACCOUNT).catch(() => []);
   if (!statement.length) { setupNote = `account ${ACCOUNT} has no ledger lines. ${HOW_TO_SEED}`; return; }
@@ -89,7 +152,7 @@ test.beforeAll(async () => {
 });
 
 test.describe('Prepaid account across two consecutive billed cycles', () => {
-  test('the account ledger balance chain is continuous @jasec @billing @two-cycle @tc-138', async () => {
+  test('the account ledger balance chain is continuous @jasec @billing @two-cycle @tc-139', async () => {
     if (setupNote) { console.log(`\n[two-cycle] BLOCKED, not failed: ${setupNote}\n`); test.skip(true, setupNote); return; }
 
     /**
@@ -140,7 +203,7 @@ test.describe('Prepaid account across two consecutive billed cycles', () => {
     console.log(`[two-cycle] ledger chain verified across ${statement.length} line(s), ${cycles.length} invoice(s)`);
   });
 
-  test('unused included kWh do NOT carry over to the next cycle @jasec @billing @two-cycle @tc-139', async () => {
+  test('unused included kWh do NOT carry over to the next cycle @jasec @billing @two-cycle @tc-140', async () => {
     if (setupNote) { console.log(`\n[two-cycle] BLOCKED, not failed: ${setupNote}\n`); test.skip(true, setupNote); return; }
 
     /**
@@ -240,7 +303,30 @@ test.describe('Prepaid account across two consecutive billed cycles', () => {
  * TC40 rates 25 kWh, deliberately UNDER 30, so the fixed-charge minimum is what
  * is being tested rather than ordinary consumption.
  */
-const FIXED_CHARGE_ACCOUNT = process.env.JASEC_FIXED_CHARGE_ACCOUNT ?? '';
+/** `let` for the same reason as ACCOUNT above: resolved when nothing is supplied. */
+let FIXED_CHARGE_ACCOUNT = process.env.JASEC_FIXED_CHARGE_ACCOUNT ?? '';
+
+/**
+ * Find a PREPAID account on THIS tenant whose newest invoice bills at or under
+ * the 30 kWh minimum — which is exactly what these two cases are about.
+ *
+ * Same reasoning as `resolveTwoCycleAccount`: a supplied account wins, and the
+ * premise guard below (`billedKwh > MIN_BILLED_KWH` marks the run BLOCKED)
+ * catches a subject that does not qualify, so resolution cannot turn a healthy
+ * tenant into a failure. Verified on jasec-preprod 2026-09-23: ACT-100008,
+ * newest invoice 000122 billing 30 kWh, passes both cases.
+ *
+ * The band search is the same one ts-07-invoice-document uses for its sub-30
+ * subject, so the two specs agree on what "the fixed-charge band" means.
+ */
+async function resolveFixedChargeAccount(g: BillingGqlHelper): Promise<string> {
+  const found = await g.findInvoicesInBand(0, MIN_BILLED_KWH, 4, 200, 10).catch(() => []);
+  const prepaid = await g.filterByAccountCategory(found, 'PREPAID').catch(() => []);
+  // Newest first: the most recently billed cycle is the least likely to have
+  // been disturbed by anything since.
+  prepaid.sort((a, b) => idNum(b.id) - idNum(a.id));
+  return prepaid.length ? String(prepaid[0].accountId ?? '') : '';
+}
 
 /** Diseno Funcional 3.4.1: 30 x (62.69 + -0.58 + 2.67 + 0). */
 const EXPECTED_TOTAL_AT_30_KWH = 1943.40;
@@ -257,7 +343,16 @@ test.describe('Prepaid fixed charge on a freshly billed sub-30 kWh cycle', () =>
   let billedKwh = 0;
 
   test.beforeAll(async () => {
-    if (!FIXED_CHARGE_ACCOUNT) { fixedNote = `no account given. ${HOW_TO_SEED_FIXED}`; return; }
+    if (!FIXED_CHARGE_ACCOUNT) {
+      FIXED_CHARGE_ACCOUNT = await resolveFixedChargeAccount(gql).catch(() => '');
+      if (FIXED_CHARGE_ACCOUNT) {
+        console.log(`\n[fixed-charge] no account supplied; resolved ${FIXED_CHARGE_ACCOUNT} from this tenant.\n`);
+      }
+    }
+    if (!FIXED_CHARGE_ACCOUNT) {
+      fixedNote = `no account given, and no sub-${MIN_BILLED_KWH} kWh prepaid invoice could be found on this tenant. ${HOW_TO_SEED_FIXED}`;
+      return;
+    }
     const lines = await gql.getAccountStatement(FIXED_CHARGE_ACCOUNT).catch(() => []);
     const ids = [...new Set(lines
       .filter((l) => String(l.lineType ?? '').toUpperCase() === 'INVOICE')

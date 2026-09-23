@@ -63,7 +63,7 @@ const detail = (index: number, amount: number, over: Partial<EbsDetail> = {}): E
 /** Real batch 10018: 221.44 + 16749.15 + 707.55 = 17678.14. */
 const cleanDetails = () => [detail(1, 221.44), detail(2, 16749.15), detail(3, 707.55)];
 
-test.describe('accounting helper guards (no network)', { tag: ['@jasec', '@accounting', '@tc-141'] }, () => {
+test.describe('accounting helper guards (no network)', { tag: ['@jasec', '@accounting', '@tc-142'] }, () => {
 
   // ── the silent no-op ────────────────────────────────────────────────────
 

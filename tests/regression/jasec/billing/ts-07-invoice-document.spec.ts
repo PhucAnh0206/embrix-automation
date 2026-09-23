@@ -82,7 +82,7 @@ const gql = new BillingGqlHelper();
 
 for (const c of CASES) {
   test.describe(`Monthly invoice ${c.invoiceId} in Core UI — ${c.note}`, () => {
-    test(`invoice ${c.invoiceId} renders correctly for an agent @jasec @billing @ui-invoice @tc-133`, async ({
+    test(`invoice ${c.invoiceId} renders correctly for an agent @jasec @billing @ui-invoice @tc-134`, async ({
       page, invoiceDetailPage,
     }) => {
       test.setTimeout(240_000);

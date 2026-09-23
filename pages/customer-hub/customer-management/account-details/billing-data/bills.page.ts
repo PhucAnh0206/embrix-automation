@@ -98,11 +98,91 @@ export class BillsPage extends BasePage {
     return this.page.url();
   }
 
+  /**
+   * Set the Start/End Date filter, and PROVE it took.
+   *
+   * FAIL CLOSED. A fill that does not stick is otherwise invisible: the screen
+   * keeps its own default window (these grids default to the whole current
+   * month), the search runs against dates nobody asked for, and the grid comes
+   * back empty. On the usage screens an empty grid is EXACTLY the defect under
+   * test, so a silent filter failure is indistinguishable from a product bug.
+   *
+   * Not hypothetical. On 2026-09-22 ts-07 asked for 2026-08-22 -> 2026-08-26 on
+   * Usage Records; the fields still read 2026-09-01 -> 2026-09-30, the reading
+   * was dated 2026-08-24, and BOTH jasec-dev and jasec-preprod were reported as
+   * still carrying the defect when the run had simply searched the wrong month.
+   *
+   * The picker commits on blur, so the value is committed with Tab before it is
+   * read back.
+   */
   async searchByDate(startDate: string, endDate: string): Promise<void> {
-    await this.startDateInput.waitFor({ state: 'visible', timeout: SHORT_WAIT });
-    await this.startDateInput.fill(startDate);
-    await this.endDateInput.waitFor({ state: 'visible', timeout: SHORT_WAIT });
-    await this.endDateInput.fill(endDate);
+    // LOCATE BY THE VISIBLE LABEL, not by name. `input[name='startDate']`
+    // matches on Rated Usage but picks up a different node on Usage Records,
+    // whose filter panel carries ~20 fields — the fill lands somewhere the user
+    // cannot see and the real Start/End Date keep their month defaults. Same
+    // class of bug as `table#scrollableDiv`: a locator right on one screen and
+    // silently wrong on its sibling. The label is what the user reads, so bind
+    // to that and fall back to the name-based pair only if the label is absent.
+    const byLabel = (label: string) =>
+      this.page.getByText(label, { exact: true }).first()
+        .locator('xpath=following::input[1]');
+
+    const startInput = (await byLabel('Start Date').count())
+      ? byLabel('Start Date') : this.startDateInput;
+    const endInput = (await byLabel('End Date').count())
+      ? byLabel('End Date') : this.endDateInput;
+
+    // DRIVE THE CALENDAR, do not type into the box.
+    //
+    // Clicking the field opens a react-datepicker; it takes focus, so keystrokes
+    // aimed at the input never reach it and the calendar commits a date of its
+    // own. That is why five typing variants — fill+Tab, label-bound fill,
+    // type+Enter, type+Escape+Tab, three different encodings — all produced
+    // 2026-02-10 no matter which window was requested, on both tenants.
+    //
+    // The widget is standard: a year select, a month select, a day grid, and a
+    // Time field. Use them.
+    const setDate = async (input: Locator, value: string) => {
+      const [y, m, d] = value.slice(0, 10).split('-').map(Number);
+
+      await input.waitFor({ state: 'visible', timeout: SHORT_WAIT });
+      await input.click();
+
+      const cal = this.page.locator('.react-datepicker').last();
+      await cal.waitFor({ state: 'visible', timeout: SHORT_WAIT });
+
+      await cal.locator('select.react-datepicker__year-select').selectOption(String(y));
+      // react-datepicker months are 0-based in the select value.
+      await cal.locator('select.react-datepicker__month-select').selectOption(String(m - 1));
+
+      // Exact text, and NOT a greyed-out neighbouring-month cell — those carry
+      // the same number and clicking one silently jumps the month.
+      await cal
+        .locator('.react-datepicker__day:not(.react-datepicker__day--outside-month)')
+        .filter({ hasText: new RegExp(`^${d}$`) })
+        .first()
+        .click();
+
+      // Dismiss the calendar so the next field is clickable.
+      await this.page.keyboard.press('Escape');
+    };
+
+    await setDate(startInput, startDate);
+    await setDate(endInput, endDate);
+
+    const gotStart = (await startInput.inputValue()).trim();
+    const gotEnd = (await endInput.inputValue()).trim();
+    const day = (v: string) => v.slice(0, 10);
+
+    if (day(gotStart) !== day(startDate) || day(gotEnd) !== day(endDate)) {
+      throw new Error(
+        'searchByDate did not take effect on this screen. Asked for '
+        + `${startDate} -> ${endDate}, the fields read `
+        + `${gotStart || '<empty>'} -> ${gotEnd || '<empty>'}. `
+        + 'Searching now would use a window nobody asked for, and an empty grid '
+        + 'would be meaningless. Fix the filter before trusting any result.',
+      );
+    }
   }
   async clickSearchButton(): Promise<void> {
     await this.page.waitForLoadState('networkidle')
@@ -126,6 +206,49 @@ export class BillsPage extends BasePage {
     await this.downloadButton.click();
     await this.page.waitForLoadingToDisappear();
 
+  }
+
+  /**
+   * The results grid on **Rated Usage** and on **Usage Records**.
+   *
+   * NOT `resultsTable`. That one is `table#scrollableDiv`, which belongs to the
+   * Bills screen and matches nothing on either usage screen — so `tableRows`
+   * resolves to zero and `getAllTableData()` returns `[]` while the grid is
+   * plainly full. That reads as "the screen is empty", which is exactly the
+   * defect these screens are tested for, so the wrong locator produces a
+   * convincing false positive. Found on jasec-dev 2026-09-22.
+   *
+   * Both usage grids render a plain `<table>`; the results grid is the one
+   * carrying a "Usage Id" column header.
+   */
+  private get usageGrid(): Locator {
+    return this.page.locator('table').filter({
+      has: this.page.getByRole('columnheader', { name: 'Usage Id', exact: true }),
+    });
+  }
+
+  /**
+   * Every DATA row of the Rated Usage / Usage Records grid, as cell text.
+   *
+   * An empty grid still renders one `<tr>` — a single cell reading "No records
+   * found". Counting that as a row makes an empty screen look like a populated
+   * one, which is the precise failure these screens are tested for, so it is
+   * dropped here rather than in each caller.
+   */
+  async getUsageGridRows(): Promise<string[][]> {
+    const rows = await this.usageGrid.locator('tbody tr').all();
+    const out: string[][] = [];
+    for (const row of rows) {
+      const cells = await row.locator('td').allTextContents();
+      if (cells.length <= 1 && /no records found/i.test(cells.join(' '))) continue;
+      out.push(cells);
+    }
+    return out;
+  }
+
+  /** Column headers of the Rated Usage / Usage Records grid. */
+  async getUsageGridHeaders(): Promise<string[]> {
+    return this.usageGrid.locator('thead th').allTextContents();
   }
 
   async getRowCount() {

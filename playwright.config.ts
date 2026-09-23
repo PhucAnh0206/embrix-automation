@@ -412,6 +412,21 @@ export default defineConfig({
       testMatch: ['**/regression/jasec/usage/ts-06-*.spec.ts'],
     },
 
+    // ── JASEC USAGE, through the UI: rated usage must reach the two Core UI
+    // screens that display it — Billing Data > Rated Usage and > Usage Records.
+    // MUTATING like -usage-run, and additionally needs a browser, so it is a
+    // separate project rather than another testMatch on that one. Gated inside
+    // the spec behind JASEC_USAGE_UI_RUN=true.
+    {
+      name: 'jasec-usage-ui',
+      testMatch: ['**/regression/jasec/usage/ts-07-*.spec.ts'],
+      dependencies: ['setup'],
+      use: {
+        ...devices['Desktop Chrome'],
+        storageState: 'playwright/.auth/user.json',
+      },
+    },
+
     // ── JASEC top-up: Self Care card mgmt, top-up, Min Amount business logic
     {
       name: 'jasec-top-up',

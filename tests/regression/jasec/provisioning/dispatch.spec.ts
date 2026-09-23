@@ -464,7 +464,7 @@ test.describe('JEPYP-27 - dispatch cases that need no JASEC input', () => {
   });
 
   /**
-   * TC-115. An accepted callback drives the full effect chain.
+   * TC-116. An accepted callback drives the full effect chain.
    *
    * WHY THIS IS SAFE TO AUTOMATE, having previously been thought not to be.
    * The belief was that an order can only be closed by a callback once JASEC
@@ -565,7 +565,7 @@ test.describe('JEPYP-27 - dispatch cases that need no JASEC input', () => {
       `subscription - billing continues while supply is cut.`,
     ).toBe('ACTIVE');
 
-    console.log(`[TC-115] ${order} on ${c.accountid}: order ${end?.ord}, ` +
+    console.log(`[TC-116] ${order} on ${c.accountid}: order ${end?.ord}, ` +
       `service ${end?.svc}, unit ${end?.unit}, subscription ${end?.sub}`);
   });
 });
