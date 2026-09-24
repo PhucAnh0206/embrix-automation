@@ -64,7 +64,19 @@ export default defineConfig({
   /* Run tests in each file sequentially — Embrix tests share state (billing cycles, accounts) */
   fullyParallel: false,
   forbidOnly: !!process.env.CI,
-  retries: process.env.CI ? 2 : 0,
+  /**
+   * PW_RETRIES lets a long local sweep survive the known Core UI load timeout
+   * without turning retries on for ordinary runs.
+   *
+   * `page.goto` to the Core UI root times out at 180s under repeated loads —
+   * ~17.7MB of uncompressed bundle per load, gzip off, documented and not a
+   * product defect. It costs nothing in a single run, but Block E invokes ts-01
+   * sixteen times back to back and on 2026-09-24 that timeout blocked ten
+   * rating cases that had nothing wrong with them.
+   *
+   * Default is unchanged (0 locally, 2 on CI), so this is inert unless set.
+   */
+  retries: Number(process.env.PW_RETRIES ?? (process.env.CI ? 2 : 0)),
   workers: 1,
 
   /* Timeouts */
