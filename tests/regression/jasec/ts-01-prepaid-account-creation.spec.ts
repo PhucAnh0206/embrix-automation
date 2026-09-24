@@ -104,7 +104,7 @@ test.describe('TS-01 — Prepaid Account Creation (Energia Prepago)', {
     };
 
     const accountId = await createAccountPage.createPrepaidAccount(payload);
-    testLogger.data('Account created', { accountId, customerId: row.accountInfo.customerId });
+    testLogger.data('Account created', { accountId, customerId });
     expect(accountId).toMatch(/^(ACT|AC)-\d+$/);
 
     // ── Step 1b: prove the account this form NOW builds is still the one the
@@ -160,7 +160,7 @@ test.describe('TS-01 — Prepaid Account Creation (Energia Prepago)', {
     await orderManagementPage.clickCreateNewOrder();
 
     // 2a. Select the account created in step 1
-    await orderManagementPage.searchAccountById(accountId);
+    await orderManagementPage.searchAccountById(accountId, { clearFilters: true });
     const orderAcctNo = await orderManagementPage.getFirstRowCellValue('ACCT No');
     expect(orderAcctNo).toBe(accountId);
     await orderManagementPage.clickNextInFirstRow();
