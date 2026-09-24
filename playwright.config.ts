@@ -112,8 +112,41 @@ export default defineConfig({
      * which multiply the download instead of allowing for it. Default unchanged.
      */
     navigationTimeout: Number(process.env.PW_NAV_TIMEOUT ?? Timeouts.EXTRA_LONG_WAIT),
+    /**
+     * PW_DISK_CACHE gives the browser a persistent HTTP cache for the run.
+     *
+     * Playwright makes a fresh CONTEXT per test, and a fresh context has an
+     * empty cache — so every invocation of ts-01 re-downloads the whole Core UI
+     * bundle. Block E runs ts-01 sixteen times, which on 2026-09-24's degraded
+     * link (~93 KB/s, one chunk alone 6.19MB = 67s) was most of the wall clock
+     * and the direct cause of cases blocking at navigation.
+     *
+     * The browser PROCESS is reused across tests in a worker, and
+     * --disk-cache-dir is a launch flag, so the cache outlives the context:
+     * download once per run instead of once per test.
+     *
+     * THIS IS NOT A SHORTCUT — it honours what the server already asks for:
+     *
+     *   /                          no-store, no-cache, must-revalidate
+     *   /env-config.js             no-store, no-cache, must-revalidate
+     *   /static/js/*.chunk.js      public, max-age=31536000, immutable
+     *
+     * The bundles are declared immutable and cacheable for a year, and the HTML
+     * and runtime config are declared never-cacheable. A real user's browser
+     * behaves exactly this way; a cold cache on every test is the unrealistic
+     * setting. Staleness cannot hide a deploy either: the bundles are
+     * content-hashed, so a new build is a new URL and misses the cache, and
+     * env-config.js is never served from it.
+     *
+     * Off by default so ordinary runs are untouched.
+     */
     launchOptions: {
-      args: ['--disable-web-security'],
+      args: [
+        '--disable-web-security',
+        ...(process.env.PW_DISK_CACHE
+          ? [`--disk-cache-dir=${process.env.PW_DISK_CACHE}`, '--disk-cache-size=536870912']
+          : []),
+      ],
     },
   },
 
