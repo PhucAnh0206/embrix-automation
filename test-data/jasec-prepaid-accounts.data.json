@@ -5,7 +5,10 @@
       "customerSegment": "B2C",
       "customerId": "TEST_ID-001",
       "legalEntity": "US",
-      "accountType": "RESIDENTIAL",
+      "accountType": "Tarifa Prepago",
+      "accountSubType": "Residencial Permanente",
+      "marketSegment": "Cartago",
+      "clientId": "999000001",
       "currency": "CRC"
     },
     "contact": {

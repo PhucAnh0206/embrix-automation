@@ -181,7 +181,7 @@ export async function createPrepaidAccountWithOrder(
   await orderManagementPage.navigateViaNav();
   await orderManagementPage.clickCreateNewOrder();
 
-  await orderManagementPage.searchAccountById(accountId);
+  await orderManagementPage.searchAccountById(accountId, { clearFilters: true });
   const orderAcctNo = await orderManagementPage.getFirstRowCellValue('ACCT No');
   expect(orderAcctNo).toBe(accountId);
   await orderManagementPage.clickNextInFirstRow();

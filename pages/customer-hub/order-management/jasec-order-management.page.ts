@@ -157,10 +157,13 @@ export class JasecOrderManagementPage extends OrderManagementPage {
   /**
    * Assert the order reached COMPLETED status and the expected bundle is
    * attached. Status field renders either as a disabled <input> or a
-   * react-select; we poll both shapes.
+   * react-select; we poll both shapes. Provisioning completes asynchronously
+   * and the page does not update itself, so reload between checks.
    */
   async verifyOrderCompletedWithBundle(expectedBundleName: string): Promise<void> {
-    await this.page.waitForFunction(
+    await expect(async () => {
+      await this.clickRefresh();
+      await this.page.waitForFunction(
       () => {
         const groups = Array.from(document.querySelectorAll('div')).filter((d) => {
           const span = d.querySelector(':scope > span');
@@ -179,8 +182,9 @@ export class JasecOrderManagementPage extends OrderManagementPage {
         return false;
       },
       undefined,
-      { timeout: 2 * EXTRA_LONG_WAIT },
+      { timeout: SHORT_WAIT },
     );
+    }).toPass({ timeout: 2 * EXTRA_LONG_WAIT, intervals: [5000, 10000] });
 
     const bundleText = this.page.getByText(expectedBundleName, { exact: false }).first();
     await expect(bundleText).toBeVisible({ timeout: LONG_WAIT });
