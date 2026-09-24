@@ -106,6 +106,18 @@ test.afterAll(async () => {
  * A SUSPENDED prepaid account whose debt is small enough that both a partial and
  * a clearing top-up are realistic. Chosen from data rather than hardcoded so the
  * spec keeps working as accounts are consumed.
+ *
+ * IT MUST ALSO HAVE A METER. Reconnection raises a RESUME order, and a RESUME on
+ * an account with no `service_provision` type=METER row has nothing to dispatch
+ * to - it lands in PROVISIONING_ERROR, the subscription never returns to ACTIVE
+ * and no RESUME_SUBSCRIPTION notification is sent. On 2026-09-24 this picked
+ * AC-586414, a gateway-seeded account with no service_provision rows at all, and
+ * the case read as a product failure: "debt cleared but stayed SUSPENDED". The
+ * balance rule had worked perfectly; ORD-1845 RESUME sat in PROVISIONING_ERROR.
+ *
+ * Measured before adding it, because a filter that quietly empties the pool is
+ * its own bug: of 21 SUSPENDED prepaid accounts in range on jasec-dev, 15 have a
+ * meter. The 6 excluded are exactly the ones that could never have passed.
  */
 async function pickSuspendedAccount(): Promise<Candidate | null> {
   const rows = await db.query<{ accountid: string; balance: string }>(
@@ -117,6 +129,9 @@ async function pickSuspendedAccount(): Promise<Candidate | null> {
       WHERE s.status = 'SUSPENDED'
         AND bub.amount BETWEEN 300 AND 5000
         AND NOT (s.accountid = ANY($1::varchar[]))
+        AND EXISTS (SELECT 1 FROM core_engine.service_provision sp
+                     WHERE split_part(sp.ratingprovisioningid, '_', 1) = s.accountid
+                       AND sp.type = 'METER')
       -- Monitored contact email is preferred, not required: every assertion below
       -- reads the database, so the mailbox is not involved.
       ORDER BY EXISTS (SELECT 1 FROM core_engine.contact ct
@@ -193,6 +208,9 @@ async function ensureSuspendedCandidate(): Promise<Candidate | null> {
        JOIN core_engine.balance_unit_balances bub ON bub.id = bu.id AND bub.currencyid = 'CRC'
       WHERE s.status = 'SUSPENDED'
         AND NOT (s.accountid = ANY($1::varchar[]))
+        AND EXISTS (SELECT 1 FROM core_engine.service_provision sp
+                     WHERE split_part(sp.ratingprovisioningid, '_', 1) = s.accountid
+                       AND sp.type = 'METER')
       ORDER BY bub.amount DESC
       LIMIT 1`,
     [PROTECTED_ACCOUNTS],
