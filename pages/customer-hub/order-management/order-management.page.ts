@@ -63,9 +63,15 @@ export class OrderManagementPage extends BasePage {
     await this.accountIdInput.waitFor({ state: 'visible', timeout: MEDIUM_WAIT });
   }
 
-  /** Fill the Account Id field and click SEARCH. */
-  async searchAccountById(accountId: string): Promise<void> {
+  /** Search by ID, optionally clearing defaults for an account with no subscriptions yet. */
+  async searchAccountById(accountId: string, options: { clearFilters?: boolean } = {}): Promise<void> {
     await this.accountIdInput.waitFor({ state: 'visible', timeout: MEDIUM_WAIT });
+    if (options.clearFilters) {
+      // New Order defaults to CLOSED subscriptions, which excludes a newly created account.
+      await this.page.getByRole('button', { name: 'Clear', exact: true }).click();
+      await this.page.waitForLoadingToDisappear();
+      await this.page.waitForLoadState('networkidle');
+    }
     await this.accountIdInput.fill(accountId);
 
     await this.searchButton.click();
@@ -73,8 +79,9 @@ export class OrderManagementPage extends BasePage {
     await this.page.waitForLoadState('networkidle')
 
     // Wait for the row with accountId to appear in the table
-    const row = this.table.rows.filter({ hasText: accountId }).first();
-    await row.waitFor({ state: 'visible', timeout: MEDIUM_WAIT }).catch(() => { });
+    const accountCell = this.table.rows.getByRole('cell', { name: accountId, exact: true });
+    await expect(accountCell, `Account ${accountId} must appear in the order account search results`)
+      .toBeVisible({ timeout: MEDIUM_WAIT });
   }
 
   /**

@@ -147,6 +147,10 @@ export class SelfcareActivityPage extends BasePage {
     if (!populatedFast) {
       try {
         await expect(async () => {
+          // Clicking the menu item for the page already open does not remount it,
+          // so load the app root first to force a real re-fetch.
+          await this.page.goto(new URL('/', this.page.url()).toString());
+          await this.page.waitForLoadingToDisappear();
           await this.navigateToManagePaymentProfile();
           expect(await tokenInput.inputValue()).not.toBe('');
         }).toPass({

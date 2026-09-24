@@ -6,11 +6,16 @@ import { ToastComponent } from '../../components/toast.component';
 /** Payload for the JASEC prepaid residential account creation form. */
 export interface PrepaidAccountPayload {
   accountInfo: {
-    accountCategory: string;
-    customerSegment: string;
-    customerId: string;
-    legalEntity: string;     // overwrites form default "US"
-    accountType: string;     // form field is name="type"
+    customerId: string;       // Número de Identificación
+    clientId?: string;        // NISE - mandatory on JASEC since JEPYP-231
+    accountType: string;      // option text as shown, e.g. 'Tarifa Prepago' (field name="type")
+    accountSubType?: string;  // Tarifa Jasec (name="subType"); locked while the tariff is Prepago
+    marketSegment?: string;   // Ciclo (name="marketSegment")
+    // JEPYP-231 hides or locks these on JASEC through ccp_properties (their values
+    // come from tenant defaults). They are still filled on tenants that show them.
+    accountCategory?: string;
+    customerSegment?: string;
+    legalEntity?: string;     // overwrites form default "US"
     currency?: string;
     sellingCompany?: string;
   };
@@ -136,9 +141,39 @@ export class CreateAccountPage extends BasePage {
     ).first();
   }
 
+  /**
+   * The form-group holding the control named `name`. By field name, not label,
+   * because tenant config (JEPYP-231) relabels fields per tenant. react-select only
+   * renders its named hidden input while enabled, so a locked select matches
+   * nothing here - which is what the *IfEditable callers want.
+   */
+  private formGroupByName(name: string): Locator {
+    return this.page.locator(`//div[contains(@class,'form-group') and .//input[@name=${q(name)}]]`).first();
+  }
+
+  private async isShown(locator: Locator): Promise<boolean> {
+    return locator.isVisible().catch(() => false);
+  }
+
+  /** Pick `optionText` in the named dropdown, if this tenant shows it and it is editable. */
+  private async selectByNameIfEditable(name: string, optionText?: string): Promise<void> {
+    if (!optionText) return;
+    const group = this.formGroupByName(name);
+    if (await this.isShown(group)) await this.selectInGroup(group, optionText);
+  }
+
+  /** Fill the named input, if this tenant shows it. */
+  private async fillInputByNameIfShown(name: string, value?: string): Promise<void> {
+    if (value && (await this.isShown(this.inputByName(name)))) await this.fillInputByName(name, value);
+  }
+
   private async selectByLabel(label: string, optionText: string): Promise<void> {
     const group = this.formGroupByLabel(label);
     await group.waitFor({ state: 'visible', timeout: MEDIUM_WAIT });
+    await this.selectInGroup(group, optionText);
+  }
+
+  private async selectInGroup(group: Locator, optionText: string): Promise<void> {
     const control = group.locator('.custom-react-select__control').first();
     await control.scrollIntoViewIfNeeded().catch(() => { });
     await control.click();
@@ -198,19 +233,24 @@ export class CreateAccountPage extends BasePage {
   async fillAccountInfo(info: PrepaidAccountPayload['accountInfo']): Promise<void> {
     await this.expandSection('Create Account Info');
 
-    await this.selectByLabel('Account Category', info.accountCategory);
+    // customerId is on every tenant's form, and fillInputByName waits for it, so the
+    // section has rendered before the "if shown" checks below look for anything.
+    await this.fillInputByName('customerId', info.customerId);
+    await this.fillInputByNameIfShown('clientId', info.clientId);
 
-    if (info.currency) {
+    // Fields a tenant may hide or lock (JEPYP-231, ccp_properties). Category before
+    // tariff: a tariff rule may fix the category and the Tarifa Jasec value.
+    await this.selectByNameIfEditable('accountCategory', info.accountCategory);
+    if (info.currency && (await this.isShown(this.formGroupByName('currency')))) {
       await this.typeAndSelectByLabel('Currency', info.currency);
     }
-    await this.selectByLabel('Customer Segment', info.customerSegment);
-    if (info.sellingCompany) {
-      await this.fillInputByName('sellingCompany', info.sellingCompany);
-    }
-    await this.fillInputByName('customerId', info.customerId);
-    await this.fillInputByName('legalEntity', info.legalEntity);
-    // The form field for "Account Type" is name="type", so we go by label.
-    await this.selectByLabel('Account Type', info.accountType);
+    await this.selectByNameIfEditable('customerSegment', info.customerSegment);
+    await this.fillInputByNameIfShown('sellingCompany', info.sellingCompany);
+    await this.fillInputByNameIfShown('legalEntity', info.legalEntity);
+
+    await this.selectByNameIfEditable('type', info.accountType);
+    await this.selectByNameIfEditable('subType', info.accountSubType);
+    await this.selectByNameIfEditable('marketSegment', info.marketSegment);
   }
 
   async fillContact(contact: PrepaidAccountPayload['contact']): Promise<void> {
