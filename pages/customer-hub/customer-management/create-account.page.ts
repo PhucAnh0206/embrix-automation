@@ -245,22 +245,53 @@ export class CreateAccountPage extends BasePage {
       throw new Error(`Create Account: locked field "${label}" is not on the form at all.`);
     }
     const control = group.locator('.custom-react-select__control').first();
-    const classes = (await control.getAttribute('class').catch(() => '')) ?? '';
-    const shown = ((await group.locator('.custom-react-select__single-value').first()
-      .textContent().catch(() => '')) ?? '').trim();
+    const read = async () => ({
+      disabled: (((await control.getAttribute('class').catch(() => '')) ?? '')).includes('is-disabled'),
+      shown: ((await group.locator('.custom-react-select__single-value').first()
+        .textContent().catch(() => '')) ?? '').trim(),
+    });
 
-    if (!classes.includes('is-disabled')) {
-      // Not locked after all — then it is settable, and leaving it unset would
-      // be a silent gap. Say so loudly rather than assume the default holds.
-      throw new Error(
-        `Create Account: "${label}" is NO LONGER disabled (value "${shown}"). ` +
-        `JEPYP-231 locked it; if that has been reverted this page object must go ` +
-        `back to selecting it explicitly.`,
+    /**
+     * WAIT FOR IT TO SETTLE, then judge.
+     *
+     * This form renders an intermediate state before the tenant config lands:
+     * "Account Category" appears as POSTPAID and ENABLED, and only then flips to
+     * PREPAID and locked. Reading it once caught that intermediate state and
+     * failed roughly half of a 16-run Block E batch on 2026-09-24 with
+     * `is NO LONGER disabled (value "POSTPAID")`.
+     *
+     * Re-READ rather than re-assert — a retried assertion over a stale handle
+     * would just re-check the same captured value. Settling is the precondition;
+     * once settled, a wrong value is still a hard failure.
+     */
+    const deadline = Date.now() + MEDIUM_WAIT;
+    let state = await read();
+    const first = state;
+    while ((!state.disabled || state.shown !== expected) && Date.now() < deadline) {
+      await this.page.waitForTimeout(250);
+      state = await read();
+    }
+    if (first.disabled !== state.disabled || first.shown !== state.shown) {
+      // Worth saying out loud: a human clicking fast enough could act on it.
+      console.log(
+        `  [create-account] "${label}" settled from ` +
+        `${first.disabled ? 'locked' : 'ENABLED'}/"${first.shown}" to ` +
+        `${state.disabled ? 'locked' : 'ENABLED'}/"${state.shown}"`,
       );
     }
-    if (shown !== expected) {
+
+    if (!state.disabled) {
+      // Still settable after the wait — then leaving it unset would be a silent
+      // gap. Say so loudly rather than assume the default holds.
       throw new Error(
-        `Create Account: "${label}" is locked to "${shown}", expected "${expected}". ` +
+        `Create Account: "${label}" is NO LONGER disabled (value "${state.shown}") ` +
+        `after waiting ${MEDIUM_WAIT}ms for it to settle. JEPYP-231 locked it; if ` +
+        `that has been reverted this page object must go back to selecting it.`,
+      );
+    }
+    if (state.shown !== expected) {
+      throw new Error(
+        `Create Account: "${label}" is locked to "${state.shown}", expected "${expected}". ` +
         `The account this form would create no longer matches the reference shape.`,
       );
     }
