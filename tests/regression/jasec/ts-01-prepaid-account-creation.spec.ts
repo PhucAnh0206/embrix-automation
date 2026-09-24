@@ -232,88 +232,35 @@ test.describe('TS-01 — Prepaid Account Creation (Energia Prepago)', {
     });
 
     /**
-     * THE MISSING CREDIT PROFILE IS HELD SEPARATELY, AND ONLY THAT ONE.
+     * THE CREDIT PROFILE IS A HARD FAILURE AGAIN — 2026-09-24.
      *
-     * It is a real defect and it is reported below in full — but it is a defect
-     * in tenant CONFIG, raised with the team, and it says nothing about whether
-     * this order produced a rateable contract. Failing the whole test on it
-     * costs twelve unrelated cases: every Block E rating scenario provisions its
-     * meter by running this spec, reads the handoff file it writes at the end,
-     * and reports BLOCKED "no clean meter" when this throws first. Measured on
-     * 2026-09-24 — one failing assertion, TC40..TC47 and TC49..TC52 all blocked.
+     * It was briefly held back as a known unfixable gap. That is no longer
+     * true, and the reason it was held back was wrong: profiles resolve by
+     * `getByName(subscription.creditProfileName)`, so the accounttype and
+     * accountsubtype columns on the profile row are descriptive and play no
+     * part in matching. The earlier claim that the new tariff shape could never
+     * match is RETRACTED - 34 PREPAID/SUBTYPE_01 subscriptions on dev carry
+     * Prepaid Energy Profile.
      *
-     * Rating does not need the profile: TC-60 rates and bills green on an
-     * account seeded the same way. The profile governs balance-driven warn and
-     * suspend, which is what the notification blocks cover.
+     * The real gap was that nothing populated it: a manual pick on the order
+     * that nobody made, affecting 384 prepaid subscriptions, most of them on
+     * OLDER Residencial accounts. The order screen now fills it automatically
+     * from account category, and both tenants were backfilled to zero missing.
      *
-     * Narrow on purpose. Only a profile of literally "null" is held back — the
-     * shape JEPYP-231 produces. A subscription carrying the WRONG named profile
-     * is a different bug and still fails here.
+     * So this is exactly the team's own retest item - "create a prepaid
+     * account, start an order, and confirm the credit profile fills in without
+     * you picking it" - and a silent regression in that auto-fill would leave
+     * accounts that can never suspend. It fails loudly.
      */
-    const KNOWN_NULL_PROFILE = /carries credit profile "null"/;
-    const missingProfile = problems.filter((p) => KNOWN_NULL_PROFILE.test(p));
-    const blocking = problems.filter((p) => !KNOWN_NULL_PROFILE.test(p));
-
-    if (missingProfile.length) {
-      testLogger.log(
-        `⚠ KNOWN DEFECT (JEPYP-231, raised with the team 2026-09-24): ` +
-        `${missingProfile.join(' | ')}. The Create Account screen now produces ` +
-        `accounttype=PREPAID / accountsubtype=SUBTYPE_01, and "Prepaid Energy ` +
-        `Profile" matches RESIDENTIAL / NONE / US. Tarifa Jasec is locked and no ` +
-        `Tarifa ARESEP choice offers NONE, so this cannot be fixed from the ` +
-        `screen — the tenant needs a credit profile for the new combination. ` +
-        `NOT failing the run: the contract still rates and bills.`,
-      );
-    }
-
     expect(
-      blocking,
+      problems,
       `order ${orderId} completed but did not produce a usable prepaid contract`,
     ).toEqual([]);
 
-    // ── Step 3b: the credit profile, now that a subscription exists ──
-    /**
-     * This is what JEPYP-231 put at risk, so it is asserted rather than assumed.
-     *
-     * The profile is attribute-matched, and until now the attribute the suite
-     * relied on was `legalentity` — which the Create Account form used to
-     * pre-fill with "US" and JEPYP-231 has deleted outright. JASEC's answer on
-     * the ticket (Luis, 2026-09-22) is that the match moves to the tariff:
-     * "from tarifa ARESEP the value Tarifa Prepago will be associate to a credit
-     * profile ... this combination should be Residential prepaid credit profile".
-     *
-     * An account with no profile looks completely healthy here and then can
-     * never warn and never suspend, which is a defect nobody sees until a
-     * notification block comes back empty. Reported rather than hard-failed,
-     * because the back-end half ("none of the new codes exist yet" — Toan,
-     * 2026-09-21) is still outstanding and a red TS-01 would block the suite.
-     */
-    const db2 = new DbHelper();
-    await db2.connect();
-    try {
-      const subs = await db2.query<{ id: string; creditprofilename: string | null }>(
-        `SELECT id, creditprofilename FROM core_engine.subscription WHERE accountid = $1`,
-        [accountId],
-      );
-      testLogger.data('Subscription credit profile', subs);
-      const without = subs.filter((s) => !s.creditprofilename);
-      if (!subs.length) {
-        testLogger.log(`⚠ ${accountId} has no subscription rows to carry a credit profile.`);
-      } else if (without.length) {
-        testLogger.log(
-          `⚠ CREDIT PROFILE MISSING on ${without.length} of ${subs.length} subscription(s) ` +
-          `for ${accountId}. Such an account can never warn and never suspend. ` +
-          `JEPYP-231 removed legalEntity from the form; JASEC say the match should ` +
-          `now come from Tarifa Prepago + Residencial Permanente.`,
-        );
-      } else {
-        testLogger.log(
-          `✓ credit profile attached: ${[...new Set(subs.map((s) => s.creditprofilename))].join(', ')}`,
-        );
-      }
-    } finally {
-      await db2.disconnect();
-    }
+    // Step 3b (the standalone credit-profile probe) was REMOVED 2026-09-24.
+    // OrderOutcomeHelper already asserts the profile above, and asserting the
+    // same thing twice - once hard, once as a log - meant the log could
+    // contradict the assertion. One check, and it fails.
 
     testLogger.log(`✓ TS-01 completed — account ${accountId}, order ${orderId} (SUBMITTED, meter ${provisioningId})`);
 

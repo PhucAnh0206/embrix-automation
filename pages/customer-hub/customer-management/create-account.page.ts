@@ -149,10 +149,25 @@ export class CreateAccountPage extends BasePage {
     return this.page.locator(`//textarea[@name=${q(name)}]`).first();
   }
 
-  private formGroupByLabel(label: string): Locator {
-    return this.page.locator(
-      `//div[contains(@class,'form-group') and ./span[starts-with(normalize-space(),${q(label)})]]`
-    ).first();
+  /**
+   * The form-group carrying one of these labels.
+   *
+   * Takes ALTERNATIVES because JEPYP-231's labels are per-language and the
+   * English set only exists after the ui-core deploy. "Tarifa Jasec" becomes
+   * "JASEC Tariff", so a single-spelling locator works in Spanish and breaks in
+   * English — and the values are Redis-cached, so both can be live at once
+   * during a rollout. Matching either spelling spans the change instead of
+   * needing a follow-up fix on the day it lands.
+   *
+   * Only used where there is nothing better. A field with a `name` should go
+   * through formGroupByFieldName, which is language-independent outright.
+   */
+  private formGroupByLabel(label: string | string[]): Locator {
+    const labels = Array.isArray(label) ? label : [label];
+    const clause = labels
+      .map((l) => `./span[starts-with(normalize-space(),${q(l)})]`)
+      .join(' or ');
+    return this.page.locator(`//div[contains(@class,'form-group') and (${clause})]`).first();
   }
 
   /**
@@ -239,10 +254,11 @@ export class CreateAccountPage extends BasePage {
    * ever changes the suite says so instead of quietly building a different
    * account.
    */
-  private async assertLockedSelect(label: string, expected: string): Promise<void> {
+  private async assertLockedSelect(label: string | string[], expected: string): Promise<void> {
+    const shownLabel = Array.isArray(label) ? label.join('" / "') : label;
     const group = this.formGroupByLabel(label);
     if (!(await group.count())) {
-      throw new Error(`Create Account: locked field "${label}" is not on the form at all.`);
+      throw new Error(`Create Account: locked field "${shownLabel}" is not on the form at all.`);
     }
     const control = group.locator('.custom-react-select__control').first();
     const read = async () => ({
@@ -274,7 +290,7 @@ export class CreateAccountPage extends BasePage {
     if (first.disabled !== state.disabled || first.shown !== state.shown) {
       // Worth saying out loud: a human clicking fast enough could act on it.
       console.log(
-        `  [create-account] "${label}" settled from ` +
+        `  [create-account] "${shownLabel}" settled from ` +
         `${first.disabled ? 'locked' : 'ENABLED'}/"${first.shown}" to ` +
         `${state.disabled ? 'locked' : 'ENABLED'}/"${state.shown}"`,
       );
@@ -284,14 +300,14 @@ export class CreateAccountPage extends BasePage {
       // Still settable after the wait — then leaving it unset would be a silent
       // gap. Say so loudly rather than assume the default holds.
       throw new Error(
-        `Create Account: "${label}" is NO LONGER disabled (value "${state.shown}") ` +
+        `Create Account: "${shownLabel}" is NO LONGER disabled (value "${state.shown}") ` +
         `after waiting ${MEDIUM_WAIT}ms for it to settle. JEPYP-231 locked it; if ` +
         `that has been reverted this page object must go back to selecting it.`,
       );
     }
     if (state.shown !== expected) {
       throw new Error(
-        `Create Account: "${label}" is locked to "${state.shown}", expected "${expected}". ` +
+        `Create Account: "${shownLabel}" is locked to "${state.shown}", expected "${expected}". ` +
         `The account this form would create no longer matches the reference shape.`,
       );
     }
@@ -402,37 +418,32 @@ export class CreateAccountPage extends BasePage {
    *            foreignTaxId, employeeId, salesAgentId, externalReferenceId,
    *            region, partyId, groupId, name   (gone from the DOM entirely)
    *
-   * ⚠️ legalEntity is the one that costs us something. The suite's own note in
-   * create-prepaid-account.helper.ts says the form "defaults to US" and that
-   * this is load-bearing, because credit profiles are attribute-matched on
-   * legalentity and an account matching no profile can never warn or suspend.
-   * With the field deleted the UI path can no longer choose it, so the value is
-   * whatever the backend now defaults to. We cannot fix that from here — the
-   * spec asserts the created account's legalentity and fails if it moved, which
-   * turns a silent behaviour change into a named one.
+   * ⚠️ legalEntity is gone from the form. The suite's own note in
+   * create-prepaid-account.helper.ts says the form "defaults to US" and calls
+   * it load-bearing. Measured 2026-09-24: an account created here still stores
+   * US, so the ticket's "default value CR" has not taken effect and nothing
+   * broke. The spec asserts it, so a later change to that default is named
+   * rather than silent.
    *
-   * WHICH TARIFF A PREPAID ACCOUNT SHOULD CARRY, per JEPYP-231's comments:
+   * WHICH TARIFF A PREPAID ACCOUNT CARRIES. Tarifa Prepago + Residencial
+   * Permanente, which is what the form pre-selects and locks. That is JASEC's
+   * instruction (Luis, JEPYP-231, 2026-09-22): "when field tarifa ARESEP is
+   * selected as Tarifa Prepago, then only Residencial Permanente will be
+   * chosen".
    *
-   *   Luis (JASEC, 2026-09-22): "from tarifa ARESEP the value Tarifa Prepago
-   *   will be associate to a credit profile, the others will be asociated to new
-   *   credit profiles once the postpaid face starts ... when field tarifa ARESEP
-   *   is selected as Tarifa Prepago, then only Residencial Permanente will be
-   *   chosen ... this combination should be Residential prepaid credit profile".
+   * It is NOT chosen for credit-profile reasons. An earlier version of this
+   * comment argued the tariff decided the profile; that was wrong and is
+   * RETRACTED. Profiles resolve by `getByName(subscription.creditProfileName)`
+   * and the accounttype / accountsubtype columns on the profile row are
+   * descriptive only — 34 PREPAID/SUBTYPE_01 subscriptions on dev carry Prepaid
+   * Energy Profile. The tariff and the profile are independent.
    *
-   * So the intended prepaid shape is Tarifa Prepago + Residencial Permanente,
-   * which is what the form now pre-selects and locks. That is NOT the shape this
-   * suite used to create — every earlier account is accounttype=RESIDENTIAL,
-   * accountsubtype=NONE — and the two cannot both be true. We follow JASEC's
-   * stated intent, because the credit profile is the thing that actually decides
-   * whether an account can warn and suspend; matching the old row values while
-   * losing the profile would be the worse trade.
-   *
-   * Toan (2026-09-21) flagged that "Embrix matches credit profile and
-   * collections treatment on Tarifa ARESEP, Tarifa Jasec and Ciclo, and right
-   * now every rule is configured against RESIDENTIAL / NONE". Two of his
-   * questions are still unanswered on the ticket: whether all five tariffs share
-   * one credit/collections treatment, and what existing Residencial customers
-   * migrate to. Until those land, the assertion in ts-01 is the early warning.
+   * The consequence is that this form cannot reproduce the pre-JEPYP-231 row
+   * exactly: accounttype moves RESIDENTIAL -> PREPAID, accountsubtype
+   * NONE -> SUBTYPE_01, and clientid is now mandatory where it used to be null.
+   * Everything else is unchanged, and the team confirmed the tariff values feed
+   * nothing that matters — the accounting extract carries NULL for both,
+   * invoice templates select on account category, and pricing is fetched by id.
    */
   async fillAccountInfo(info: PrepaidAccountPayload['accountInfo']): Promise<void> {
     await this.expandSection('Create Account Info');
@@ -442,7 +453,7 @@ export class CreateAccountPage extends BasePage {
     //    react-select is what made Block B hang for 30s on 2026-09-24. ──
     await this.assertLockedSelect('Account Category', info.accountCategory);
     if (info.accountSubtype) {
-      await this.assertLockedSelect('Tarifa Jasec', info.accountSubtype);
+      await this.assertLockedSelect(['Tarifa Jasec', 'JASEC Tariff'], info.accountSubtype);
     }
 
     // ── Fields JEPYP-231 deleted. Record, do not silently shrug. ──
