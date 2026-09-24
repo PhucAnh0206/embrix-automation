@@ -97,7 +97,21 @@ export default defineConfig({
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',
     actionTimeout: Timeouts.LONG_WAIT,
-    navigationTimeout: Timeouts.EXTRA_LONG_WAIT,
+    /**
+     * PW_NAV_TIMEOUT raises the navigation budget for a run over a degraded
+     * link, without changing it for anyone else.
+     *
+     * The first page.goto of a test pulls the whole Core UI bundle; later
+     * navigations in the same context are served from the browser cache, so it
+     * is only ever the first one that is at risk. On a healthy link that is
+     * seconds. On 2026-09-24 the VPN degraded to ~93 KB/s, which puts one load
+     * at roughly 190s against this 180s ceiling - marginal, and it lost, taking
+     * Block B down at navigation before it reached a single assertion.
+     *
+     * Raising the ceiling is the honest accommodation here, unlike retries,
+     * which multiply the download instead of allowing for it. Default unchanged.
+     */
+    navigationTimeout: Number(process.env.PW_NAV_TIMEOUT ?? Timeouts.EXTRA_LONG_WAIT),
     launchOptions: {
       args: ['--disable-web-security'],
     },
