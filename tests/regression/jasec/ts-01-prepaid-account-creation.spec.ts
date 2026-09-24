@@ -23,6 +23,7 @@ import { test, expect } from '../../../fixtures/jasec-fixtures';
 import type { PrepaidAccountPayload } from '../../../pages/customer-hub/customer-management/create-account.page';
 import { uniqueRunSuffix, type PrepaidAccountWithOrderRow } from '../../../fixtures/create-prepaid-account.helper';
 import { OrderOutcomeHelper } from '../../../helpers/order-outcome.helper';
+import { DbHelper } from '../../../helpers/db.helper';
 
 const dataFile = path.join(process.cwd(), 'test-data', 'jasec-prepaid-accounts.data.json');
 const rows: PrepaidAccountWithOrderRow[] = JSON.parse(fs.readFileSync(dataFile, 'utf-8'));
@@ -51,6 +52,10 @@ test.describe('TS-01 — Prepaid Account Creation (Energia Prepago)', {
     // historical rows.
     const suffix = uniqueRunSuffix();
     const customerId = `${row.accountInfo.customerId}-${suffix}`;
+    // NISE (clientId) became MANDATORY with JEPYP-231 — "BOTH ARE MANDATORY",
+    // Luis, 2026-09-21. Suffixed for the same reason customerId is: reruns must
+    // not collide on it.
+    const clientId = `${row.accountInfo.clientId ?? 'NISE'}-${suffix}`;
     const provisioningId = `${row.meter.provisioningId}${suffix}`;
 
     testLogger.log(`▶ Running TS-01 — ${customerId} / meter ${provisioningId}`);
@@ -77,6 +82,7 @@ test.describe('TS-01 — Prepaid Account Creation (Energia Prepago)', {
       accountInfo: {
         ...row.accountInfo,
         customerId,
+        clientId,
         legalEntity: process.env.JASEC_LEGAL_ENTITY ?? row.accountInfo.legalEntity,
       },
       contact: row.contact,
@@ -100,6 +106,53 @@ test.describe('TS-01 — Prepaid Account Creation (Energia Prepago)', {
     const accountId = await createAccountPage.createPrepaidAccount(payload);
     testLogger.data('Account created', { accountId, customerId: row.accountInfo.customerId });
     expect(accountId).toMatch(/^(ACT|AC)-\d+$/);
+
+    // ── Step 1b: prove the account this form NOW builds is still the one the
+    //    rest of the suite depends on.
+    //
+    // JEPYP-231 deleted legalEntity, currency and customerSegment from the form
+    // and locked Account Category and Tarifa Jasec. Deleted fields do not fail
+    // anything — they silently fall back to whatever the product defaults to,
+    // which is precisely the shape of gap that reads as coverage. So read the
+    // row back and say out loud what it holds. The credit profile is checked
+    // too, because that is the thing legalEntity used to buy us: an account
+    // matching no profile can never warn and never suspend, and it would sail
+    // through account creation looking perfectly healthy.
+    const db = new DbHelper();
+    await db.connect();
+    try {
+      if (createAccountPage.unsettableFields.length) {
+        testLogger.log(
+          `⚠ the form no longer offers: ${createAccountPage.unsettableFields.join(', ')} ` +
+          `— these fell back to the product default (JEPYP-231).`,
+        );
+      }
+      const [acct] = await db.query<Record<string, string | null>>(
+        `SELECT legalentity, currency, customersegment, accountcategory,
+                accounttype, accountsubtype, sellingcompany, clientid, customerid
+           FROM core_engine.account WHERE id = $1`,
+        [accountId],
+      );
+      testLogger.data('Account shape as stored', acct ?? {});
+      expect(acct, `account ${accountId} not found`).toBeTruthy();
+
+      // Defaults that survived the field being deleted — these must not drift.
+      expect.soft(acct.currency, 'currency default').toBe('CRC');
+      expect.soft(acct.customersegment, 'customerSegment default').toBe('B2C');
+      expect.soft(acct.accountcategory, 'account category (locked)').toBe('PREPAID');
+      // What we did set.
+      expect.soft(acct.accounttype, 'Tarifa ARESEP').toBe(payload.accountInfo.accountType);
+      expect.soft(acct.clientid, 'NISE').toBe(clientId);
+
+      testLogger.log(
+        `legalentity stored as "${acct.legalentity}" — the suite's documented ` +
+        `assumption is "US" (create-prepaid-account.helper.ts). The credit ` +
+        `profile itself lands on the SUBSCRIPTION, so it is checked after the ` +
+        `order completes.`,
+      );
+    } finally {
+      await db.disconnect();
+    }
 
     // ── Step 2: Crear nueva orden, agregar Paquete Prepago, meter ────
     await page.navigateToHome();
@@ -181,6 +234,50 @@ test.describe('TS-01 — Prepaid Account Creation (Energia Prepago)', {
       problems,
       `order ${orderId} completed but did not produce a usable prepaid contract`,
     ).toEqual([]);
+
+    // ── Step 3b: the credit profile, now that a subscription exists ──
+    /**
+     * This is what JEPYP-231 put at risk, so it is asserted rather than assumed.
+     *
+     * The profile is attribute-matched, and until now the attribute the suite
+     * relied on was `legalentity` — which the Create Account form used to
+     * pre-fill with "US" and JEPYP-231 has deleted outright. JASEC's answer on
+     * the ticket (Luis, 2026-09-22) is that the match moves to the tariff:
+     * "from tarifa ARESEP the value Tarifa Prepago will be associate to a credit
+     * profile ... this combination should be Residential prepaid credit profile".
+     *
+     * An account with no profile looks completely healthy here and then can
+     * never warn and never suspend, which is a defect nobody sees until a
+     * notification block comes back empty. Reported rather than hard-failed,
+     * because the back-end half ("none of the new codes exist yet" — Toan,
+     * 2026-09-21) is still outstanding and a red TS-01 would block the suite.
+     */
+    const db2 = new DbHelper();
+    await db2.connect();
+    try {
+      const subs = await db2.query<{ id: string; creditprofilename: string | null }>(
+        `SELECT id, creditprofilename FROM core_engine.subscription WHERE accountid = $1`,
+        [accountId],
+      );
+      testLogger.data('Subscription credit profile', subs);
+      const without = subs.filter((s) => !s.creditprofilename);
+      if (!subs.length) {
+        testLogger.log(`⚠ ${accountId} has no subscription rows to carry a credit profile.`);
+      } else if (without.length) {
+        testLogger.log(
+          `⚠ CREDIT PROFILE MISSING on ${without.length} of ${subs.length} subscription(s) ` +
+          `for ${accountId}. Such an account can never warn and never suspend. ` +
+          `JEPYP-231 removed legalEntity from the form; JASEC say the match should ` +
+          `now come from Tarifa Prepago + Residencial Permanente.`,
+        );
+      } else {
+        testLogger.log(
+          `✓ credit profile attached: ${[...new Set(subs.map((s) => s.creditprofilename))].join(', ')}`,
+        );
+      }
+    } finally {
+      await db2.disconnect();
+    }
 
     testLogger.log(`✓ TS-01 completed — account ${accountId}, order ${orderId} (SUBMITTED, meter ${provisioningId})`);
 

@@ -5,8 +5,10 @@
       "customerSegment": "B2C",
       "customerId": "TEST_ID-001",
       "legalEntity": "US",
-      "accountType": "RESIDENTIAL",
-      "currency": "CRC"
+      "accountType": "PREPAID",
+      "currency": "CRC",
+      "clientId": "NISE-001",
+      "accountSubtype": "Residencial Permanente"
     },
     "contact": {
       "firstName": "Anh",

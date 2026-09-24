@@ -116,13 +116,16 @@ export async function createPrepaidAccountOnly(
 ): Promise<string> {
   const suffix = uniqueRunSuffix();
   const customerId = `${baseRow.accountInfo.customerId}-${suffix}`;
+  // NISE became mandatory with JEPYP-231. Suffixed for the same reason
+  // customerId is — a fixed value would collide on the second run.
+  const clientId = `${baseRow.accountInfo.clientId ?? 'NISE'}-${suffix}`;
 
   await page.navigateToHome();
   await searchAccountsPage.navigateViaNav();
   await createAccountPage.clickCreateNew();
 
   const payload: PrepaidAccountPayload = {
-    accountInfo: { ...baseRow.accountInfo, customerId },
+    accountInfo: { ...baseRow.accountInfo, customerId, clientId },
     contact: baseRow.contact,
     address: baseRow.address,
     paymentProfile: baseRow.paymentProfile,
@@ -158,6 +161,8 @@ export async function createPrepaidAccountWithOrder(
   const suffix = uniqueRunSuffix();
   const customerId = `${baseRow.accountInfo.customerId}-${suffix}`;
   const provisioningId = `${baseRow.meter.provisioningId}${suffix}`;
+  // NISE became mandatory with JEPYP-231; suffixed so reruns cannot collide.
+  const clientId = `${baseRow.accountInfo.clientId ?? 'NISE'}-${suffix}`;
 
   // Account
   await page.navigateToHome();
@@ -165,7 +170,7 @@ export async function createPrepaidAccountWithOrder(
   await createAccountPage.clickCreateNew();
 
   const payload: PrepaidAccountPayload = {
-    accountInfo: { ...baseRow.accountInfo, customerId },
+    accountInfo: { ...baseRow.accountInfo, customerId, clientId },
     contact: baseRow.contact,
     address: baseRow.address,
     paymentProfile: baseRow.paymentProfile,
