@@ -56,13 +56,69 @@ const CENT = 0.02;                       // currency rounding tolerance
 const near = (a: number, b: number) => Math.abs(a - b) <= CENT;
 const num = (v: unknown) => Number(v ?? 0);
 
-/** How many accounts to sample. Override to widen a run. */
+/** How many VERIFIABLE accounts to sample. Override to widen a run. */
 const SAMPLE = Number(process.env.BILLING_STATEMENT_ACCOUNTS ?? 8);
+/** How many candidates to look at before giving up on reaching SAMPLE. */
+const SCAN_CAP = Number(process.env.BILLING_STATEMENT_SCAN ?? 60);
+/** Back-dated accounts kept anyway, so the per-line assertions still see that shape. */
+const KEEP_BACKDATED = 2;
 
 let gql: BillingGqlHelper;
 let accounts: string[] = [];
 let blockedReason: string | null = null;
 const statements = new Map<string, StatementLine[]>();
+/** Sampling diagnostics — printed by the chain test so the filter is never silent. */
+const sampling = {
+  scanned: 0, clean: 0, backDated: 0,
+  backDatedNames: [] as string[],
+  /** Accounts that have invoices but returned no statement at all — a finding. */
+  emptyNames: [] as string[],
+};
+
+/**
+ * BACK-DATED LEDGER ROWS MAKE THE CHAIN UNVERIFIABLE — and QC can cause them.
+ *
+ * The running balance only reconciles if rows were created in the same order
+ * they are dated. Running a billing cycle on a REWOUND CCP clock breaks that:
+ * the new invoices carry dates earlier than rows that already exist, so they
+ * land mid-ledger with opening balances computed against a different tail.
+ *
+ * That is exactly what happened on jasec-dev on 2026-08-23 — a cycle was run
+ * with the clock at 2026-08 while the tenant's data ran to 2027-12, and six
+ * "gaps" appeared. None was a product defect; the test run created them.
+ *
+ * Detection: ids are zero-padded and issued in creation order, so reading the
+ * statement oldest-first the numeric id must ascend. Where it does not, the
+ * account has back-dated rows and its chain cannot be judged.
+ *
+ * Measured tenant-wide on jasec-dev 2026-09-25, this split is sharp:
+ *
+ *                        chain holds   chain breaks
+ *     dates ascend           273             0
+ *     back-dated               9            48
+ *
+ * So the rule neither over- nor under-fires: every date-clean ledger reconciles,
+ * and the damage sits almost entirely in the back-dated cohort. An example of
+ * the damage, ACT-100532: row 001629 (dated 2026-09-08, created between rows
+ * dated 2027-12 and 2028-01) and row 002026 BOTH open at 34789.50 and both close
+ * at 37108.80 — the ledger forks, because 001629's effect was never carried
+ * forward. Nothing the product did wrong; a cycle we ran on a rewound clock.
+ *
+ * This lives at module scope because the SAMPLER uses it too — see beforeAll.
+ */
+const numericId = (s: string | null | undefined) =>
+  /^\d+$/.test(String(s ?? '')) ? Number(s) : null;
+
+const hasBackDatedRows = (lines: StatementLine[]): boolean => {
+  const ids = [...lines].reverse().map((l) => numericId(l.lineReferenceId));
+  let prev = -Infinity;
+  for (const id of ids) {
+    if (id === null) continue;              // payments etc. — not part of the id sequence
+    if (id < prev) return true;
+    prev = id;
+  }
+  return false;
+};
 
 test.beforeAll(async () => {
   gql = new BillingGqlHelper();
@@ -70,18 +126,57 @@ test.beforeAll(async () => {
   // Pick accounts that actually have invoices, so the statement is non-trivial.
   // Sampling from the invoice list rather than a hardcoded id keeps this working
   // on any tenant and after the data churns.
-  const invoices = await gql.searchInvoices(1, 200);
-  const seen: string[] = [];
-  for (const inv of invoices) {
-    if (inv.accountId && !seen.includes(inv.accountId)) seen.push(inv.accountId);
-    if (seen.length >= SAMPLE) break;
+  //
+  // WHY THIS SCANS INSTEAD OF TAKING THE FIRST EIGHT.
+  //
+  // The newest invoices belong to the accounts most recently re-billed, and on a
+  // QC tenant those are exactly the accounts a rewound clock has back-dated (see
+  // the long comment on the chain test below). Taking the first 8 therefore
+  // sampled almost entirely un-verifiable accounts: on jasec-dev 2026-09-25 the
+  // chain was checked on 2 of 8 while 6 were skipped. Measured over the whole
+  // tenant, 273 of 330 multi-row ledgers are clean — the accounts were there, the
+  // sample just never reached them.
+  //
+  // So: keep scanning candidates until SAMPLE clean ones are in hand. The filter
+  // is on DATE ORDER, which is independent of the balances being asserted, so
+  // this selects a healthy population without selecting for the answer. Measured
+  // on jasec-dev: of 273 date-clean accounts, 273 chain and 0 break — and of 57
+  // back-dated ones, 48 break. The split is real, and it is ours, not a defect.
+  const candidates: string[] = [];
+  for (let page = 1; page <= 3 && candidates.length < SCAN_CAP; page++) {
+    const invoices = await gql.searchInvoices(page, 200);
+    if (!invoices.length) break;
+    for (const inv of invoices) {
+      if (inv.accountId && !candidates.includes(inv.accountId)) candidates.push(inv.accountId);
+    }
   }
-  accounts = seen;
+
+  const clean: string[] = [];
+  const backDated: string[] = [];
+  for (const acct of candidates) {
+    if (clean.length >= SAMPLE || sampling.scanned >= SCAN_CAP) break;
+    sampling.scanned++;
+    const lines = await gql.getAccountStatement(acct, 1, 50);
+    // An account that HAS invoices but returns NO statement lines is a finding,
+    // not a candidate to quietly step over. Record it so the first test can fail
+    // on it; skipping it here would hide exactly what that test exists to catch.
+    if (lines.length === 0) { sampling.emptyNames.push(acct); continue; }
+    if (hasBackDatedRows(lines)) {
+      sampling.backDated++;
+      sampling.backDatedNames.push(acct);
+      if (backDated.length < KEEP_BACKDATED) { backDated.push(acct); statements.set(acct, lines); }
+      continue;
+    }
+    sampling.clean++;
+    clean.push(acct);
+    statements.set(acct, lines);
+  }
+  accounts = [...clean, ...backDated];
   // Do NOT throw here. An expect() inside beforeAll fails every test in the
   // file, and on a tenant with zero invoices that turned one environment fact
   // into a wall of red that looked like a statement-ledger defect. Record the
   // reason and let each test block on it instead - see the beforeEach below.
-  if (accounts.length === 0) {
+  if (accounts.length === 0 && sampling.emptyNames.length === 0) {
     blockedReason =
       'no accounts with invoices to sample. The tenant returned ZERO invoices ' +
       'overall, so no billing cycle has run here yet - an environment state, ' +
@@ -89,8 +184,18 @@ test.beforeAll(async () => {
     return;
   }
 
-  for (const a of accounts) statements.set(a, await gql.getAccountStatement(a, 1, 50));
-  console.log(`[statement] sampled ${accounts.length} accounts: ${accounts.join(', ')}`);
+  console.log(
+    `[statement] scanned ${sampling.scanned} candidate account(s) -> ` +
+    `${sampling.clean} verifiable, ${sampling.backDated} back-dated` +
+    (sampling.emptyNames.length ? `, ${sampling.emptyNames.length} with NO statement` : ''),
+  );
+  console.log(`[statement] asserting on ${accounts.length}: ${accounts.join(', ')}`);
+  if (sampling.clean < SAMPLE) {
+    console.log(
+      `[statement] NOTE: wanted ${SAMPLE} verifiable accounts, found ${sampling.clean} ` +
+      `in ${sampling.scanned} candidates. Raise BILLING_STATEMENT_SCAN to look further.`,
+    );
+  }
 });
 
 test.describe('Prepaid Account Statement — ledger integrity', { tag: ['@jasec', '@billing', '@statement'] }, () => {
@@ -100,12 +205,18 @@ test.describe('Prepaid Account Statement — ledger integrity', { tag: ['@jasec'
   test.beforeEach(() => { if (blockedReason) blockedIf(true, blockedReason); });
 
   test('a statement is returned for an account that has invoices', async () => {
-    const empty = accounts.filter((a) => (statements.get(a) ?? []).length === 0);
     for (const a of accounts) {
       console.log(`  ${a}: ${(statements.get(a) ?? []).length} statement lines`);
     }
     // An account holding invoices but returning no statement lines is the
     // finding, not a test-setup problem — report which ones before failing.
+    // These come from the sampler, which records rather than skips them, so this
+    // covers every candidate scanned and not only the ones kept for assertions.
+    const empty = [
+      ...sampling.emptyNames,
+      ...accounts.filter((a) => (statements.get(a) ?? []).length === 0),
+    ];
+    console.log(`  (${sampling.scanned} candidates scanned, ${empty.length} with no statement)`);
     expect(empty, `accounts with invoices but an EMPTY statement: ${empty.join(', ')}`).toEqual([]);
   });
 
@@ -134,38 +245,6 @@ test.describe('Prepaid Account Statement — ledger integrity', { tag: ['@jasec'
     expect(bad, `lines whose tax split does not sum to the amount:\n${bad.join('\n')}`).toEqual([]);
   });
 
-  /**
-   * BACK-DATED LEDGER ROWS MAKE THE CHAIN UNVERIFIABLE — and QC can cause them.
-   *
-   * The running balance only reconciles if rows were created in the same order
-   * they are dated. Running a billing cycle on a REWOUND CCP clock breaks that:
-   * the new invoices carry dates earlier than rows that already exist, so they
-   * land mid-ledger with opening balances computed against a different tail.
-   *
-   * That is exactly what happened on jasec-dev on 2026-08-23 — a cycle was run
-   * with the clock at 2026-08 while the tenant's data ran to 2027-12, and six
-   * "gaps" appeared. None was a product defect; the test run created them.
-   *
-   * Detection: ids are zero-padded and issued in creation order, so reading the
-   * statement oldest-first the numeric id must ascend. Where it does not, the
-   * account has back-dated rows and its chain is skipped with a note rather than
-   * failed. Fresh accounts, and any tenant whose clock has only moved forward,
-   * are unaffected and still assert normally.
-   */
-  const numericId = (s: string | null | undefined) =>
-    /^\d+$/.test(String(s ?? '')) ? Number(s) : null;
-
-  const hasBackDatedRows = (lines: StatementLine[]): boolean => {
-    const ids = [...lines].reverse().map((l) => numericId(l.lineReferenceId));
-    let prev = -Infinity;
-    for (const id of ids) {
-      if (id === null) continue;              // payments etc. — not part of the id sequence
-      if (id < prev) return true;
-      prev = id;
-    }
-    return false;
-  };
-
   test('the balance chain is continuous — no missing transactions', async () => {
     const bad: string[] = [];
     const skipped: string[] = [];
@@ -185,8 +264,17 @@ test.describe('Prepaid Account Statement — ledger integrity', { tag: ['@jasec'
       }
     }
     const checked = statements.size - skipped.length;
-    console.log(`[statement] chain verified on ${checked} of ${statements.size} accounts` +
+    console.log(`[statement] chain verified on ${checked} of ${statements.size} sampled accounts` +
       (skipped.length ? `; skipped ${skipped.join(', ')} — back-dated ledger rows, see the comment above` : ''));
+    // Say what the sampler had to walk past to get here. A silent filter and a
+    // broken tenant look identical from the outside, so print the cost either way.
+    console.log(
+      `[statement] the sampler scanned ${sampling.scanned} candidate(s) to find these: ` +
+      `${sampling.clean} verifiable, ${sampling.backDated} back-dated` +
+      (sampling.backDatedNames.length
+        ? ` (${sampling.backDatedNames.slice(0, 10).join(', ')}${sampling.backDatedNames.length > 10 ? ', …' : ''})`
+        : ''),
+    );
     expect(checked, 'every sampled account has back-dated rows — nothing was actually verified')
       .toBeGreaterThan(0);
     expect(bad, `breaks in the running balance:\n${bad.join('\n')}`).toEqual([]);
