@@ -95,6 +95,19 @@ const near = (a: number, b: number, tol = CENT) => Math.abs(a - b) <= tol;
 /** Ledger ids are zero-padded and issued in creation order. */
 const idNum = (s: unknown) => Number(String(s ?? '').replace(/\D/g, '')) || 0;
 
+/**
+ * Invoices issued before the 2026-09-07 rate fix were never corrected — a
+ * business decision, team note 2026-09-10 — so they cannot be held to the
+ * current line structure. Same constant, same default and same preprod
+ * exception as ts-01: 2793 is a jasec-dev invoice NUMBER, and preprod restarted
+ * its numbering at 000001, so applying dev's number there would excuse every
+ * invoice and leave the assertion with no subject at all.
+ */
+const TENANT = (process.env.TEST_ENV ?? '').trim();
+const FIRST_POST_FIX_INVOICE = Number(
+  process.env.BILLING_FIX_CUTOFF ?? (TENANT === 'jasec-preprod' ? '1' : '2793'),
+);
+
 const HOW_TO_SEED =
   'Seed one with:  .\\_scripts\\billing\\seed-two-cycle-account.ps1 -Bdom <free>  '
   + 'then re-run with JASEC_TWO_CYCLE_ACCOUNT=<accountId>. '
@@ -265,12 +278,48 @@ test.describe('Prepaid account across two consecutive billed cycles', () => {
 
   test('the charge lines are present on every cycle @jasec @billing @two-cycle', async () => {
     if (setupNote) { console.log(`\n[two-cycle] BLOCKED, not failed: ${setupNote}\n`); test.skip(true, setupNote); return; }
+    /**
+     * THESE CYCLES ARE HISTORY, SO THE PRE-FIX CUTOFF APPLIES HERE TOO.
+     *
+     * Unlike the fixed-charge case further down, this test asserts on an
+     * account it did not bill — and when JASEC_TWO_CYCLE_ACCOUNT is unset it
+     * auto-resolves whatever account the tenant offers. On jasec-dev 2026-09-25
+     * that resolved ACT-100442, and three different shapes from one staged
+     * rollout sat side by side on it:
+     *
+     *   002648  ENERGIA 69.24 + ALP 3.05 + ALP-CVG + KWH-CVG 4.81   (old rates)
+     *   002686  ENERGIA 62.69 + ALP 2.67, NO CVG line at all        (mid-fix)
+     *   002831  ENERGIA 62.69 + ALP 2.67 + KWH-CVG -17.40           (correct)
+     *
+     * The two mid-fix invoices failed this assertion for missing CVG ENERGIA.
+     * That is uncorrected history, not a live defect, and it is exactly what
+     * ts-01's cutoff exists to excuse — this test simply never applied it.
+     */
     const bad: string[] = [];
+    const preFix: string[] = [];
     for (const c of cycles) {
+      if (idNum(c.inv.id) < FIRST_POST_FIX_INVOICE) { preFix.push(String(c.inv.id)); continue; }
       const names = new Set((c.inv.invoiceSummaryList ?? []).map((l: any) => lineName(String(l.name ?? ''))));
       for (const required of ['ENERGIA', 'CVG ENERGIA', 'ALUMBRADO PUBLICO']) {
         if (!names.has(required)) bad.push(`${c.inv.id}: missing "${required}" — saw ${JSON.stringify([...names])}`);
       }
+    }
+
+    const checked = cycles.length - preFix.length;
+    console.log(
+      `[two-cycle] charge lines asserted on ${checked} of ${cycles.length} cycle(s)`
+      + (preFix.length ? `; ${preFix.length} predate ${FIRST_POST_FIX_INVOICE} and are EXCLUDED as pre-fix: ${preFix.join(', ')}` : ''),
+    );
+    // Refuse to report green on an empty subject. ts-01 hit exactly this on
+    // preprod — every invoice excused as "pre-fix" while the tenant was in fact
+    // billing the wrong amount, and the workaround hid the finding.
+    if (checked === 0) {
+      const why =
+        `every cycle on this account predates ${FIRST_POST_FIX_INVOICE}, so there is no `
+        + `post-fix invoice to check the charge lines on. ${HOW_TO_SEED}`;
+      console.log(`\n[two-cycle] BLOCKED, not failed: ${why}\n`);
+      test.skip(true, why);
+      return;
     }
     expect(bad, `charge lines missing:\n${bad.join('\n')}`).toEqual([]);
   });
