@@ -45,9 +45,22 @@ import { BillingGqlHelper, type InvoiceDoc } from '../../../../helpers/billing-g
 /** ARESEP: no later than day 8 of the month following the billed cycle. */
 const DEADLINE_DAY = 8;
 
-/** Pages of the invoice search to sweep. Capped, and a truncation warning is
- *  printed if we hit the cap — a silent cap once emptied a whole band. */
-const PAGES = 3;
+/**
+ * Pages of the invoice search to sweep.
+ *
+ * SWEEP EVERYTHING, HYDRATE A SAMPLE. These are two different budgets and the
+ * old cap of 3 pages confused them. Listing is ONE call per 200 invoices;
+ * hydrating is one call per invoice. Capping the LISTING at 600 bought almost
+ * nothing and cost the survey its reach: the tenant holds ~2,700 invoices, so
+ * the compliance verdict was drawn from the newest ~22% — and "newest" on a QC
+ * tenant means our own seeded fixtures, not the production population.
+ *
+ * So the sweep now runs to the last page (stopping at the first short one) and
+ * the stride is taken across the WHOLE population. PAGES stays only as a
+ * runaway guard, and a truncation warning is printed if it is ever reached —
+ * a silent cap once emptied a whole band.
+ */
+const PAGES = 40;
 const PAGE_SIZE = 200;
 
 /**
@@ -118,14 +131,10 @@ test.beforeAll(async () => {
     const page = await gql.searchInvoices(p, PAGE_SIZE).catch(() => []);
     if (!page.length) break;
     found.push(...page);
-    if (p === PAGES) truncated = true;
+    if (page.length < PAGE_SIZE) break;      // short page — the sweep is complete
+    if (p === PAGES) truncated = true;       // only a real cap hit warns
   }
   if (!found.length) { setupNote = 'no invoices returned by searchInvoices'; return; }
-
-  // TRAP: searchInvoices leaves startDate/endDate NULL. Only getInvoice fills
-  // them, and this whole case is about those two dates — so hydrate or the
-  // calendar-month filter silently matches nothing and the case reports green.
-  const prepaid = await gql.filterByAccountCategory(found, 'PREPAID').catch(() => found);
 
   /**
    * STRIDE, DO NOT TAKE THE HEAD. searchInvoices returns newest-first, and the
@@ -135,14 +144,26 @@ test.beforeAll(async () => {
    * thousands of real BDOM-1 invoices sat further down. Sampling across the
    * whole result set is what makes this a survey rather than a look at our own
    * test data.
+   *
+   * The category check moved INSIDE this loop. `filterByAccountCategory` walks
+   * every invoice it is handed, so pre-filtering the full sweep would have cost
+   * a lookup per invoice before the stride ever discarded 95% of them. Asking
+   * per candidate costs one lookup per SAMPLED invoice instead, and the helper
+   * caches by account, so the true cost is one call per distinct account.
    */
-  const stride = Math.max(1, Math.floor(prepaid.length / MAX_HYDRATE));
-  const sample = prepaid.filter((_, i) => i % stride === 0);
+  const stride = Math.max(1, Math.floor(found.length / MAX_HYDRATE));
+  const sample = found.filter((_, i) => i % stride === 0);
 
   let hydrated = 0;
+  let notPrepaid = 0;
   for (const stub of sample) {
     if (hydrated >= MAX_HYDRATE || rows.length >= ENOUGH_CYCLES) break;
+    const cat = await gql.accountCategory(stub.accountId).catch(() => 'UNKNOWN');
+    if (cat !== 'PREPAID') { notPrepaid++; continue; }
     hydrated++;
+    // TRAP: searchInvoices leaves startDate/endDate NULL. Only getInvoice fills
+    // them, and this whole case is about those two dates — so hydrate or the
+    // calendar-month filter silently matches nothing and the case reports green.
     const inv = await gql.getInvoice(stub.id).catch(() => null);
     if (!inv?.id || !inv.startDate || !inv.endDate) continue;
 
@@ -169,11 +190,12 @@ test.beforeAll(async () => {
     });
   }
   console.log(
-    `[deadline] swept ${found.length} invoice(s), ${prepaid.length} prepaid, stride ${stride}, `
+    `[deadline] swept ${found.length} invoice(s)${truncated ? ' (CAPPED)' : ' — the whole tenant'}, `
+    + `stride ${stride} -> ${sample.length} sampled, ${notPrepaid} not prepaid, `
     + `hydrated ${hydrated}, calendar-month cycles ${rows.length}`,
   );
   if (!rows.length) {
-    const probe = await gql.getInvoice(prepaid[0]?.id ?? '').catch(() => null);
+    const probe = await gql.getInvoice(sample[0]?.id ?? '').catch(() => null);
     console.log(`[deadline] probe ${probe?.id}: startDate=${JSON.stringify(probe?.startDate)} `
       + `endDate=${JSON.stringify(probe?.endDate)} invoiceDate=${JSON.stringify(probe?.invoiceDate)}`);
     setupNote = 'no calendar-month (production shape) prepaid cycles found to assert on';
