@@ -174,6 +174,78 @@ async function subscriptionStatus(accountId: string): Promise<string> {
 }
 
 /**
+ * Highest `core_engine.activity` id right now, as a number.
+ *
+ * WHY AN ID AND NOT A TIMESTAMP. `activity.createddate` is stamped with the CCP
+ * clock, not wall time — dev rows carry dates in 2028 — so the old guard's
+ * `createddate > now() - interval '30 minutes'` compared a frozen clock against
+ * a real one. Rows stamped in the future always matched and rows stamped in the
+ * past never did, in both cases regardless of whether THIS run caused them.
+ * Ids are `A-105258`, a plain ascending sequence, so they order by creation.
+ */
+async function maxActivityId(): Promise<number> {
+  const rows = await db
+    .query<{ n: string }>(
+      `SELECT coalesce(max((regexp_replace(id, '[^0-9]', '', 'g'))::bigint), 0)::text AS n
+         FROM core_engine.activity`,
+    )
+    .catch(() => [] as Array<{ n: string }>);
+  return Number(rows?.[0]?.n ?? 0);
+}
+
+/**
+ * Wait for the reconnection to actually settle, then say how it settled.
+ *
+ * RECONNECTION IS ASYNCHRONOUS, AND THE OLD GUARD RACED IT. Clearing the debt
+ * raises a RESUME order; that order dispatches to JASEC's AMI; the AMI answers;
+ * only then does the subscription reach ACTIVE or the order reach
+ * PROVISIONING_ERROR. The previous code read the status once and looked for a
+ * refusal once, immediately — so whether the case reported BLOCKED or FAIL came
+ * down to whether the callback had landed yet. Measured on jasec-dev
+ * 2026-09-28: the SAME account FAILED on one run and reported BLOCKED on the
+ * next, with nothing about the environment changed.
+ *
+ * It was also FAIL-OPEN. The refusal lookup was not scoped to the account at
+ * all — ANY `No existe` anywhere on the tenant inside the window satisfied it,
+ * including one left by an earlier run. A genuine reconnection defect on this
+ * account would have been excused as an environment limit.
+ *
+ * So this polls, re-FETCHING both facts each time (a retry that re-checks a
+ * stale read proves nothing), and scopes the refusal to THIS account and to
+ * activity rows created after the caller's watermark. It returns rather than
+ * decides: ACTIVE wins, a refusal means BLOCKED, and neither within the timeout
+ * falls through to the normal assertion — which keeps the guard fail-CLOSED.
+ */
+async function settleReconnection(
+  accountId: string,
+  sinceActivityId: number,
+  timeoutMs = 150_000,
+): Promise<{ status: string; refusal: string | null }> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const status = await subscriptionStatus(accountId);
+    if (status === 'ACTIVE') return { status, refusal: null };
+
+    const rows = await db
+      .query<{ id: string }>(
+        `SELECT id FROM core_engine.activity
+          WHERE accountid = $1
+            AND response::text ILIKE '%No existe%'
+            AND (regexp_replace(id, '[^0-9]', '', 'g'))::bigint > $2
+          ORDER BY (regexp_replace(id, '[^0-9]', '', 'g'))::bigint DESC
+          LIMIT 1`,
+        [accountId, sinceActivityId],
+      )
+      .catch(() => [] as Array<{ id: string }>);
+    const refusal = rows?.[0]?.id ?? null;
+    if (refusal) return { status, refusal };
+
+    if (Date.now() > deadline) return { status, refusal: null };
+    await new Promise((r) => setTimeout(r, 5_000));
+  }
+}
+
+/**
  * Bring a suspended candidate into range instead of blocking.
  *
  * THE PROBLEM: this case CONSUMES its subject - it reconnects it - so the pool
@@ -450,6 +522,9 @@ test.describe('TS-04 — reconnection after top-up', () => {
     const clearing = Math.max(200, Math.ceil(remaining) + 200);
     await test.step(`5.2 — top up ${clearing}, clearing the ${remaining} still owed`, async () => {
       const before = (await notifyDb.getCrcBalance(accountId)) ?? remaining;
+      // Watermark BEFORE the top-up, so the AMI check below can only ever see a
+      // refusal THIS step provoked. See the guard for why that matters.
+      const activityWatermark = await maxActivityId();
       await topup.reload(activity);
       await topup.enterAmount(clearing);
       await topup.clickPayWithPlaceToPay();
@@ -457,8 +532,11 @@ test.describe('TS-04 — reconnection after top-up', () => {
 
       const balance = await waitForBalanceChange(accountId, before, 180_000);
       await notifyDb.waitForNotificationsToSettle({ afterId: watermark, quietMs: 20_000, timeoutMs: 240_000 });
-      const status = await subscriptionStatus(accountId);
-      console.log(`[TS-04] after clearing: balance ${balance} | status ${status}`);
+      const { status, refusal } = await settleReconnection(accountId, activityWatermark);
+      console.log(
+        `[TS-04] after clearing: balance ${balance} | status ${status}` +
+        (refusal ? ` | AMI refusal ${refusal}` : ''),
+      );
 
       expect.soft(balance ?? 0, 'balance should now be in credit (negative)').toBeLessThan(0);
 
@@ -479,25 +557,26 @@ test.describe('TS-04 — reconnection after top-up', () => {
        * missing meter - before the AMI response settled it. So: report it and
        * skip, per the rule that an unmet precondition is BLOCKED, never a FAIL.
        *
+       * The evidence comes from `settleReconnection`, which WAITS for the async
+       * round trip and scopes the refusal to THIS account and to rows newer than
+       * a watermark taken before the top-up. Read its comment before touching
+       * this: the first version of the guard both raced the callback and
+       * accepted any refusal on the tenant, so it could excuse a real defect.
+       *
+       * No refusal within the timeout means we have no evidence of an
+       * environment limit, and the case falls through to the assertion below
+       * and FAILS - which is the honest outcome, not a gap.
+       *
        * The balance half above still asserts normally - that is the part dev
        * can actually answer. SUSPEND is unaffected; it does not need the AMI to
        * acknowledge.
        */
-      const amiRefused = await db
-        .query<{ n: string }>(
-          `SELECT count(*)::text AS n FROM core_engine.activity
-            WHERE response::text ILIKE '%No existe%'
-              AND createddate > now() - interval '30 minutes'`,
-        )
-        .then((rows: { n: string }[]) => Number(rows?.[0]?.n ?? 0) > 0)
-        .catch(() => false);
-
-      if (status !== 'ACTIVE' && amiRefused) {
+      if (status !== 'ACTIVE' && refusal) {
         const why =
           `${accountId} stayed ${status}: the RESUME order was raised, but JASEC's AMI ` +
-          `answered "El Medidor No existe" for this meter, so provisioning could not ` +
-          `complete. Environment limit on dev, not a product defect - the balance rule ` +
-          `worked and the reconnection WAS triggered.`;
+          `answered "El Medidor No existe" for this meter (activity ${refusal}, raised by ` +
+          `THIS run), so provisioning could not complete. Environment limit on dev, not a ` +
+          `product defect - the balance rule worked and the reconnection WAS triggered.`;
         console.log(`
 [TS-04] BLOCKED, not failed: ${why}
 `);

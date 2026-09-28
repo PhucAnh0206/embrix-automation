@@ -804,11 +804,44 @@ test.describe('TS-02 — staged billing run', () => {
     const cleared = await notifyDb.clearStaleJobs('BILL_CHECK');
     if (cleared) console.log(`[TS-02] cleared ${cleared} stale BILL_CHECK job rows`);
 
-    scheduleId = await jobs.createSchedule({
-      scheduleDate: plan.scheduleDate,
-      frequency: FREQUENCY,
-      jobs: JobScheduleHelper.billingJobs(),
-    });
+    /**
+     * A TAKEN SLOT IS A PRECONDITION, NOT A FAILURE — and it is usually OURS.
+     *
+     * Step 1 picks a date whose ${FREQUENCY} slot is free, but the plan is
+     * PERSISTED TO DISK and step 5 reloads it. So a later run can inherit a date
+     * that an EARLIER run of this same spec already spent, and `createJobSchedule`
+     * then answers SCHEDULE_EXISTS ("only modification is allowed").
+     *
+     * Observed on jasec-dev 2026-09-28: step 3 threw the raw GraphQL error on
+     * 2028-08-09, which reported two red results for a product that was never
+     * exercised. A date holds exactly two slots (DAILY + SCHEDULED), so this is
+     * an environment-state problem with three clean recoveries, none of which is
+     * a code change.
+     */
+    try {
+      scheduleId = await jobs.createSchedule({
+        scheduleDate: plan.scheduleDate,
+        frequency: FREQUENCY,
+        jobs: JobScheduleHelper.billingJobs(),
+      });
+    } catch (e) {
+      const msg = String((e as Error)?.message ?? e);
+      if (!/SCHEDULE_EXISTS|Schedule already exist/i.test(msg)) throw e;
+      const slots = await notifyDb.getScheduleSlots(plan.scheduleDate).catch(() => []);
+      const held = slots.length
+        ? slots.map((s) => `${s.frequency}=${s.status}`).join(', ')
+        : 'could not read the slots';
+      blockedIf(
+        true,
+        `the ${FREQUENCY} slot on ${plan.scheduleDate} is already taken (${held}), so this run ` +
+        `could not create its own schedule. A date has exactly two slots and they are most often ` +
+        `spent by an EARLIER RUN OF THIS SPEC whose plan is still on disk. Recover with any of: ` +
+        `re-run with JEPYP230_RECLAIM_SLOTS=true to free a spent slot; pin a fresh date with ` +
+        `JEPYP230_SCHEDULE_DATE=<yyyy-mm-dd>; or delete the stale plan file so step 1 picks a new ` +
+        `date. Not a product defect — nothing was billed.`,
+      );
+      return;
+    }
 
     const result = await jobs.processSchedule(scheduleId);
     console.log(`[TS-02] schedule ${scheduleId} finished with status ${result.status}`);
