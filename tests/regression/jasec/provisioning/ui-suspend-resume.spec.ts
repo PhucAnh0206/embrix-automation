@@ -410,7 +410,7 @@ test.describe('JEPYP-27 - suspend and resume through the Core UI screens', () =>
   // itself unproven on dev (no Billing Only SUSPEND existed before 2026-09-28),
   // so each part of it is asserted and a setup that does not hold is BLOCKED.
 
-  test('UI resume: Billing Only suspend, then Resume Order -> callback @ui-resume',
+  test('UI resume: Billing Only suspend, then Resume Order -> callback @ui-resume-billingonly',
     async ({ page, request }, testInfo) => {
       test.skip(!RUN, 'GATED: dispatches to the live AMI. Set JASEC_UI_SUSPEND_RUN=true.');
       test.setTimeout(900_000);
@@ -470,7 +470,7 @@ test.describe('JEPYP-27 - suspend and resume through the Core UI screens', () =>
 
   // ── A2: the resume half alone, on an account a previous run left suspended ──
 
-  test('UI resume only, on an already-suspended QA account @ui-resume-only',
+  test('UI resume only, on an already-suspended QA account @ui-resume-existing',
     async ({ page, request }, testInfo) => {
       test.skip(!RUN, 'GATED: dispatches to the live AMI. Set JASEC_UI_SUSPEND_RUN=true.');
       const accountId = process.env.JASEC_UI_RESUME_ACCOUNT ?? '';

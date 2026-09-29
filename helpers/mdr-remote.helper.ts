@@ -218,7 +218,33 @@ export class MdrRemoteHelper {
       for (const line of out.split('\n').map((l) => l.trim()).filter(Boolean).slice(0, 40)) {
         this.logger?.log(`  mdr| ${line}`);
       }
-      if (!MdrRemoteHelper.isQueuePushFailure(out)) return out;
+      if (!MdrRemoteHelper.isQueuePushFailure(out)) {
+        /**
+         * THE OUTPUT IS NOT THE ONLY PLACE THE PUSH CAN FAIL.
+         *
+         * `isQueuePushFailure` reads OUR invocation's output. But the loader
+         * cron runs EVERY MINUTE, so a cron instance can pick the file up
+         * first, fail its push, and leave our `./load_energy_usage_cdrs.sh`
+         * with nothing to do and clean output. We then report success for a
+         * file that never reached mediation.
+         *
+         * Observed on jasec-dev 2026-09-29: `@auto-nise` failed with "the 230
+         * reading never appeared", and `MDR_PREPAGO_20260826-150009.csv` is
+         * FAILED / PUSH_FILE_TO_QUEUE_FAILED in `cdr_load_statistics`. The
+         * retry above never fired because our own output was clean. It read as
+         * a product defect and cost a wrong diagnosis.
+         *
+         * So confirm the outcome where it is recorded, not where it is printed.
+         * A file that reached PROCESSED is genuinely in; anything else on this
+         * filename is the same transient and takes the same retry.
+         */
+        const verdict = await this.loadVerdict(out);
+        if (verdict.ok) return out;
+        this.logger?.log(
+          `MDR: shell output was clean but the loader recorded ${verdict.detail} — ` +
+          `treating as the AMQ push transient (the cron almost certainly won the race)`,
+        );
+      }
 
       /**
        * THE AMQ PUSH TRANSIENT, retried here rather than left to every caller.
@@ -264,6 +290,44 @@ export class MdrRemoteHelper {
       `meter ${meter} at reading ${readingKwh}. This is the AMQ transient, not a bad file — ` +
       `but ${attempts} in a row suggests the broker is down. Last output:\n${out.slice(-800)}`,
     );
+  }
+
+  /**
+   * Did the file this submit produced actually reach the loader's records?
+   *
+   * Reads `core_mediation.cdr_load_statistics` on the tenant the tree points
+   * at, so it cannot be fooled by a clean shell output when the cron performed
+   * (and failed) the push. Polls briefly because the row is written by whichever
+   * loader instance won the race, which may not be ours.
+   *
+   * Deliberately conservative: only an explicit PROCESSED is "ok". A missing
+   * row is also a failure — when the push fails the file is moved to `error/`
+   * and sometimes no record is written at all.
+   *
+   * Retrying is SAFE for this failure specifically, because the readings never
+   * reached mediation: of 93 PUSH_FILE_TO_QUEUE_FAILED files on dev, 91 have no
+   * detail rows at all. `make-mdr.sh` names files from the clock, so the re-drop
+   * gets a new name and cannot collide as DUPLICATE_FILE.
+   */
+  private async loadVerdict(loaderOutput: string): Promise<{ ok: boolean; detail: string }> {
+    const file = /MDR_[A-Z0-9]+_[0-9]{8}-[0-9]{6}\.csv/.exec(loaderOutput)?.[0];
+    if (!file) return { ok: true, detail: 'no filename in output — cannot check, assuming ok' };
+
+    const sql =
+      `SELECT coalesce(status,'?')||'|'||coalesce(statusmessage,'') ` +
+      `FROM core_mediation.cdr_load_statistics WHERE filename='${file}' ` +
+      `ORDER BY startdate DESC LIMIT 1`;
+    const probe = [
+      `cd ${this.workDir}`,
+      `DBURL=$(grep -E '^PG_DB_URL=' properties.config | cut -d '=' -f2- | tr -d '"' | tr -d "'")`,
+      `for i in 1 2 3 4 5 6; do R=$(psql "$DBURL" -tA -c "${sql}" 2>/dev/null | tr -d '[:space:]');` +
+      ` if [ -n "$R" ]; then echo "VERDICT=$R"; exit 0; fi; sleep 5; done; echo "VERDICT=(no row)"`,
+    ].join(' && ');
+
+    const out = await this.ssh(probe, 90_000).catch(() => '');
+    const verdict = /VERDICT=(.*)/.exec(out)?.[1]?.trim() ?? '';
+    if (verdict.startsWith('PROCESSED')) return { ok: true, detail: verdict };
+    return { ok: false, detail: `${file} -> ${verdict || '(probe failed)'}` };
   }
 
   /**

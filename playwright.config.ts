@@ -333,7 +333,7 @@ export default defineConfig({
     // ui-suspend-resume: SUSPEND and RESUME raised from the Suspend Order /
     // Resume Order screens - the order shape production creates (no service
     // line) - plus an API-built control. Gated behind JASEC_UI_SUSPEND_RUN;
-    // run one tag at a time (@ui-journey, @ui-resume, @ui-resume-only, @api-control).
+    // run one tag at a time (@ui-journey, @ui-resume-billingonly, @ui-resume-existing, @api-control).
     //
     // Needs a browser, a session and therefore the VPN. Gated on top of that
     // behind JASEC_UI_REPROCESS_RUN because it dispatches to JASEC's live AMI.
