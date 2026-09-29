@@ -114,8 +114,43 @@ export const INVOICED_BILL_UNIT_SQL = `
  * Grouping candidate days by `revenueenddate` therefore proposes dates that can
  * never extract. Use INVOICE dates.
  */
+/**
+ * ⚠️ This means "not already processed by the INVOICE extract", NOT "never
+ * extracted". The team confirmed on 2026-09-29 that the extract works in two
+ * steps: it writes the `accounting_entry` in step 1 and only stamps POSTED with
+ * a batch id in step 2. So an entry can exist on a journal that never went out.
+ *
+ * Measured on dev: entry, batch and POSTED move together for 3,258 journals of
+ * every other activity type, with zero exceptions — so the predicate is sound
+ * for everything the INVOICE extract actually takes. It is only PURCHASE that
+ * can hold an entry without a batch, and those are excluded below anyway.
+ */
 export const NOT_ALREADY_EXTRACTED_SQL = `
   NOT EXISTS (SELECT 1 FROM core_revenue.accounting_entry ae WHERE ae.journalid = rj.id)`;
+
+/**
+ * Top-ups are NOT the INVOICE extract's work, so they must not be counted as
+ * rows it should take.
+ *
+ * CONFIRMED BY THE TEAM 2026-09-29, after I twice asserted it without proof and
+ * was twice right to be challenged. Their words: top-ups "are meant to go out on
+ * the daily ACCOUNT_RECEIVABLE extract, which is not set up on JASEC". The two
+ * PURCHASE journals that DID post — 1024 and 1028, both batch 10002 — are from
+ * the one ACCOUNT_RECEIVABLE extract ever run by hand on dev. They are not
+ * counter-evidence, which is what I mistook them for.
+ *
+ * Demonstrated as well as stated: on 2026-09-29 the auto-selected target
+ * 2028-08-09 held exactly 6 extractable rows, all PURCHASE/BILLED, and
+ * `ebsExtract` returned "No data found" — it took none of them. Without this
+ * filter TC-141 fails on rows the extract is never going to take.
+ *
+ * ⚠️ REMOVE THIS the day an ACCOUNT_RECEIVABLE extract is configured on JASEC.
+ * From then on top-ups ARE extractable and hiding them would mask a real gap —
+ * which is exactly the failure mode the earlier, unjustified version of this
+ * filter would have caused.
+ */
+export const NOT_A_TOPUP_SQL = `
+  rj.revenueactivitytype IS DISTINCT FROM 'PURCHASE'`;
 
 export const OPEN_CYCLE_SQL = `
   EXISTS (SELECT 1 FROM core_engine.bill_unit bu
@@ -187,6 +222,7 @@ export class AccountingDbHelper {
         WHERE rj.extractbatchid IS NULL
           AND rj.status <> ALL ($1::text[])
           AND ${NOT_ALREADY_EXTRACTED_SQL}
+          AND ${NOT_A_TOPUP_SQL}
           AND iu.invoicedate IS NOT NULL
         GROUP BY 1
         ORDER BY 1 DESC
@@ -215,7 +251,8 @@ export class AccountingDbHelper {
               count(*) FILTER (WHERE EXISTS (
                 SELECT 1 FROM core_engine.invoice_unit iu
                  WHERE iu.billunitid = rj.billunitid AND iu.invoicedate::date = $2::date)
-                AND ${NOT_ALREADY_EXTRACTED_SQL})::int AS extractable
+                AND ${NOT_ALREADY_EXTRACTED_SQL}
+                AND ${NOT_A_TOPUP_SQL})::int AS extractable
          FROM core_revenue.revenue_journal rj
         WHERE rj.extractbatchid IS NULL
           AND rj.status <> ALL ($1::text[])
@@ -240,6 +277,7 @@ export class AccountingDbHelper {
         WHERE rj.extractbatchid IS NULL
           AND rj.status <> ALL ($1::text[])
           AND ${NOT_ALREADY_EXTRACTED_SQL}
+          AND ${NOT_A_TOPUP_SQL}
           AND EXISTS (SELECT 1 FROM core_engine.invoice_unit iu
                        WHERE iu.billunitid = rj.billunitid
                          AND iu.invoicedate::date = $2::date)`,
