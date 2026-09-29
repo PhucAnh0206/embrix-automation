@@ -319,11 +319,16 @@ export default defineConfig({
 
     // ── JASEC provisioning through the Core UI.
     //
-    // Currently one case: the "Submit order" button on the order detail page,
-    // which is the manual reprocess the ticket asks for ("the UI need to be able
-    // to reprocess manually"). The UI path is a strict superset of the API one -
+    // ui-reprocess: the "Submit order" button on the order detail page, which is
+    // the manual reprocess the ticket asks for ("the UI need to be able to
+    // reprocess manually"). The UI path is a strict superset of the API one -
     // button, mutation, OMS queue, sequence re-run, dispatch - so this is the
     // only test for that requirement rather than one of a pair.
+    //
+    // ui-suspend-resume: SUSPEND and RESUME raised from the Suspend Order /
+    // Resume Order screens - the order shape production creates (no service
+    // line) - plus an API-built control. Gated behind JASEC_UI_SUSPEND_RUN;
+    // run one tag at a time (@ui-journey, @ui-resume, @ui-resume-only, @api-control).
     //
     // Needs a browser, a session and therefore the VPN. Gated on top of that
     // behind JASEC_UI_REPROCESS_RUN because it dispatches to JASEC's live AMI.

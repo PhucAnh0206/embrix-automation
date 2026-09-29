@@ -53,6 +53,14 @@ export interface SeedPrepaidOptions {
   bundleId?: string;
   email?: string;
   /**
+   * The NISE, as the JEPYP-231 Create Account screen stores it: in the
+   * account's `clientId`. Omitted by default, which is why seeded accounts never
+   * hit the order_clientid_fkey failure that screen-created accounts do (every
+   * system-generated order copies account.clientId, and order.clientid is a
+   * foreign key to account(id)). Pass it to reproduce a screen-shaped account.
+   */
+  clientId?: string;
+  /**
    * Account and subscription category. Defaults to PREPAID, which is Phase 1.
    *
    * POSTPAID is here to mirror an account shape without touching the original:
@@ -121,7 +129,7 @@ export class PrepaidSeedHelper {
     const d = await this.post(`mutation { createAccount(input:{
       currency:"CRC", type: RESIDENTIAL, accountCategory: ${o.category ?? 'PREPAID'},
       customerSegment: B2C, salesChannel: NONE, marketSegment: NONE, subType: NONE,
-      name:"${o.name}", customerId:"${o.customerId}",
+      name:"${o.name}", customerId:"${o.customerId}",${o.clientId ? ` clientId:"${o.clientId}",` : ''}
       contacts:[{roles:[BILLING], firstName:"QA", lastName:"${o.customerId}", email:"${email}"}],
       addresses:[{roles:[BILLING], street:"Avenida 2 Occidental", city:"Cartago",
                   state:"Cartago", country:"CRI", postalCode:"30101"}],
