@@ -1348,34 +1348,32 @@ test.describe(
         });
 
         await test.step('SUSPENDED subscription', async () => {
-          // Prefer a REAL suspended account: one that got there through the
-          // product, which is a truer fixture than anything we can fabricate.
-          let accountId = await attachToFirstUsableAccount(
-            dbHelper, testLogger, selfcareLoginPage, selfcareAccountSearchPage, 'SUSPENDED',
+          // ALWAYS seed our own subject. This leg used to prefer a REAL suspended
+          // account from the shared pool and pay into it -- but a top-up clearing a
+          // suspended account's debt raises an automatic RESUME, which dispatches
+          // accion C to whatever meter that account holds (provisioningEnabled is ON
+          // on jasec-dev, and the pool includes subscriptions the team armed).
+          //
+          // Created via the gateway, which attaches NO meter (see
+          // createPrepaidAccountViaGateway), so a RESUME it raises has nothing to
+          // dispatch to. Driving an account into debt and waiting for
+          // CREDIT_LIMIT_ACTIONS is ts-04's job and costs ~17 minutes, so the
+          // subscription is suspended directly instead. Created WITHOUT logging in
+          // again -- a second Self Care login inside one test leaves the form
+          // unrendered and everything after it times out.
+          testLogger.log(
+            '2.12 SUSPENDED: creating a fresh account and forcing the state ' +
+            '(SYNTHETIC, subscription row only - never a borrowed account).',
           );
-          let synthetic = false;
+          const accountId = await createPrepaidAccountViaGateway(
+            { testLogger, accountOrderApiHelper }, baseRow,
+          );
+          const subId = await dbHelper.setSubscriptionStatus(accountId, 'SUSPENDED');
+          testLogger.log(`2.12 SUSPENDED: ${accountId} / ${subId} forced to SUSPENDED`);
 
-          if (!accountId) {
-            // Fallback: make one. Driving an account into debt and waiting for
-            // CREDIT_LIMIT_ACTIONS is ts-04's job and costs ~17 minutes, so the
-            // subscription is suspended directly instead. Created via the gateway
-            // WITHOUT logging in again -- a second Self Care login inside one test
-            // leaves the form unrendered and everything after it times out.
-            testLogger.log(
-              '2.12 SUSPENDED: no existing suspended account usable - creating one ' +
-              'and forcing the state (SYNTHETIC, subscription row only).',
-            );
-            accountId = await createPrepaidAccountViaGateway(
-              { testLogger, accountOrderApiHelper }, baseRow,
-            );
-            const subId = await dbHelper.setSubscriptionStatus(accountId, 'SUSPENDED');
-            testLogger.log(`2.12 SUSPENDED: ${accountId} / ${subId} forced to SUSPENDED`);
-            synthetic = true;
-
-            await attachToAccountInSelfCare(
-              { selfcareLoginPage, selfcareAccountSearchPage }, accountId,
-            );
-          }
+          await attachToAccountInSelfCare(
+            { selfcareLoginPage, selfcareAccountSearchPage }, accountId,
+          );
 
           // Confirm the state actually under test, rather than trusting either
           // the search or the forced update.
@@ -1385,7 +1383,7 @@ test.describe(
             `2.12 SUSPENDED leg expected a SUSPENDED subscription for ${accountId}`,
           ).toBe('SUSPENDED');
           testLogger.log(
-            `2.12 SUSPENDED: using ${accountId} (${synthetic ? 'synthetic' : 'real'}), ` +
+            `2.12 SUSPENDED: using ${accountId} (synthetic), ` +
             `subscription status ${status}`,
           );
 

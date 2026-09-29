@@ -1066,7 +1066,7 @@ test.describe('REGRESSION: Test Suite - 02', () => {
 
 
 
-  test('TC-60: Billing Data / Rated Usage Inquiry – Filter Rated Usage Transactions', async ({ embrixAccount,
+  test('TC-57: Billing Data / Rated Usage Inquiry – Filter Rated Usage Transactions', async ({ embrixAccount,
     page, billsPage, screenshotHelper, testLogger
   }) => {
 
@@ -1101,7 +1101,7 @@ test.describe('REGRESSION: Test Suite - 02', () => {
   });
 
 
-  test('TC-61: Billing Data / Usage Records – Filter and Export Usage Data', async ({ embrixAccount,
+  test('TC-58: Billing Data / Usage Records – Filter and Export Usage Data', async ({ embrixAccount,
     page, billsPage, screenshotHelper, testLogger
   }) => {
 
@@ -1126,7 +1126,7 @@ test.describe('REGRESSION: Test Suite - 02', () => {
   });
 
 
-  test('TC-62: Subscription & Billing Data / AR Request Log – Filter AR Requests', async ({ embrixAccount,
+  test('TC-59: Subscription & Billing Data / AR Request Log – Filter AR Requests', async ({ embrixAccount,
     page, billsPage, screenshotHelper, testLogger
   }) => {
 
@@ -1139,7 +1139,7 @@ test.describe('REGRESSION: Test Suite - 02', () => {
     await billsPage.selectType();
     await billsPage.clickSearchButton();
     await page.waitForTimeout(SHORT_WAIT);
-    // "...displaying the corresponding AR requests." Same reasoning as TC-60:
+    // "...displaying the corresponding AR requests." Same reasoning as TC-57:
     // assert the grid resolved to exactly one definite state, so a stuck or
     // errored surface is a failure rather than a silent pass.
     const rowCount = await billsPage.getRowCount();
@@ -1194,7 +1194,7 @@ test.describe('REGRESSION: Test Suite - 02', () => {
   });
 
 
-  test('TC-67: Billing Data / Account Statement – Filter, Export and View Notes', async ({ embrixAccount,
+  test('TC-64: Billing Data / Account Statement – Filter, Export and View Notes', async ({ embrixAccount,
     page, billsPage, screenshotHelper, testLogger
   }) => {
 
@@ -1222,7 +1222,7 @@ test.describe('REGRESSION: Test Suite - 02', () => {
 
 
 
-  test('TC-68: Billing Data / Shared Charge Configuration – Create New Shared Charge', async ({ embrixAccount,
+  test('TC-65: Billing Data / Shared Charge Configuration – Create New Shared Charge', async ({ embrixAccount,
     page, billsPage, screenshotHelper, testLogger
   }) => {
 
@@ -1258,7 +1258,7 @@ test.describe('REGRESSION: Test Suite - 02', () => {
       picker,
       'Clicking Subscription ID did not open a subscription picker'
     ).toBeVisible({ timeout: MEDIUM_WAIT });
-    await screenshotHelper.captureAndAttach('TC-68-subscription-picker');
+    await screenshotHelper.captureAndAttach('TC-65-subscription-picker');
   });
 
 
@@ -1390,7 +1390,7 @@ test.describe('REGRESSION: Test Suite - 02', () => {
 
 
 
-  test('TC-64: Billing Data / Payments – Filter Payments by Date, Status, Reference and Invoice', async ({ embrixAccount,
+  test('TC-61: Billing Data / Payments – Filter Payments by Date, Status, Reference and Invoice', async ({ embrixAccount,
     page, manualPaymentPage, billsPage, screenshotHelper, testLogger
   }) => {
 
@@ -1466,7 +1466,7 @@ test.describe('REGRESSION: Test Suite - 02', () => {
     await expect(popup).not.toBeVisible();
   });
 
-  test('TC-63: Billing Data / AR Operation Units – Filter by Item ID', async ({ embrixAccount,
+  test('TC-60: Billing Data / AR Operation Units – Filter by Item ID', async ({ embrixAccount,
     page, billsPage, screenshotHelper, testLogger
   }) => {
 
@@ -1586,7 +1586,7 @@ test.describe('REGRESSION: Test Suite - 02', () => {
   });
 
 
-  test('TC-66: Billing Data / Credit and Debit Notes – Filter by Date Range and Note Type', async ({ embrixAccount,
+  test('TC-63: Billing Data / Credit and Debit Notes – Filter by Date Range and Note Type', async ({ embrixAccount,
     page, billsPage, testLogger
   }) => {
     await page.goto(state.quickAccUrl!);

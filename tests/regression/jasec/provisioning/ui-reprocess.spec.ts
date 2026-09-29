@@ -47,12 +47,13 @@
 
 import { test, expect } from '@playwright/test';
 import { DbHelper } from '../../../../helpers/db.helper';
+import { ACCEPTED_REPLY_SQL, DO_NOT_TOUCH_ORDERS } from '../../../../helpers/provisioning-safety.helper';
 
 const RUN = process.env.JASEC_UI_REPROCESS_RUN === 'true';
 const ORDER = process.env.JASEC_UI_REPROCESS_ORDER ?? '';
 
-/** Staged for a JASEC session - reprocessing one would consume it. */
-const DO_NOT_TOUCH = ['ORD-1322', 'ORD-1323', 'ORD-1381'];
+/** Staged for a JASEC session - reprocessing one would consume it. Shared list. */
+const DO_NOT_TOUCH = DO_NOT_TOUCH_ORDERS;
 
 let db: DbHelper;
 
@@ -119,7 +120,7 @@ test.describe('JEPYP-27 - manual reprocess through the UI', () => {
     const accepted = await db.query<{ medidor: string }>(
       `SELECT DISTINCT substring(request::text from '<medidor>([^<]+)') AS medidor
          FROM core_engine.activity
-        WHERE apiname ILIKE '%UTILITIES%' AND response::text LIKE '%CodRespuesta>00<%'`);
+        WHERE apiname ILIKE '%UTILITIES%' AND ${ACCEPTED_REPLY_SQL}`);
     expect(
       accepted.map(a => a.medidor).filter(Boolean),
       `${ORDER} would dispatch meter ${meter}, which JASEC have accepted before - ` +

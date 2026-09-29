@@ -403,10 +403,19 @@ export class NotificationDbHelper {
   }
 
 
+  /**
+   * @param contactEmail REQUIRED — only accounts whose contact carries this
+   *   address. Without it this selected, staged and triggered threshold emails on
+   *   whoever owned the capable accounts. Pass `EmailHelper.recipient()`.
+   */
   async findThresholdCapableAccounts(
     scheduleDate: string,
-    limit = 12,
+    limit: number,
+    contactEmail: string,
   ): Promise<Array<{ accountId: string; fires: number; thresholds: string }>> {
+    if (!contactEmail) {
+      throw new Error('findThresholdCapableAccounts: contactEmail is required (the monitored mailbox)');
+    }
     return this.db.query(
       `SELECT a.id AS "accountId",
               cps.valuethreshold AS thresholds,
@@ -422,9 +431,66 @@ export class NotificationDbHelper {
           AND a.status = 'ACTIVE'
           AND cps.valuethreshold IS NOT NULL
           AND bp.nextaccountingdate + core_engine.get_future_cycle_date(a.id) = $1::date
+          AND EXISTS (
+                SELECT 1 FROM core_engine.contact ct
+                 WHERE ct.accountid = a.id AND lower(ct.email) = lower($3::varchar))
         ORDER BY fires DESC, a.id
         LIMIT $2`,
-      [scheduleDate, limit],
+      [scheduleDate, limit, contactEmail],
+    );
+  }
+
+  /**
+   * Accounts a BILL_CHECK schedule on `scheduleDate` will bill whose contact is
+   * NOT the monitored mailbox — i.e. who would be emailed by our run.
+   *
+   * WHY. BILL_CHECK + INVOICE_CHECK bill and notify EVERY account due on the
+   * date, not just the ones a spec staged, so the recipient filter on the staged
+   * accounts protects no one else. Call this before creating a schedule and
+   * BLOCK on a non-empty result.
+   *
+   * The cohort mirrors `insert_jobs`' BILL_CHECK branch (engine baseline
+   * 2.2.11): the account's current PENDING bill unit, CHECK payment method, not
+   * in a sharing group, billing not paused, not pseudo-postpaid, and
+   * nextaccountingdate = date - get_future_cycle_date. No category or status
+   * filter — postpaid accounts due that day are billed too. Deliberately every
+   * contact on the account, not just the billing role: stricter is the safe side.
+   *
+   * Accepted: the monitored address itself, any plus-address of it, an empty
+   * email (nothing can be sent), and any domain in `allowedDomains` — an explicit
+   * opt-in, empty by default, so the guard fails closed.
+   */
+  async findForeignRecipientsForDate(
+    scheduleDate: string,
+    monitored: string,
+    allowedDomains: string[] = [],
+  ): Promise<Array<{ accountId: string; email: string }>> {
+    const at = monitored.indexOf('@');
+    if (at < 1) throw new Error(`findForeignRecipientsForDate: "${monitored}" is not an address`);
+    const local = monitored.slice(0, at).split('+')[0].toLowerCase();
+    const domain = monitored.slice(at + 1).toLowerCase();
+    return this.db.query(
+      `SELECT DISTINCT bu.accountid AS "accountId", ct.email
+         FROM core_engine.billing_profile bp
+         JOIN core_engine.bill_unit bu
+           ON bu.accountid = bp.accountid AND bu.id = bp.nextbillunitid
+         JOIN core_engine.payment_profile pp ON pp.accountid = bu.accountid
+         JOIN core_engine.contact ct         ON ct.accountid = bu.accountid
+        WHERE bu.status = 'PENDING'
+          AND pp.paymentmethod = 'CHECK'
+          AND bu.accountid NOT IN (SELECT sg.accountid FROM core_engine.sharing_group sg)
+          AND (bp.pausebilling = false OR bp.pausebilling IS NULL)
+          AND core_engine.is_acct_subs_pseudo_postpaid(bp.accountid) = false
+          AND bp.nextaccountingdate + core_engine.get_future_cycle_date(bu.accountid) = $1::date
+          AND coalesce(trim(ct.email), '') <> ''
+          -- the monitored mailbox or a plus-address of it, SAME domain only
+          AND NOT (split_part(lower(trim(ct.email)), '@', 2) = $3::varchar
+                   AND (split_part(lower(trim(ct.email)), '@', 1) = $2::varchar
+                        OR left(split_part(lower(trim(ct.email)), '@', 1), length($2::varchar) + 1)
+                           = $2::varchar || '+'))
+          AND NOT (split_part(lower(trim(ct.email)), '@', 2) = ANY($4::varchar[]))
+        ORDER BY 1`,
+      [scheduleDate, local, domain, allowedDomains.map((d) => d.trim().toLowerCase()).filter(Boolean)],
     );
   }
 
@@ -771,12 +837,20 @@ export class NotificationDbHelper {
     return `+${accountId.replace(/[^A-Za-z0-9]/g, '')}`;
   }
 
-  async getContactEmail(accountId: string): Promise<string | null> {
-    const rows = await this.db.query<{ email: string }>(
-      `SELECT email FROM core_engine.contact WHERE accountid = $1 ORDER BY id LIMIT 1`,
+  /**
+   * The account's first contact, by id. `contact` is keyed (id, accountid), so
+   * the id alone is not unique — every write below scopes by BOTH.
+   */
+  async getContact(accountId: string): Promise<{ id: string; email: string | null } | null> {
+    const rows = await this.db.query<{ id: string; email: string | null }>(
+      `SELECT id, email FROM core_engine.contact WHERE accountid = $1 ORDER BY id LIMIT 1`,
       [accountId],
     );
-    return rows[0]?.email ?? null;
+    return rows[0] ?? null;
+  }
+
+  async getContactEmail(accountId: string): Promise<string | null> {
+    return (await this.getContact(accountId))?.email ?? null;
   }
 
   /**
@@ -786,13 +860,22 @@ export class NotificationDbHelper {
    * monitored test mailbox). Rewriting a real customer's contact email would
    * redirect their mail, so this must never fire on an account we do not own the
    * inbox for. Returns the original so the caller can restore it.
+   *
+   * Writes ONE contact — the one that was checked. The UPDATE used to be scoped
+   * by account only, so on an account with a second contact the guard vetted the
+   * first and the write rewrote both, and the restore then set both to the first
+   * one's address: a second, real contact permanently replaced by the monitored
+   * mailbox. No dev account has two contacts today (0 of 1356), which is why it
+   * never showed.
    */
   async setContactEmailToPlusAddress(
     accountId: string,
     expectedCurrent: string,
-  ): Promise<{ original: string; applied: string } | null> {
-    const current = await this.getContactEmail(accountId);
-    if (!current || current.toLowerCase() !== expectedCurrent.toLowerCase()) {
+  ): Promise<{ original: string; applied: string; contactId: string } | null> {
+    const contact = await this.getContact(accountId);
+    const current = contact?.email ?? null;
+    if (!contact || !current || !expectedCurrent ||
+        current.toLowerCase() !== expectedCurrent.toLowerCase()) {
       this.logger?.log(
         `skipping plus-address for ${accountId}: contact is "${current}", ` +
         `not the monitored mailbox "${expectedCurrent}"`,
@@ -801,19 +884,52 @@ export class NotificationDbHelper {
     }
     const applied = NotificationDbHelper.plusAddress(current, accountId);
     const rows = await this.db.query(
-      `UPDATE core_engine.contact SET email = $2 WHERE accountid = $1 RETURNING email`,
-      [accountId, applied],
+      `UPDATE core_engine.contact SET email = $3
+        WHERE accountid = $1 AND id = $2 RETURNING email`,
+      [accountId, contact.id, applied],
     );
-    if (!rows.length) throw new Error(`setContactEmailToPlusAddress: no contact row for ${accountId}`);
-    return { original: current, applied };
+    if (rows.length !== 1) {
+      throw new Error(
+        `setContactEmailToPlusAddress: expected to update exactly 1 contact ` +
+        `(${accountId}/${contact.id}), updated ${rows.length}`,
+      );
+    }
+    return { original: current, applied, contactId: contact.id };
   }
 
-  /** Restore a contact email captured by `setContactEmailToPlusAddress`. */
-  async restoreContactEmail(accountId: string, original: string): Promise<void> {
-    await this.db.query(
-      `UPDATE core_engine.contact SET email = $2 WHERE accountid = $1`,
-      [accountId, original],
+  /**
+   * Restore a contact email captured by `setContactEmailToPlusAddress`.
+   *
+   * Pass the `contactId` it returned. Without one (a plan file written before the
+   * id was recorded) this only proceeds when the account has exactly one contact,
+   * so it can never overwrite a contact it did not change.
+   */
+  async restoreContactEmail(accountId: string, original: string, contactId?: string): Promise<void> {
+    let id = contactId;
+    if (!id) {
+      const all = await this.db.query<{ id: string }>(
+        `SELECT id FROM core_engine.contact WHERE accountid = $1`,
+        [accountId],
+      );
+      if (all.length !== 1) {
+        throw new Error(
+          `restoreContactEmail: no contact id recorded and ${accountId} has ` +
+          `${all.length} contacts — refusing to guess which one to restore`,
+        );
+      }
+      id = all[0].id;
+    }
+    const rows = await this.db.query(
+      `UPDATE core_engine.contact SET email = $3
+        WHERE accountid = $1 AND id = $2 RETURNING email`,
+      [accountId, id, original],
     );
+    if (rows.length !== 1) {
+      throw new Error(
+        `restoreContactEmail: expected to restore exactly 1 contact ` +
+        `(${accountId}/${id}), restored ${rows.length}`,
+      );
+    }
   }
 
   /**
@@ -939,12 +1055,36 @@ export class NotificationDbHelper {
   /**
    * Clear stale `BILL_CHECK` rows before creating a schedule, so the new run
    * does not collide on batch ids with a previous one.
+   *
+   * NEVER a live job's rows. `jobs.id` is the owning `job_schedule_list.jobid`
+   * (verified on jasec-dev), so a row whose schedule — or schedule line — is
+   * PROCESSING belongs to a run in flight: the cron's, a teammate's, or another
+   * spec's. The unscoped DELETE this replaced removed those too. Everything
+   * else, including rows whose schedule no longer exists, is cleared as before.
    */
   async clearStaleJobs(type = 'BILL_CHECK'): Promise<number> {
     const rows = await this.db.query(
-      `DELETE FROM core_engine.jobs WHERE type = $1 RETURNING id`,
+      `DELETE FROM core_engine.jobs j
+        WHERE j.type = $1
+          AND NOT EXISTS (
+                SELECT 1
+                  FROM core_engine.job_schedule_list l
+                  JOIN core_engine.job_schedule s ON s.id = l.id
+                 WHERE l.jobid = j.id
+                   AND (s.status = 'PROCESSING' OR l.status = 'PROCESSING'))
+        RETURNING j.id`,
       [type],
     );
+    const kept = await this.db.query<{ n: string }>(
+      `SELECT count(*) AS n FROM core_engine.jobs WHERE type = $1`,
+      [type],
+    );
+    if (Number(kept[0]?.n ?? 0) > 0) {
+      this.logger?.log(
+        `clearStaleJobs: left ${kept[0].n} ${type} row(s) that belong to a PROCESSING schedule`,
+      );
+      console.log(`[notify-db] left ${kept[0].n} ${type} job row(s) owned by a PROCESSING schedule`);
+    }
     return rows.length;
   }
 

@@ -61,6 +61,7 @@ import { PrepaidSeedHelper } from '../../../../helpers/prepaid-seed.helper';
 import { TestLogger } from '../../../../helpers/test-logger';
 import { uniqueRunSuffix } from '../../../../fixtures/create-prepaid-account.helper';
 import { blockedIf } from '../../../../helpers/blocked.helper';
+import { assertSafeToDispatch as assertMeterSafe } from '../../../../helpers/provisioning-safety.helper';
 import { SuspendResumeOrderPage } from '../../../../pages/customer-hub/order-management/suspend-resume-order.page';
 
 const RUN = process.env.JASEC_UI_SUSPEND_RUN === 'true';
@@ -139,19 +140,7 @@ async function seedAccount(db: DbHelper, logger: TestLogger, tag: string): Promi
 
 /** The meter that will really go on the wire must be ours and never accepted. */
 async function assertSafeToDispatch(db: DbHelper, s: Seeded) {
-  const wire = await db.query<{ m: string }>(
-    `SELECT sp.provisioningid AS m FROM core_engine.service_provision sp
-      WHERE sp.id = $1 AND sp.type = 'METER'`, [s.svc]);
-  const meter = wire[0]?.m ?? '';
-  expect(meter, `${s.accountId}: the meter on service_provision is not the one this spec invented`)
-    .toBe(s.meter);
-  expect(meter.startsWith(METER_PREFIX), `${meter} is not a ${METER_PREFIX} meter`).toBe(true);
-  const accepted = await db.query<{ n: string }>(
-    `SELECT count(*)::text AS n FROM core_engine.activity
-      WHERE apiname ILIKE '%UTILITIES%' AND request::text LIKE $1
-        AND (response::text LIKE '%CodRespuesta>00<%' OR response::text ILIKE '%Operaci_n Registrada%')`,
-    [`%<medidor>${meter}</medidor>%`]);
-  expect(Number(accepted[0]?.n ?? 0), `${meter} has been ACCEPTED by JASEC before - a real device`).toBe(0);
+  await assertMeterSafe(db, s, METER_PREFIX);
 }
 
 async function commands(db: DbHelper, order: string): Promise<Command[]> {

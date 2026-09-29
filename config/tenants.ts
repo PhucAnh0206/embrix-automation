@@ -29,7 +29,7 @@ export interface Tenant {
   selfcareUrl?: string;
   /** CRM gateway, where the tenant has one. */
   crmGatewayUrl?: string;
-  /** Database for the few specs that read or clean up directly. */
+  /** Database for the few specs that read or clean up directly. DB_NAME must match it. */
   dbName?: string;
   /**
    * Playwright projects allowed against this tenant, by prefix.
@@ -149,7 +149,39 @@ export function resolveTenant(): { name: string; tenant: Tenant } {
     );
   }
 
+  assertDbMatchesTenant(name, process.env.DB_NAME);
+
   return { name, tenant };
+}
+
+/**
+ * Refuse a database that belongs to a different tenant than TEST_ENV.
+ *
+ * The URLs are derived from TEST_ENV, but every DB helper connects to DB_NAME
+ * straight from .env. So `TEST_ENV=jasec-dev` with `DB_NAME=coredb-jasec-preprod`
+ * drove dev's UI while seeding and cleaning up preprod's database - the
+ * ORD-1582 class of mistake, one layer down.
+ *
+ * An empty DB_NAME is not checked: the DB helpers already refuse to connect
+ * without one. A tenant with no `dbName` accepts any database that is not
+ * another registered tenant's.
+ */
+export function assertDbMatchesTenant(tenantName: string, dbName: string | undefined): void {
+  const db = (dbName ?? '').trim();
+  if (!db) return;
+  const tenant = TENANTS[tenantName];
+  if (!tenant) return; // resolveTenant already reported this
+
+  const owner = Object.entries(TENANTS).find(([, t]) => t.dbName === db)?.[0];
+  const wrong = tenant.dbName ? db !== tenant.dbName : owner !== undefined && owner !== tenantName;
+  if (wrong) {
+    throw new Error(
+      `TEST_ENV and DB_NAME disagree.\n` +
+      `  TEST_ENV='${tenantName}'  ->  ${tenant.dbName ?? '(no database for this tenant)'}\n` +
+      `  DB_NAME              ->  ${db}${owner ? `  (that is '${owner}')` : ''}\n` +
+      `Point DB_NAME at the same tenant (switch-env.ps1), or unset it.`,
+    );
+  }
 }
 
 /**
@@ -158,13 +190,10 @@ export function resolveTenant(): { name: string; tenant: Tenant } {
  * `jasec-anything` project is covered without touching this file.
  */
 export function assertSuiteAllowed(projectName: string, tenantName: string): void {
-  if (TENANT_AGNOSTIC.includes(projectName)) return;
-
   const tenant = TENANTS[tenantName];
   if (!tenant) return; // resolveTenant already reported this
 
-  const ok = tenant.suites.some(p => p === '*' || projectName.startsWith(p));
-  if (!ok) {
+  if (!isSuiteAllowed(projectName, tenantName)) {
     const allowed = Object.entries(TENANTS)
       .filter(([, t]) => t.suites.some(p => p === '*' || projectName.startsWith(p)))
       .map(([n]) => n);
@@ -176,6 +205,30 @@ export function assertSuiteAllowed(projectName: string, tenantName: string): voi
       `  '${tenantName}' accepts: ${tenant.suites.join(', ')}`,
     );
   }
+}
+
+/** The non-throwing form of assertSuiteAllowed, for filtering the project list. */
+export function isSuiteAllowed(projectName: string, tenantName: string): boolean {
+  if (TENANT_AGNOSTIC.includes(projectName)) return true;
+  const tenant = TENANTS[tenantName];
+  if (!tenant) return false;
+  return tenant.suites.some(p => p === '*' || projectName.startsWith(p));
+}
+
+/**
+ * Every project named on a Playwright command line, in both forms Playwright
+ * accepts: `--project=X` and `--project X`, repeated as often as given.
+ */
+export function requestedProjects(argv: string[]): string[] {
+  const names: string[] = [];
+  for (let i = 0; i < argv.length; i++) {
+    const eq = /^--project=(.+)$/.exec(argv[i]);
+    if (eq) names.push(eq[1].trim());
+    else if (argv[i] === '--project' && argv[i + 1] && !argv[i + 1].startsWith('-')) {
+      names.push(argv[++i].trim());
+    }
+  }
+  return names;
 }
 
 function sameHost(a: string, b: string): boolean {

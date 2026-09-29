@@ -11,6 +11,15 @@ import {
 } from '../../../../test-data/notifications/billing-events.templates';
 import type { NotificationContext } from '../../../../test-data/notifications/types';
 import { blockedIf } from '../../../../helpers/blocked.helper';
+import { EmailHelper } from '../../../../helpers/email.helper';
+
+/**
+ * Domains whose contacts may receive mail from this run's billing cohort, beyond
+ * the monitored mailbox. EMPTY by default so the cohort guard fails closed; same
+ * opt-in as ts-02.
+ */
+const ALLOWED_RECIPIENT_DOMAINS = (process.env.JEPYP230_ALLOWED_RECIPIENT_DOMAINS ?? '')
+  .split(',').map((d) => d.trim()).filter(Boolean);
 
 /**
  * TS-05 — JEPYP-230 cases 3.7 / 3.8 / 3.9: the tier boundaries of the
@@ -239,6 +248,10 @@ test.describe('TS-05 — threshold email tier boundaries', () => {
 
     const needed = scenarios.length * ACCOUNTS_PER_SCENARIO;
 
+    // The monitored mailbox. Throws when unset — the recipient filters used to
+    // take process.env.NOTIFY_EMAIL_TO raw, and unset meant "no filter at all".
+    const monitored = EmailHelper.recipient();
+
     // ── date resolution ──────────────────────────────────────────────────────
     // Resolved at run time unless pinned. A hardcoded default cannot survive:
     // every billing run advances the accounts it touches to the next cycle and
@@ -266,7 +279,7 @@ test.describe('TS-05 — threshold email tier boundaries', () => {
           fromDate,
           minAccounts: needed,
           paymentMethod: 'CHECK',
-          contactEmail: process.env.NOTIFY_EMAIL_TO,
+          contactEmail: monitored,
         })) {
           if (!seen.has(c.date)) { seen.add(c.date); candidates.push(c); }
         }
@@ -277,9 +290,23 @@ test.describe('TS-05 — threshold email tier boundaries', () => {
         (candidates.map((c) => `${c.date}(${c.eligibleCount})`).join(', ') || '(none)'),
       );
       for (const c of candidates) {
-        const capable = await notifyDb.findThresholdCapableAccounts(c.date, needed);
-        if (capable.length >= needed) { SCHEDULE_DATE = c.date; break; }
-        console.log(`[TS-05] ${c.date} skipped — ${capable.length}/${needed} capable accounts`);
+        const capable = await notifyDb.findThresholdCapableAccounts(c.date, needed, monitored);
+        if (capable.length < needed) {
+          console.log(`[TS-05] ${c.date} skipped — ${capable.length}/${needed} capable accounts`);
+          continue;
+        }
+        // The schedule bills and notifies EVERY account due on the date, so a
+        // date whose cohort includes a real address is not usable either.
+        const foreign = await notifyDb.findForeignRecipientsForDate(c.date, monitored, ALLOWED_RECIPIENT_DOMAINS);
+        if (foreign.length) {
+          console.log(
+            `[TS-05] ${c.date} skipped — cohort would mail ` +
+            `${new Set(foreign.map((f) => f.accountId)).size} account(s) outside the monitored mailbox`,
+          );
+          continue;
+        }
+        SCHEDULE_DATE = c.date;
+        break;
       }
       // Test data, not the product. No free job slot or no account carrying a
       // valuethreshold means the tier emails were never given a chance to fire,
@@ -292,9 +319,26 @@ test.describe('TS-05 — threshold email tier boundaries', () => {
         `no date has both a free job_schedule slot and ${needed} threshold-capable ` +
         `account(s); checked ${candidates.length} candidate date(s). Capable means the ` +
         `credit profile carries a valuethreshold. Assign profiles to more test ` +
-        `accounts, lower JEPYP230_TIER_ACCOUNTS, or pin a date with JEPYP230_TIER_DATE.`,
+        `accounts, lower JEPYP230_TIER_ACCOUNTS, or pin a date with JEPYP230_TIER_DATE. ` +
+        `Dates whose billing cohort mails outside the monitored mailbox are skipped too ` +
+        `(opt a team/test domain in with JEPYP230_ALLOWED_RECIPIENT_DOMAINS).`,
       )) return;
     }
+
+    // ── Cohort recipient guard — also covers a pinned JEPYP230_TIER_DATE ──────
+    // BILL_CHECK bills and notifies every account due on the date, not only the
+    // ones staged here. Refuse before the clock moves or anything is staged.
+    const foreignOnDate = await notifyDb.findForeignRecipientsForDate(
+      SCHEDULE_DATE, monitored, ALLOWED_RECIPIENT_DOMAINS,
+    );
+    if (blockedIf(
+      foreignOnDate.length > 0,
+      `a schedule on ${SCHEDULE_DATE} would bill and notify ` +
+      `${new Set(foreignOnDate.map((f) => f.accountId)).size} account(s) whose contact is not the ` +
+      `monitored mailbox: ${foreignOnDate.slice(0, 10).map((f) => `${f.accountId}(@${f.email.split('@')[1]})`).join(' ')}` +
+      `${foreignOnDate.length > 10 ? ' …' : ''}. Pick another date, fix the contacts, or opt a ` +
+      `team/test domain in with JEPYP230_ALLOWED_RECIPIENT_DOMAINS.`,
+    )) return;
 
     const w = windowsFor(SCHEDULE_DATE);
     console.log(`[TS-05] schedule ${SCHEDULE_DATE}, cases ${scenarios.map((s) => s.id).join(' ')}`);
@@ -336,7 +380,7 @@ test.describe('TS-05 — threshold email tier boundaries', () => {
     // The (n) beside each account is its prior-fire count, kept as context only —
     // it does NOT gate selection. Seeing capable accounts with (0) warn correctly
     // is the evidence that retired the previously-firing theory.
-    const pool = await notifyDb.findThresholdCapableAccounts(SCHEDULE_DATE, needed + 6);
+    const pool = await notifyDb.findThresholdCapableAccounts(SCHEDULE_DATE, needed + 6, monitored);
     console.log(
       `[TS-05] threshold-capable pool on ${SCHEDULE_DATE} (${pool.length}): ` +
       pool.map((p) => `${p.accountId}(${p.fires})`).join(' '),

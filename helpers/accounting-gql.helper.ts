@@ -226,8 +226,13 @@ export class AccountingGqlHelper {
    * POST, retrying TRANSPORT failures only — the endpoint drops sockets under a
    * burst of reads. A GraphQL `errors` payload is a real answer and is thrown
    * straight away; retrying a bad query would only hide it.
+   *
+   * MUTATIONS get ONE attempt whatever `attempts` says. A socket dropped after
+   * the server acted still looks like a transport failure here, and retrying
+   * `ebsExtract` / `resendEbsExtract` would post to JASEC's live ledger again.
    */
   private async post(query: string, auth = true, attempts = 3): Promise<any> {
+    if (/^\s*mutation\b/.test(query)) attempts = 1;
     const headers: Record<string, string> = { 'content-type': 'application/json' };
     if (auth) headers.Authorization = `Bearer ${await this.token()}`;
 

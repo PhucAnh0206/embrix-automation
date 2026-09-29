@@ -37,7 +37,7 @@ import { MdrRemoteHelper } from '../../../../helpers/mdr-remote.helper';
 import { PrepaidSeedHelper } from '../../../../helpers/prepaid-seed.helper';
 import { OrderOutcomeHelper } from '../../../../helpers/order-outcome.helper';
 import { TestLogger } from '../../../../helpers/test-logger';
-import { uniqueRunSuffix } from '../../../../fixtures/create-prepaid-account.helper';
+import { uniqueRunSuffix, assertQaMeter } from '../../../../fixtures/create-prepaid-account.helper';
 import { blockedIf } from '../../../../helpers/blocked.helper';
 
 const RUN_ENABLED = String(process.env.JASEC_USAGE_RUN ?? '').trim().toLowerCase() === 'true';
@@ -200,7 +200,7 @@ test.describe('JASEC usage — credit breach, park and replay (MUTATING)', {
        * area.
        */
       const suffix = uniqueRunSuffix();
-      const meter = `002100888${suffix}`.slice(0, 17);
+      const meter = assertQaMeter(`M-QAUSG-${suffix}`);
       const { accountId, orderId } = await seed.seed({
         meter,
         customerId: `E2EBREACH-${suffix}`,
@@ -446,6 +446,29 @@ test.describe('JASEC usage — credit breach, park and replay (MUTATING)', {
 
     try {
       /**
+       * THIS CASE ONLY HOLDS WHILE provisioningEnabled IS OFF.
+       *
+       * With it off, a breach suspends for BILLING only and the subscription reads
+       * SUSPENDED straight away — which is what the steps below assert. With it ON
+       * (jasec-dev since 2026-09-28) the breach raises a SUSPEND order, dispatches
+       * accion D to the AMI, and the subscription only moves once a provisioning
+       * CALLBACK arrives; for our made-up meter the AMI refuses, so it never would.
+       * That path — breach, dispatch, callback, top-up, RESUME — is covered by
+       * provisioning/auto-suspend-resume.spec.ts (@auto-journey), which BLOCKs in
+       * the opposite case. Checked BEFORE anything is seeded, so a blocked run
+       * leaves nothing behind.
+       */
+      const provFlag = await db.query<{ value: string }>(
+        `SELECT value FROM core_config.ccp_properties WHERE property = 'provisioningEnabled'`,
+      );
+      blockedIf(
+        provFlag[0]?.value === 'true',
+        `provisioningEnabled is 'true' on this tenant: a breach now suspends through a ` +
+        `provisioning order and a callback, not immediately, so this billing-only case ` +
+        `does not apply. Run provisioning/auto-suspend-resume.spec.ts @auto-journey instead.`,
+      );
+
+      /**
        * Read the profiles and their windows from config rather than naming one.
        * If the team ever adds, renames or re-windows a profile, this follows it
        * instead of going quietly BLOCKED. `credit_profile_limit_actions.id` IS
@@ -536,7 +559,7 @@ test.describe('JASEC usage — credit breach, park and replay (MUTATING)', {
 
       const seed = new PrepaidSeedHelper(logger);
       const suffix = uniqueRunSuffix();
-      const meter = `002100888${suffix}`.slice(0, 17);
+      const meter = assertQaMeter(`M-QAUSG-${suffix}`);
 
       // ── step 1: a contract on the no-window profile ─────────────────
       const { accountId, orderId } = await seed.seed({
@@ -666,29 +689,6 @@ test.describe('JASEC usage — credit breach, park and replay (MUTATING)', {
         return rows.length ? rows : null;
       }, 120_000);
       expect(resumeNotes, 'no RESUME_SUBSCRIPTION row for the reconnection').not.toBeNull();
-
-      /**
-       * REPORTED, NEVER FAILED — Huy's point-7 finding, kept visible on every run.
-       *
-       * A breach suspends the subscription for BILLING only. It raises no
-       * provisioning order, so the meter itself is never cut: `isOrderProvisionable`
-       * is gated on the ccp property `provisioningEnabled`, which is not set on
-       * jasec-dev at all (verified 2026-09-15 — only `partialProvisioningEnabled`
-       * exists). This is a config decision for the team, not a test failure, so it
-       * prints rather than asserts.
-       */
-      const breachOrders = await db.query<any>(
-        `SELECT count(*)::int AS n FROM core_oms."order" WHERE userid ILIKE '%reditLimit%'`,
-      );
-      const provFlag = await db.query<any>(
-        `SELECT value FROM core_config.ccp_properties WHERE property = 'provisioningEnabled'`,
-      );
-      console.log(
-        `\n  provisioningEnabled = ${provFlag.length ? provFlag[0].value : 'NOT SET'} — ` +
-        `orders ever raised by the breach path: ${breachOrders[0]?.n ?? 0}.\n` +
-        `  While it is unset the breach suspends for BILLING only and the meter is\n` +
-        `  never physically cut. Reported, not failed: it is a team config decision.`,
-      );
 
       console.log(`\n  PASS — ${accountId}: breach suspended the service, top-up resumed it\n`);
     } finally {

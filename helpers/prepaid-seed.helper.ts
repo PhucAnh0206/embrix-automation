@@ -79,6 +79,13 @@ export interface SeededPrepaidAccount {
   effectiveDate: string;
 }
 
+/**
+ * The server ANSWERED and said no - a GraphQL `errors` array on an HTTP 2xx.
+ * Kept distinct from transport, HTTP and parse failures so a caller can treat a
+ * refusal as a result without also swallowing "the VPN dropped".
+ */
+export class GraphQlBusinessError extends Error {}
+
 export class PrepaidSeedHelper {
   private static cachedToken: string | null = null;
   private readonly url: string;
@@ -112,7 +119,13 @@ export class PrepaidSeedHelper {
     } catch {
       throw new Error(`Non-JSON from ${this.url}: ${text.slice(0, 300)}`);
     }
-    if (body.errors?.length) throw new Error(`GraphQL error: ${JSON.stringify(body.errors).slice(0, 600)}`);
+    if (body.errors?.length) {
+      const detail = JSON.stringify(body.errors).slice(0, 600);
+      // A non-2xx carrying `errors` is auth or infrastructure (401, 5xx), not a refusal.
+      if (!res.ok) throw new Error(`HTTP ${res.status} from ${this.url}, GraphQL error: ${detail}`);
+      throw new GraphQlBusinessError(`GraphQL error: ${detail}`);
+    }
+    if (!res.ok) throw new Error(`HTTP ${res.status} from ${this.url}: ${text.slice(0, 300)}`);
     return body.data;
   }
 
@@ -272,7 +285,12 @@ export class PrepaidSeedHelper {
        * A refusal is a RESULT here, not a crash. The 0-30 kWh true-up bill units
        * are exactly the ones INVOICE_CHECK has been observed to reject, so the
        * caller needs to see "refused, and here is why" rather than an exception.
+       *
+       * Only a refusal. A VPN drop, a 401 or a 5xx used to land here too and be
+       * reported as INVOICE_CHECK rejecting the bill - an infrastructure failure
+       * dressed up as a product finding. Those are rethrown.
        */
+      if (!(err instanceof GraphQlBusinessError)) throw err;
       this.logger?.log(`invoiceAccount(${billUnitId}) REFUSED: ${(err as Error).message.slice(0, 300)}`);
       return null;
     }

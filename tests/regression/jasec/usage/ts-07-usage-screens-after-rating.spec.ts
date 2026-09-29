@@ -50,7 +50,7 @@ import { MdrRemoteHelper } from '../../../../helpers/mdr-remote.helper';
 import { PrepaidSeedHelper } from '../../../../helpers/prepaid-seed.helper';
 import { OrderOutcomeHelper } from '../../../../helpers/order-outcome.helper';
 import { TestLogger } from '../../../../helpers/test-logger';
-import { uniqueRunSuffix } from '../../../../fixtures/create-prepaid-account.helper';
+import { uniqueRunSuffix, assertQaMeter } from '../../../../fixtures/create-prepaid-account.helper';
 import { blockedIf } from '../../../../helpers/blocked.helper';
 
 const RUN_ENABLED = String(process.env.JASEC_USAGE_UI_RUN ?? '').trim().toLowerCase() === 'true';
@@ -140,7 +140,7 @@ test.describe('JASEC usage — rated usage is visible on both Core UI screens (M
        * screen would no longer be predictable from this run alone.
        */
       const suffix = uniqueRunSuffix();
-      const meter = `002100777${suffix}`.slice(0, 17);
+      const meter = assertQaMeter(`M-QAUSR-${suffix}`);
       let accountId = '';
 
       await test.step('seed a prepaid contract with its own meter', async () => {

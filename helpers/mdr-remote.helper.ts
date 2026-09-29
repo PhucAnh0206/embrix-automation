@@ -1,8 +1,18 @@
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import { TestLogger } from './test-logger';
+import { TENANTS } from '../config/tenants';
 
 const exec = promisify(execFile);
+
+/**
+ * Loader tree per tenant, on the jumphost. Same mapping as `deploy.ps1` and
+ * `run-suite.ps1` in Regression testing.
+ */
+const WORK_DIRS: Record<string, string> = {
+  'jasec-dev': '/jasec-energy/data/jasec/usage/energy',
+  'jasec-preprod': '/jasec-energy/data/jasec-preprod/usage/energy',
+};
 
 /**
  * Submit a meter reading through the REAL MDR pipeline, over SSH.
@@ -28,15 +38,33 @@ const exec = promisify(execFile);
  *
  * Requires an ssh host alias (default `embrix-dev`, the same one
  * `Regression testing/deploy.ps1` uses) resolvable from ~/.ssh/config with key auth.
+ *
+ * THE TREE FOLLOWS THE TENANT. It used to default to the dev tree whatever
+ * TEST_ENV said, so a preprod run seeded preprod's database and dropped its
+ * readings into dev's loader - the reading never rated, which looks exactly like
+ * a product defect. The tree's own `properties.config` is also checked: its
+ * PG_DB_URL must name this tenant's database, or the helper reports unavailable.
  */
 export class MdrRemoteHelper {
   private readonly host: string;
   private readonly workDir: string;
+  /** Database the loader tree must write to; undefined = cannot tell, not checked. */
+  private readonly expectedDb?: string;
+  /** Set once the tree's PG_DB_URL has been read and matched. */
+  private treeVerified = false;
 
   constructor(private logger?: TestLogger, opts: { host?: string; workDir?: string } = {}) {
+    const tenant = (process.env.TEST_ENV ?? '').trim();
     this.host = opts.host ?? process.env.MDR_SSH_HOST ?? 'embrix-dev';
-    this.workDir =
-      opts.workDir ?? process.env.MDR_WORK_DIR ?? '/jasec-energy/data/jasec/usage/energy';
+    const workDir = opts.workDir ?? process.env.MDR_WORK_DIR ?? WORK_DIRS[tenant];
+    if (!workDir) {
+      throw new Error(
+        `MdrRemoteHelper: no MDR loader tree is known for TEST_ENV='${tenant}'. ` +
+        `Known: ${Object.keys(WORK_DIRS).join(', ')}. Pass workDir or set MDR_WORK_DIR.`,
+      );
+    }
+    this.workDir = workDir;
+    this.expectedDb = TENANTS[tenant]?.dbName ?? (process.env.DB_NAME || undefined);
   }
 
   /** Run a command on the jumphost. Throws with both streams on non-zero exit. */
@@ -76,20 +104,30 @@ export class MdrRemoteHelper {
    */
   async isAvailable(attempts = 3): Promise<boolean> {
     for (let attempt = 1; attempt <= attempts; attempt++) {
-      if (await this.probeOnce(attempt, attempts)) return true;
+      const result = await this.probeOnce(attempt, attempts);
+      if (result === 'ready') return true;
+      // A tree wired to another tenant's database will not fix itself on retry.
+      if (result === 'wrong-db') return false;
       if (attempt < attempts) await new Promise((r) => setTimeout(r, 5_000 * attempt));
     }
     return false;
   }
 
-  private async probeOnce(attempt: number, attempts: number): Promise<boolean> {
+  /**
+   * One probe. Also reads the database name out of the tree's PG_DB_URL - only
+   * the name, so the credentials in that URL never reach a log.
+   */
+  private async probeOnce(attempt: number, attempts: number): Promise<'ready' | 'retry' | 'wrong-db'> {
     try {
       const out = await this.ssh(
         `test -f ${this.workDir}/load_energy_usage_cdrs.sh && ` +
-        `test -f ${this.workDir}/calc/make-mdr.sh && echo READY`,
+        `test -f ${this.workDir}/calc/make-mdr.sh && echo READY && ` +
+        `printf 'DB=%s\\n' "$(grep -E '^PG_DB_URL=' ${this.workDir}/properties.config | head -1 | ` +
+        `sed -E 's#^.*/([^/?]+)(\\?.*)?$#\\1#' | tr -d "\\"'")"`,
         30_000,
       );
-      return /READY/.test(out);
+      if (!/READY/.test(out)) return 'retry';
+      return this.checkTreeDb(out) ? 'ready' : 'wrong-db';
     } catch (err: any) {
       /**
        * Never swallow this silently. A bare `return false` turns every distinct
@@ -113,8 +151,28 @@ export class MdrRemoteHelper {
         `${this.host}:${this.workDir} -> ${detail}`;
       this.logger?.log(msg);
       console.log(`  ${msg}`);
-      return false;
+      return 'retry';
     }
+  }
+
+  /** Compare the `DB=` line of a probe with this tenant's database. Logs a mismatch. */
+  private checkTreeDb(probeOutput: string): boolean {
+    const treeDb = (/^DB=(.*)$/m.exec(probeOutput)?.[1] ?? '').trim();
+    if (!this.expectedDb) {
+      this.treeVerified = true;
+      return true;
+    }
+    if (treeDb === this.expectedDb) {
+      this.treeVerified = true;
+      return true;
+    }
+    const msg =
+      `MDR loader tree ${this.host}:${this.workDir} writes to database ` +
+      `'${treeDb || '(no PG_DB_URL in properties.config)'}', but this run targets ` +
+      `'${this.expectedDb}'. A reading dropped there would never rate against this tenant.`;
+    this.logger?.log(msg);
+    console.log(`  ${msg}`);
+    return false;
   }
 
   /**
@@ -128,6 +186,13 @@ export class MdrRemoteHelper {
    * which then gets the file rejected as a future transaction.
    */
   async submitReading(meter: string, readingKwh: number | string, attempts = 3): Promise<string> {
+    // Every caller probes first; this covers one that does not.
+    if (!this.treeVerified && !(await this.isAvailable())) {
+      throw new Error(
+        `MDR: loader tree ${this.host}:${this.workDir} is unreachable or wired to another ` +
+        `tenant's database (see the log above) - not submitting a reading for ${meter}.`,
+      );
+    }
     const script = [
       `cd ${this.workDir}`,
       `DBURL=$(grep -E '^PG_DB_URL=' properties.config | cut -d '=' -f2- | tr -d '"' | tr -d "'")`,

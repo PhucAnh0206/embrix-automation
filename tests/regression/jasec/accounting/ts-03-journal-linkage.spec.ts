@@ -130,96 +130,101 @@ test.describe('JASEC accounting — journal linkage', { tag: ['@jasec', '@accoun
      *
      * `ebsExtract` is called with a journalDate and extracts the day BEFORE it
      * (when useGLCombination is true). The date actually extracted is stored as
-     * `ebs_header_extract.inputdate`, and the journals swept up are the ones
-     * whose `revenueenddate` is that date.
+     * `ebs_header_extract.inputdate`.
      *
-     * So for every batch ever produced:
+     * CORRECTED 2026-09-29. The first version asserted
      *     header.inputdate == MAX(journal.revenueenddate in that batch)
+     * which is the model disproved on 2026-09-16: an INVOICE extract selects a
+     * journal on the INVOICE DATE of its bill unit, not on its revenueenddate
+     * (`core_revenue.ebs_extract_journal_data`, baseline-3.1.8.sql; see
+     * NOT_ALREADY_EXTRACTED_SQL in accounting-db.helper.ts). The old check only
+     * held where the two dates coincided, and had to skip "stragglers-only"
+     * batches — which were never stragglers, just rows whose revenue ended
+     * before the invoice was cut.
      *
-     * Verified true on 18 of 18 batches on jasec-dev, 2026-09-15.
+     * So this now replays the function's own date predicate against EVERY
+     * journal each batch consumed:
      *
-     * MAX, not ALL. A batch also sweeps up STRAGGLERS — older journals that were
-     * never extracted, which `ebs_extract_journal_data` picks up via its
-     * `NOT EXISTS (accounting_entry ...)` clause. Batch 10018 targeted
-     * 2026-09-14 and legitimately carried USAGE rows back to 2026-07-15.
-     * Asserting that every row matches the header date would fail on correct
-     * behaviour.
+     *   activity PURCHASE/CANCEL/BILLING/MANUAL/USAGE  -> an invoice_unit of its
+     *        bill unit is dated header.inputdate
+     *     EXCEPT a top-up (transaction unit on the prepaid top-up offer) in an
+     *        ACCOUNT_RECEIVABLE extract                 -> revenueenddate = inputdate
+     *   anything else (AR daily extract)                -> revenueenddate = inputdate
+     *
+     * ALL rows, not MAX — with the right model there is no straggler exception.
+     * Measured on jasec-dev 2026-09-29: 25 batches, 0 violations.
+     *
+     * Scope vs TC-141: this checks only WHICH DATE a consumed journal was taken
+     * for. Whether it then reached POSTED — the half-extracted top-up finding —
+     * is TC-141's assertion and the batch-status test above, not this one.
      *
      * DATES ARE CAST TO TEXT IN SQL. Read as a bare `date`, node-postgres hands
      * back a JS Date rendered in the local zone, which on this machine is one day
      * early — and this assertion is entirely about a one-day offset.
      */
     const rows = await db.query<any>(
-      `SELECT h.batchid,
-              h.extractstatus,
-              min(h.inputdate)::text      AS header_inputdate,
-              max(j.revenueenddate)::text AS max_journal_end,
-              min(j.revenueenddate)::text AS min_journal_end,
-              count(j.*)::int             AS journal_rows,
-              count(*) FILTER (
-                WHERE j.revenueenddate::date = h.inputdate::date
-              )::int                      AS rows_on_target_day
-         FROM core_revenue.ebs_header_extract h
-         JOIN core_revenue.revenue_journal   j ON j.extractbatchid = h.batchid
-        GROUP BY h.batchid, h.extractstatus
-        ORDER BY h.batchid`,
+      `WITH h AS (
+         SELECT batchid,
+                min(type)                          AS type,
+                min(inputdate)::date               AS inputdate,
+                count(DISTINCT inputdate::date)::int AS n_dates
+           FROM core_revenue.ebs_header_extract
+          GROUP BY batchid
+       ), topup_tu AS (
+         SELECT DISTINCT tu.id
+           FROM core_engine.transaction_unit tu
+           JOIN core_engine.transaction_balances tb ON tb.id = tu.id
+          WHERE tb.offerid = (SELECT topupofferid FROM core_pricing.prepaid_system_offers LIMIT 1)
+       ), j AS (
+         SELECT h.batchid, h.type, h.inputdate, h.n_dates, rj.id,
+                (rj.revenueactivitytype IN ('PURCHASE','CANCEL','BILLING','MANUAL','USAGE')
+                 AND NOT (h.type = 'ACCOUNT_RECEIVABLE'
+                          AND rj.transactionunitid IN (SELECT id FROM topup_tu))) AS by_invoice,
+                rj.revenueenddate::date = h.inputdate AS end_ok,
+                EXISTS (SELECT 1 FROM core_engine.invoice_unit iu
+                         WHERE iu.billunitid = rj.billunitid
+                           AND iu.invoicedate::date = h.inputdate) AS invoice_ok
+           FROM h
+           JOIN core_revenue.revenue_journal rj ON rj.extractbatchid = h.batchid
+       )
+       SELECT batchid,
+              type,
+              inputdate::text                                  AS header_inputdate,
+              n_dates,
+              count(*)::int                                    AS journal_rows,
+              count(*) FILTER (WHERE by_invoice)::int          AS by_invoice_date,
+              count(*) FILTER (WHERE NOT by_invoice)::int      AS by_revenue_end_date,
+              count(*) FILTER (WHERE NOT CASE WHEN by_invoice THEN invoice_ok ELSE end_ok END)::int
+                                                               AS violations,
+              (array_agg(id::text ORDER BY id)
+                 FILTER (WHERE NOT CASE WHEN by_invoice THEN invoice_ok ELSE end_ok END))[1:5]
+                                                               AS sample_violations
+         FROM j
+        GROUP BY batchid, type, inputdate, n_dates
+        ORDER BY batchid`,
     );
 
     blockedIf(rows.length === 0, 'no batch on this tenant has any journal linked to it');
 
-    /**
-     * A BATCH THAT TOOK ONLY STRAGGLERS CANNOT SATISFY THIS RULE, AND THAT IS
-     * CORRECT BEHAVIOUR.
-     *
-     * The rule reads MAX(revenueenddate) == inputdate. It holds when the target
-     * day actually had journals. When the target day had NONE, the extract still
-     * runs and still sweeps up stragglers — the older unextracted rows described
-     * above — so MAX is the straggler date and the comparison fails against a
-     * product doing exactly what it should.
-     *
-     * Measured on jasec-preprod 2026-09-22: batches 10003..10011 each carried
-     * 3-7 journals, every one ending 2026-07-15, and ZERO rows on their own
-     * inputdate (2026-08-23 .. 2026-09-20). All nine were reported as failures.
-     * The 18/18 pass on jasec-dev came from dense daily journals, where every
-     * batch had rows of its own — so this assertion had a dev-shaped assumption
-     * baked into it.
-     *
-     * Batches with no row on their target day are therefore reported and skipped
-     * rather than failed. Skipping silently would hide a tenant where NO batch
-     * can be judged, so the count is printed and the case blocks if that is all
-     * there is.
-     */
-    const judgeable = rows.filter((r) => r.rows_on_target_day > 0);
-    const stragglersOnly = rows.filter((r) => r.rows_on_target_day === 0);
+    const total = rows.reduce((n, r) => n + r.journal_rows, 0);
+    console.log(`\n  ${rows.length} batch(es), ${total} consumed journal(s) judged\n`);
 
-    console.log(
-      `\n  ${rows.length} batch/status group(s): ${judgeable.length} judgeable, `
-      + `${stragglersOnly.length} carried stragglers only\n`,
-    );
-    for (const r of stragglersOnly) {
-      console.log(
-        `  [skip] batch ${r.batchid}: no journal on its own inputdate `
-        + `${r.header_inputdate}; ${r.journal_rows} straggler row(s) ending ${r.max_journal_end}`,
-      );
-    }
-
-    blockedIf(
-      judgeable.length === 0,
-      `all ${rows.length} batch(es) on this tenant consumed stragglers only, so the `
-      + 'day-before rule cannot be evidenced here. Extract a day that has journals of '
-      + 'its own and re-run.',
-    );
-
-    for (const r of judgeable) {
+    for (const r of rows) {
+      if (r.n_dates > 1) {
+        console.log(
+          `  [note] batch ${r.batchid}: its headers carry ${r.n_dates} different inputdates; `
+          + `judged against the earliest, ${r.header_inputdate}`,
+        );
+      }
       expect
         .soft(
-          r.header_inputdate,
-          `batch ${r.batchid} (${r.extractstatus}): the extract stamped inputdate ` +
-          `${r.header_inputdate} but the newest journal it consumed ends ${r.max_journal_end} ` +
-          `(${r.journal_rows} rows, ${r.rows_on_target_day} on the target day, ` +
-          `oldest ${r.min_journal_end})`,
+          r.violations,
+          `batch ${r.batchid} (${r.type}, inputdate ${r.header_inputdate}): ${r.violations} of ` +
+          `${r.journal_rows} consumed journal(s) do not satisfy the extract's own date rule ` +
+          `(${r.by_invoice_date} judged by invoice date, ${r.by_revenue_end_date} by revenueenddate). ` +
+          `First offenders: ${(r.sample_violations ?? []).join(', ')}`,
         )
-        .toBe(r.max_journal_end);
+        .toBe(0);
     }
   });
 

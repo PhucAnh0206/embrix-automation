@@ -1,5 +1,6 @@
 import { Pool, PoolClient } from 'pg';
 import { TestLogger } from './test-logger';
+import { assertDbMatchesTenant } from '../config/tenants';
 
 /**
  * DbHelper — direct Postgres client for the JASEC core database.
@@ -37,6 +38,9 @@ export class DbHelper {
         'Copy .env.example additions into .env and fill in the credentials.',
       );
     }
+    // playwright.config already checked this; repeated here for any caller
+    // that builds a DbHelper outside the runner.
+    assertDbMatchesTenant(process.env.TEST_ENV ?? '', database);
 
     return {
       host,

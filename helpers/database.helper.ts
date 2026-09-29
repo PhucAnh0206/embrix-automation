@@ -1,6 +1,7 @@
 // helpers/db.helper.ts
 import { Pool } from 'pg';
 import { EXTRA_LONG_WAIT } from './timeouts.helper';
+import { assertDbMatchesTenant } from '../config/tenants';
 
 
 export class DatabaseHelper {
@@ -8,6 +9,7 @@ export class DatabaseHelper {
 
     /** Constructor */
     constructor() {
+        assertDbMatchesTenant(process.env.TEST_ENV ?? '', process.env.DB_NAME);
         this.pool = new Pool({
             host: process.env.DB_HOST,
             port: Number(process.env.DB_PORT),

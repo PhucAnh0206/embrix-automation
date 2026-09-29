@@ -526,6 +526,23 @@ test.describe('JASEC accounting — extract run (MUTATING)', { tag: ['@jasec', '
     ).toBeTruthy();
     console.log(`  header ${headerId}: ${sentHeader.extractStatus}, externalRefId ${sentHeader.externalRefId}`);
 
+    /**
+     * Stop BEFORE the resend when the first posting already shows the fix is
+     * not deployed. Pre-fix, idOperacion is the extract HEADER id; post-fix it
+     * comes from the batch. Resending pre-fix posts the same revenue to JASEC a
+     * second time as an unrelated operation — the "TWO to disregard" outcome
+     * above — and proves nothing assertion 1 could not already tell us here.
+     * When the header id happens to equal the batch id the two cannot be told
+     * apart, so that case goes ahead.
+     */
+    blockedIf(
+      String(first.idoperacion) === String(headerId) && String(headerId) !== String(batchId),
+      `the first posting sent idOperacion ${first.idoperacion} = its own header id, not ` +
+      `batch ${batchId}, so the idOperacion engine change is NOT DEPLOYED. Not resending: ` +
+      `that would post batch ${batchId} to JASEC a second time. ONE record (header ` +
+      `${headerId}) for JASEC to disregard from this run.`,
+    );
+
     // ── step 4: RESEND the same batch — the deduplication proof ───────────
     /**
      * `resendEbsExtract` flips the original header to RESENT and writes a NEW

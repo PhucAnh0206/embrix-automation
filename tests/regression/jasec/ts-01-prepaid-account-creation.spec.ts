@@ -21,7 +21,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { test, expect } from '../../../fixtures/jasec-fixtures';
 import type { PrepaidAccountPayload } from '../../../pages/customer-hub/customer-management/create-account.page';
-import { uniqueRunSuffix, type PrepaidAccountWithOrderRow } from '../../../fixtures/create-prepaid-account.helper';
+import { uniqueRunSuffix, assertQaMeter, type PrepaidAccountWithOrderRow } from '../../../fixtures/create-prepaid-account.helper';
 import { OrderOutcomeHelper } from '../../../helpers/order-outcome.helper';
 import { DbHelper } from '../../../helpers/db.helper';
 
@@ -56,7 +56,7 @@ test.describe('TS-01 — Prepaid Account Creation (Energia Prepago)', {
     // Luis, 2026-09-21. Suffixed for the same reason customerId is: reruns must
     // not collide on it.
     const clientId = `${row.accountInfo.clientId ?? 'NISE'}-${suffix}`;
-    const provisioningId = `${row.meter.provisioningId}${suffix}`;
+    const provisioningId = assertQaMeter(`${row.meter.provisioningId}${suffix}`);
 
     testLogger.log(`▶ Running TS-01 — ${customerId} / meter ${provisioningId}`);
 

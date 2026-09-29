@@ -89,11 +89,11 @@ const FREQUENCY = (process.env.JEPYP230_FREQUENCY as 'DAILY' | 'SCHEDULED') ?? '
  * Floor for `batchSizeBilling` during a run — NOT a target.
  *
  * At the default of 5, Office365 refuses the parallel SMTP connections and the
- * notifications land as FAILED (rendered fine, never delivered), so the run has to
- * raise it. But it must NOT overwrite a value someone set deliberately: an earlier
- * version of this file hard-set 60, which silently overwrote a dev-configured 100
- * on every run and invalidated a batch-size comparison we had reported. Only raise
- * when the configured value is BELOW the floor, and say so when it happens.
+ * notifications land as FAILED (rendered fine, never delivered). The value is
+ * tenant-wide config, so the run no longer raises it: below the floor step 1
+ * reports BLOCKED and the team sets it. (An earlier version hard-set 60, which
+ * silently overwrote a dev-configured 100 and invalidated a batch-size
+ * comparison; the one after that raised-and-restored, still a shared-config flip.)
  */
 const BATCH_SIZE_FLOOR = 60;
 
@@ -127,6 +127,8 @@ interface StagedAccount {
   originalKwhRows: number;
   /** Contact email before plus-addressing, for restore. Null = left untouched. */
   originalContactEmail?: string | null;
+  /** Which contact was plus-addressed — the restore writes that one only. */
+  originalContactId?: string | null;
 }
 
 interface RunPlan {
@@ -136,6 +138,33 @@ interface RunPlan {
   originalBatchSize: string;
   /** Max email_notification id BEFORE the run — scopes every later assertion. */
   notificationWatermark: string;
+  /**
+   * Which `npx playwright test` invocation wrote this plan: the RUNNER's pid,
+   * which is every worker's `process.ppid` and survives a worker restart. A plan
+   * from any other invocation is not reloaded (see requirePlan).
+   */
+  runnerPid?: number;
+  createdAt?: string;
+}
+
+/**
+ * Deliberate replay of steps 4/4b/4c/5 against a plan written by an EARLIER
+ * invocation. Off by default; a replayed plan is asserted against but never
+ * restored — restoring is the job of the run that staged it.
+ */
+const REPLAY_PLAN = process.env.JEPYP230_REPLAY_PLAN === 'true';
+
+/**
+ * Domains whose contacts may receive mail from this run's billing cohort, beyond
+ * the monitored mailbox. EMPTY by default, so the cohort guard fails closed. An
+ * explicit opt-in for team/test domains, e.g. `congerotechnology.com`.
+ */
+const ALLOWED_RECIPIENT_DOMAINS = (process.env.JEPYP230_ALLOWED_RECIPIENT_DOMAINS ?? '')
+  .split(',').map((d) => d.trim()).filter(Boolean);
+
+/** True when this invocation wrote the plan (not a previous run's leftover). */
+function ownsPlan(p: RunPlan | null | undefined): boolean {
+  return !!p && p.runnerPid === process.ppid;
 }
 
 let api: APIRequestContext;
@@ -155,14 +184,36 @@ let scheduleId = '';
  * does not survive that — so a failure in an early assertion made every later test
  * fail instantly with "no run plan" rather than running. The plan is already
  * written to disk before staging, so reload it rather than losing the run.
+ *
+ * ONLY THIS INVOCATION'S PLAN. The file is never deleted, so when step 1 of a
+ * new run failed before writing, the old code reloaded the PREVIOUS run's plan:
+ * step 2 staged its accounts, steps 4-5 asserted against its old watermark (and
+ * could pass on another run's rows), and afterAll wrote its stale balances back
+ * over the current ones. A plan is reloaded only when its runnerPid matches, or
+ * when JEPYP230_REPLAY_PLAN=true asks for a deliberate replay.
  */
 function requirePlan(): RunPlan | null {
   if (plan) return plan;
   try {
     if (fs.existsSync(restoreFile)) {
-      plan = JSON.parse(fs.readFileSync(restoreFile, 'utf-8')) as RunPlan;
-      console.log(`[TS-02] reloaded run plan from ${restoreFile} after a worker restart`);
-      return plan;
+      const onDisk = JSON.parse(fs.readFileSync(restoreFile, 'utf-8')) as RunPlan;
+      if (ownsPlan(onDisk)) {
+        plan = onDisk;
+        console.log(`[TS-02] reloaded run plan from ${restoreFile} after a worker restart`);
+        return plan;
+      }
+      if (REPLAY_PLAN) {
+        plan = onDisk;
+        console.log(
+          `[TS-02] JEPYP230_REPLAY_PLAN: replaying the plan written ${onDisk.createdAt ?? '(undated)'} ` +
+          `by another run — it will be asserted against, NOT restored`,
+        );
+        return plan;
+      }
+      console.log(
+        `[TS-02] ignoring ${restoreFile}: written ${onDisk.createdAt ?? '(undated)'} by a ` +
+        `different run. Set JEPYP230_REPLAY_PLAN=true to replay it deliberately.`,
+      );
     }
   } catch (err) {
     console.error(`[TS-02] could not reload the run plan: ${String(err)}`);
@@ -197,7 +248,11 @@ test.beforeAll(async () => {
  */
 test.afterAll(async () => {
   try {
-    if (plan && db) {
+    if (plan && db && !ownsPlan(plan)) {
+      // A replayed plan belongs to the run that staged it. Writing its pre-run
+      // balances now would erase everything that happened to those accounts since.
+      console.log(`\n[TS-02] replayed plan — not restoring anything (that was the staging run's job)\n`);
+    } else if (plan && db) {
       for (const a of plan.accounts) {
         await notifyDb.setCrcBalance(a.accountId, a.originalBalance);
         // Only clear KWH rows this run created; leave pre-existing ones alone.
@@ -207,14 +262,17 @@ test.afterAll(async () => {
         // Put the recipient back — a plus-address left behind would keep that
         // account's real notifications flowing to a tagged inbox.
         if (a.originalContactEmail) {
-          await notifyDb.restoreContactEmail(a.accountId, a.originalContactEmail);
+          await notifyDb.restoreContactEmail(
+            a.accountId, a.originalContactEmail, a.originalContactId ?? undefined,
+          );
         }
       }
-      await notifyDb.setBatchSizeBilling(Number(plan.originalBatchSize) || 5);
+      // batchSizeBilling is no longer touched by this spec (step 1 BLOCKS below the
+      // floor instead), so there is nothing to put back.
       console.log(
         `
-[TS-02] restored ${plan.accounts.length} balances and ` +
-        `batchSizeBilling=${plan.originalBatchSize}.
+[TS-02] restored ${plan.accounts.length} balances ` +
+        `(batchSizeBilling untouched at ${plan.originalBatchSize}).
 ` +
         `        NOT reversible: the spent ${FREQUENCY} slot on ${plan.scheduleDate}, ` +
         `the billed accounts' advanced cycle, and the CCP clock.
@@ -255,6 +313,24 @@ test.describe('TS-02 — staged billing run', () => {
       expect(subject, `no ACTIVE PREPAID correspondence_template_list row for ${type}`).toBeTruthy();
     }
 
+    // batchSizeBilling is TENANT-WIDE config. This spec used to raise it for the
+    // run and put it back afterwards — shared config we must not flip, and the
+    // restore wrote 5 whenever the original was unset. Checked here, before a plan
+    // exists, so every later step inherits BLOCKED instead of billing a run the
+    // mail server will half-reject.
+    if (blockedIf(
+      !((Number(originalBatchSize) || 0) >= BATCH_SIZE_FLOOR),
+      `ccp_properties.batchSizeBilling is ${originalBatchSize}, below the ${BATCH_SIZE_FLOOR} ` +
+      `this run needs — at 5 Office365 rejects the parallel SMTP connections and the ` +
+      `notifications land FAILED. It is tenant-wide config: ask the team to set it, ` +
+      `this spec no longer changes it.`,
+    )) return;
+
+    // Fails closed: throws when neither NOTIFY_EMAIL_TO nor NOTIFY_IMAP_USER is
+    // set. `process.env.NOTIFY_EMAIL_TO` used to be passed straight through, and
+    // when unset the SQL `$3 IS NULL` branch switched the recipient filter OFF.
+    const monitored = EmailHelper.recipient();
+
     // ── Pick the date ourselves ──────────────────────────────────────────
     // The schedule date is NOT a parameter a human looks up: a run is only
     // possible on a date where enough accounts resolve their own
@@ -288,7 +364,7 @@ test.describe('TS-02 — staged billing run', () => {
         frequency: FREQUENCY,
         minAccounts: 7,
         paymentMethod: 'CHECK',
-        contactEmail: process.env.NOTIFY_EMAIL_TO,
+        contactEmail: monitored,
         reclaim: reclaimSlots,
       });
       console.log(
@@ -301,8 +377,46 @@ test.describe('TS-02 — staged billing run', () => {
         `${FREQUENCY} slot. Either advance the accounts' cycle or free a slot ` +
         `(delete a spent schedule, children first).`,
       ).toBeGreaterThan(0);
-      scheduleDate = usable[0].date;
+
+      // Best date whose WHOLE billing cohort mails only the monitored mailbox —
+      // see the cohort guard below. Skipping here, rather than blocking on the
+      // first date, keeps the run possible when a cleaner date exists.
+      const rejected: string[] = [];
+      for (const u of usable) {
+        const foreign = await notifyDb.findForeignRecipientsForDate(u.date, monitored, ALLOWED_RECIPIENT_DOMAINS);
+        if (!foreign.length) { scheduleDate = u.date; break; }
+        rejected.push(`${u.date}(${new Set(foreign.map((f) => f.accountId)).size} foreign)`);
+      }
+      if (rejected.length) {
+        console.log(`[TS-02] dates skipped — cohort would mail outside the monitored mailbox: ${rejected.join(', ')}`);
+      }
+      if (blockedIf(
+        !scheduleDate,
+        `every usable date bills at least one account whose contact is NOT the monitored ` +
+        `mailbox, so running would email people this spec does not own: ${rejected.join(', ')}. ` +
+        `BILL_CHECK bills and notifies EVERY account due on the date, not only the staged ones. ` +
+        `Fix the contacts, or opt a team/test domain in with ` +
+        `JEPYP230_ALLOWED_RECIPIENT_DOMAINS=<domain,...>.`,
+      )) return;
     }
+
+    // ── Cohort recipient guard ───────────────────────────────────────────
+    // The recipient filter above only chooses which accounts WE stage. The
+    // schedule bills every account due on the date, and each of them is
+    // notified. So refuse a date where any of them would mail a real address —
+    // this also covers a pinned JEPYP230_SCHEDULE_DATE. Checked before the clock
+    // moves or anything is staged.
+    const foreignOnDate = await notifyDb.findForeignRecipientsForDate(
+      scheduleDate, monitored, ALLOWED_RECIPIENT_DOMAINS,
+    );
+    if (blockedIf(
+      foreignOnDate.length > 0,
+      `a schedule on ${scheduleDate} would bill and notify ` +
+      `${new Set(foreignOnDate.map((f) => f.accountId)).size} account(s) whose contact is not the ` +
+      `monitored mailbox: ${foreignOnDate.slice(0, 10).map((f) => `${f.accountId}(@${f.email.split('@')[1]})`).join(' ')}` +
+      `${foreignOnDate.length > 10 ? ' …' : ''}. Pick another date, fix the contacts, or opt a ` +
+      `team/test domain in with JEPYP230_ALLOWED_RECIPIENT_DOMAINS.`,
+    )) return;
 
     // ── Align the clock ourselves ────────────────────────────────────────
     // Either direction is allowed on dev/preprod. Asserted rather than assumed
@@ -321,7 +435,7 @@ test.describe('TS-02 — staged billing run', () => {
     const candidates = await notifyDb.findEligibleAccounts({
       scheduleDate,
       paymentMethod: 'CHECK',
-      contactEmail: process.env.NOTIFY_EMAIL_TO,
+      contactEmail: monitored,
       limit: 60,
     });
 
@@ -686,7 +800,11 @@ test.describe('TS-02 — staged billing run', () => {
     const notificationWatermark = await notifyDb.getMaxNotificationId();
     console.log(`[TS-02] notification watermark: ${notificationWatermark}`);
 
-    plan = { ccpDate, scheduleDate, accounts, originalBatchSize, notificationWatermark };
+    plan = {
+      ccpDate, scheduleDate, accounts, originalBatchSize, notificationWatermark,
+      runnerPid: process.ppid,
+      createdAt: new Date().toISOString(),
+    };
 
     // Written BEFORE staging so a crash still leaves a reversible record.
     fs.mkdirSync(path.dirname(restoreFile), { recursive: true });
@@ -709,17 +827,8 @@ test.describe('TS-02 — staged billing run', () => {
     // from disk instead of reporting a staged run as missing.
     if (blockedIf(!requirePlan(), 'step 1 staged no billing run, so there is nothing to stage')) return;
 
-    // Respect a higher configured value; only lift it off the floor if needed.
-    const configuredBatch = Number(await notifyDb.getBatchSizeBilling()) || 0;
-    if (configuredBatch < BATCH_SIZE_FLOOR) {
-      await notifyDb.setBatchSizeBilling(BATCH_SIZE_FLOOR);
-      console.log(
-        `[TS-02] batchSizeBilling ${configuredBatch} is below the floor — raised to ` +
-        `${BATCH_SIZE_FLOOR} for this run`,
-      );
-    } else {
-      console.log(`[TS-02] batchSizeBilling left at its configured ${configuredBatch}`);
-    }
+    // batchSizeBilling is checked in step 1 and never written: it is tenant-wide.
+    console.log(`[TS-02] batchSizeBilling left at its configured ${await notifyDb.getBatchSizeBilling()}`);
 
     for (const a of plan.accounts) {
       if (a.noKwh) {
@@ -751,9 +860,10 @@ test.describe('TS-02 — staged billing run', () => {
       // Declines unless the contact is already the monitored mailbox, so a real
       // customer address is never rewritten.
       const plus = await notifyDb.setContactEmailToPlusAddress(
-        a.accountId, process.env.NOTIFY_EMAIL_TO ?? '',
+        a.accountId, EmailHelper.recipient(),
       );
       a.originalContactEmail = plus ? plus.original : null;
+      a.originalContactId = plus ? plus.contactId : null;
       if (plus) console.log(`[TS-02] ${a.accountId} recipient -> ${plus.applied}`);
     }
 

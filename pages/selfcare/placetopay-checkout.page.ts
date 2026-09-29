@@ -21,9 +21,12 @@ export const PLACETOPAY_TEST_DATA = {
   },
   expiryMonthYear: '02/29',
   cvv: '123',
-  name: 'Anh',
-  surname: 'Tran',
-  cedulaIdentidad: '502210225',
+  // Synthetic holder. Must never be a real person: this file is published.
+  // Same shape as the value it replaced (9 digits, non-zero first digit), so
+  // PlaceToPay's document-number check sees nothing new.
+  name: 'Prueba',
+  surname: 'Automatizada',
+  cedulaIdentidad: '100000001',
   phoneNumber: '88888888',
   documentType: 'CI',
   paymentEmail: 'test@gmail.com',

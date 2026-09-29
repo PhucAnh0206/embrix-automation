@@ -3,7 +3,7 @@ import * as dotenv from 'dotenv';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as Timeouts from './helpers/timeouts.helper';
-import { resolveTenant, assertSuiteAllowed } from './config/tenants';
+import { resolveTenant, assertSuiteAllowed, isSuiteAllowed, requestedProjects } from './config/tenants';
 
 dotenv.config();
 
@@ -40,9 +40,10 @@ if (TENANT.selfcareUrl) process.env.SELFCARE_BASE_URL = TENANT.selfcareUrl;
 if (TENANT.crmGatewayUrl) process.env.CRM_GATEWAY_URL = TENANT.crmGatewayUrl;
 
 // Refuse a suite that does not belong to this tenant, before a browser opens.
-for (const arg of process.argv) {
-  const m = /^--project=(.+)$/.exec(arg);
-  if (m) assertSuiteAllowed(m[1].trim(), TENANT_NAME);
+// Both `--project=X` and `--project X` are read - the space form used to slip
+// past this check entirely.
+for (const project of requestedProjects(process.argv)) {
+  assertSuiteAllowed(project, TENANT_NAME);
 }
 
 // Workers re-evaluate this file, so print once from the runner only.
@@ -150,6 +151,10 @@ export default defineConfig({
     },
   },
 
+  // A run with no --project (`npm test`, `--ui`, a bare spec path) used to get
+  // EVERY project, so the JASEC suites ran against CoopeG and vice versa. Such
+  // runs are legitimate, so they are not refused; the projects that do not
+  // belong to this tenant are simply not offered.
   projects: [
     // ── Auth Setup: Login once, save storageState ──────────────────────
     {
@@ -501,5 +506,5 @@ export default defineConfig({
         storageState: 'playwright/.auth/user.json',
       },
     },
-  ],
+  ].filter(p => isSuiteAllowed(p.name ?? '', TENANT_NAME)),
 });

@@ -79,7 +79,7 @@ const report = new NotificationReportHelper();
  * Contact email captured before plus-addressing, so teardown can put it back
  * even if the test fails partway.
  */
-let contactRestore: { accountId: string; original: string } | null = null;
+let contactRestore: { accountId: string; original: string; contactId: string } | null = null;
 
 test.beforeAll(async () => {
   db = new DbHelper();
@@ -92,7 +92,9 @@ test.afterAll(async () => {
   // that account's real notifications flowing to a tagged inbox.
   try {
     if (contactRestore && notifyDb) {
-      await notifyDb.restoreContactEmail(contactRestore.accountId, contactRestore.original);
+      await notifyDb.restoreContactEmail(
+        contactRestore.accountId, contactRestore.original, contactRestore.contactId,
+      );
       console.log(`[TS-04] restored contact email for ${contactRestore.accountId}`);
     }
   } catch (err) {
@@ -368,7 +370,7 @@ test.describe('TS-04 — reconnection after top-up', () => {
     const monitored = process.env.NOTIFY_EMAIL_TO ?? '';
     const plus = await notifyDb.setContactEmailToPlusAddress(accountId, monitored);
     if (plus) {
-      contactRestore = { accountId, original: plus.original };
+      contactRestore = { accountId, original: plus.original, contactId: plus.contactId };
       console.log(`[TS-04] contact email ${plus.original} -> ${plus.applied}`);
     } else {
       test.info().annotations.push({

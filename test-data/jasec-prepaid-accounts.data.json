@@ -32,7 +32,7 @@
       "billingDom": 1
     },
     "meter": {
-      "provisioningId": "002100",
+      "provisioningId": "M-QAPRE-",
       "lecturaInicialKwh": "12300"
     },
     "bundleId": "B-100000-E"

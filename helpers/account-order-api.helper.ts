@@ -258,7 +258,11 @@ export class AccountOrderApiHelper {
     const cleanAmount = parseFloat(totalAmount.replace(/,/g, ''));
     const requestData = {
       paymentDate: "",
-      paymentSource: "BRC",
+      // BCR = Banco de Costa Rica, the CoopeG payment source. This read "BRC"
+      // until 2026-09-29; the KB (41-AR-Payment-Management, 80-QA-Notes) names a
+      // wrong paymentSource as a SILENT failure, and the gateway passes the value
+      // straight through, so nothing here would have noticed.
+      paymentSource: "BCR",
       allocationData: [
         {
           accountId,
@@ -285,5 +289,22 @@ export class AccountOrderApiHelper {
     this.logger?.api('POST', url, status, bodyText);
 
     expect(status).toBe(200);
+
+    /**
+     * HTTP 200 is not "paid". The gateway answers 200 with status SUSPENDED when
+     * the payment lands in suspense instead of on the invoice, and FAILED on an
+     * error. The body shape is merchant-mapped, so only a status that IS present
+     * is judged.
+     */
+    let paymentStatus: unknown;
+    try {
+      paymentStatus = JSON.parse(bodyText)?.status;
+    } catch {
+      paymentStatus = undefined;
+    }
+    if (typeof paymentStatus === 'string') {
+      expect(paymentStatus, `applyPayment for ${invoiceId} was not applied: ${bodyText.slice(0, 300)}`)
+        .toBe('SUCCESS');
+    }
   }
 }

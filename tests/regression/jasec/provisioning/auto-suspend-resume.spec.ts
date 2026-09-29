@@ -48,6 +48,7 @@ import { MdrRemoteHelper } from '../../../../helpers/mdr-remote.helper';
 import { TestLogger } from '../../../../helpers/test-logger';
 import { uniqueRunSuffix } from '../../../../fixtures/create-prepaid-account.helper';
 import { blockedIf } from '../../../../helpers/blocked.helper';
+import { assertSafeToDispatch as assertMeterSafe } from '../../../../helpers/provisioning-safety.helper';
 
 const RUN = process.env.JASEC_AUTO_PROV_RUN === 'true';
 const TENANT = (process.env.TEST_ENV ?? 'jasec-dev').trim();
@@ -133,22 +134,21 @@ async function seedAccount(db: DbHelper, logger: TestLogger, tag: string, nise?:
         WHERE su.accountid = $1`, [accountId]),
     r => r.length === 1 && r[0].status === 'ACTIVE', 120_000, 5_000);
   expect(rows.length, `seeded ${accountId} (${orderId}) has no ACTIVE metered service unit`).toBe(1);
+  // Carry the meter that is ON service_provision, not the string we invented:
+  // that row is what the engine dispatches, so it is what the guard must judge.
+  expect(rows[0].meter, `${accountId}: service_provision holds ${rows[0].meter}, not the invented ${meter}`)
+    .toBe(meter);
   const prof = await db.query<{ p: string }>(
     `SELECT creditprofilename AS p FROM core_engine.subscription WHERE id = $1`, [rows[0].sub]);
   expect(prof[0]?.p, `${accountId} did not get the ${profile} profile`).toBe(profile);
   console.log(`\n  seeded ${accountId} / ${orderId} / meter ${meter} / ${rows[0].svc}` +
     (nise ? ` / NISE (clientId) ${nise}-${suffix}` : ' / no NISE') + '\n');
-  return { accountId, meter, svc: rows[0].svc, sub: rows[0].sub, provId: rows[0].provid };
+  return { accountId, meter: rows[0].meter, svc: rows[0].svc, sub: rows[0].sub, provId: rows[0].provid };
 }
 
+/** Re-reads service_provision, so the check judges what really goes on the wire. */
 async function assertSafeToDispatch(db: DbHelper, s: Seeded) {
-  expect(s.meter.startsWith(METER_PREFIX), `${s.meter} was not invented by this spec`).toBe(true);
-  const accepted = await db.query<{ n: string }>(
-    `SELECT count(*)::text AS n FROM core_engine.activity
-      WHERE apiname ILIKE '%UTILITIES%' AND request::text LIKE $1
-        AND (response::text LIKE '%CodRespuesta>00<%' OR response::text ILIKE '%Operaci_n Registrada%')`,
-    [`%<medidor>${s.meter}</medidor>%`]);
-  expect(Number(accepted[0]?.n ?? 0), `${s.meter} has been ACCEPTED by JASEC before - a real device`).toBe(0);
+  await assertMeterSafe(db, s, METER_PREFIX);
 }
 
 // ── reads ────────────────────────────────────────────────────────────────

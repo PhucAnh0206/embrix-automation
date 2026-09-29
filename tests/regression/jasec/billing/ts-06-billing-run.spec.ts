@@ -50,6 +50,7 @@
 
 import { test, expect } from '../../../../fixtures/page-factory';
 import { DatabaseHelper } from '../../../../helpers/database.helper';
+import { blockedIf } from '../../../../helpers/blocked.helper';
 
 /**
  * Accounts a schedule on `date` will actually bill. Conditions mirror
@@ -105,10 +106,37 @@ const EXCLUDED_BY_PAYMENT_METHOD_SQL = `
 const INVOICE_COUNT_SQL = `
   SELECT count(*)::int AS n FROM core_engine.invoice_unit WHERE accountid = $1`;
 
-/** Mirrors NotificationDbHelper.clearStaleJobs('BILL_CHECK'). Tenant-wide by
- *  design — that is what ts-02 and the runbook both do. */
+/**
+ * Stale BILL_CHECK work rows, and the schedules on our date — read BEFORE any
+ * clean-up, so the clean-up only removes what was proven idle.
+ *
+ * WHY NOT A BARE DELETE. This used to be `DELETE ... WHERE type='BILL_CHECK'`,
+ * tenant-wide, plus a delete of every schedule on the date. `core_engine.jobs`
+ * has no link to a schedule, so that also destroyed the in-flight work of any
+ * OTHER billing run on the tenant (cron or a colleague). BILL_CHECK rows only
+ * exist while a run is working — on jasec-dev there are none at rest — so a row
+ * that does not change across LIVENESS_WINDOW_MS belongs to a run that died,
+ * and one that does belongs to a live run we must not touch.
+ */
+const BILL_CHECK_JOBS_SQL = `
+  SELECT id, status FROM core_engine.jobs WHERE type = 'BILL_CHECK' ORDER BY id`;
+
+const SCHEDULES_ON_DATE_SQL = `
+  SELECT js.id, js.status, js.userid, l.type, l.status AS liststatus,
+         l.countsuccess, l.counterror
+    FROM core_engine.job_schedule js
+    LEFT JOIN core_engine.job_schedule_list l ON l.id = js.id
+   WHERE js.scheduledate = $1::date
+   ORDER BY js.id, l.index`;
+
+/** Delete exactly the rows that were vetted as idle, never ones created since. */
 const CLEAR_STALE_BILL_CHECK_SQL = `
-  DELETE FROM core_engine.jobs WHERE type = 'BILL_CHECK' RETURNING id`;
+  DELETE FROM core_engine.jobs
+   WHERE type = 'BILL_CHECK' AND id = ANY($1::varchar[])
+  RETURNING id`;
+
+/** How long a leftover must stay unchanged to count as abandoned. */
+const LIVENESS_WINDOW_MS = 20_000;
 
 /** The invoice this run produced for one account, newest first. */
 const NEWEST_INVOICE_SQL = `
@@ -364,18 +392,45 @@ test.describe('Billing via the Core UI Daily Schedule', () => {
       await dailySchedulePage.navigateViaNav();
       await dailySchedulePage.inputJobCalendar(date);
 
+      // Is anything on this tenant still WORKING? Read both clean-up targets,
+      // and if either holds something that could be live — a BILL_CHECK work
+      // row, or a PROCESSING schedule on our date — read them again after a
+      // pause. Anything that moved belongs to a run in flight: BLOCKED, and
+      // nothing is deleted. Anything that did not is a dead run's leftover.
+      const snapshot = async () => ({
+        jobs: await db.executeQuery(BILL_CHECK_JOBS_SQL),
+        schedules: await db.executeQuery(SCHEDULES_ON_DATE_SQL, [date]),
+      });
+      const first = await snapshot();
+      if (first.jobs.length || first.schedules.some((s: any) => s.status === 'PROCESSING')) {
+        testLogger.log(
+          `${first.jobs.length} BILL_CHECK work row(s), schedules on ${date}: ` +
+          `${[...new Set(first.schedules.map((s: any) => `${s.id}:${s.status}`))].join(', ') || 'none'} ` +
+          `— checking for activity over ${LIVENESS_WINDOW_MS / 1000}s before clearing`,
+        );
+        await new Promise((r) => setTimeout(r, LIVENESS_WINDOW_MS));
+        const second = await snapshot();
+        const moved = JSON.stringify(first) !== JSON.stringify(second);
+        if (blockedIf(moved,
+          `another billing run is in flight on this tenant (BILL_CHECK work rows or a ` +
+          `schedule on ${date} changed within ${LIVENESS_WINDOW_MS / 1000}s). Clearing them ` +
+          `would destroy that run. Wait for it to finish and re-run.`)) return;
+      }
+      const vettedScheduleIds = [...new Set(first.schedules.map((s: any) => String(s.id)))];
+      const vettedJobIds = first.jobs.map((j: any) => String(j.id));
+
       // A spent or errored schedule on this date occupies the DAILY slot and
       // there is only one, so clear it first. This is the same two ordered
-      // deletes the CoopeG suite uses (children, then parent).
-      await dailySchedulePage.clearExistingJobSchedule(jobScheduleDbHelper, date, testLogger);
+      // deletes the CoopeG suite uses (children, then parent) — restricted to
+      // the schedules vetted above.
+      await dailySchedulePage.clearExistingJobSchedule(jobScheduleDbHelper, date, testLogger, vettedScheduleIds);
 
       // Second, separate wipe — different table, different failure. Stale
       // BILL_CHECK rows in core_engine.jobs collide on batch ids with a new run,
       // and they are left behind by a run that died midway: precisely when you
-      // re-run. ts-02 does this via NotificationDbHelper.clearStaleJobs; done
-      // inline here so this spec carries no dependency on the notification suite.
-      const staleJobs = await db.executeQuery(CLEAR_STALE_BILL_CHECK_SQL);
-      if (staleJobs.length) {
+      // re-run. Only the rows vetted as idle above are removed.
+      if (vettedJobIds.length) {
+        const staleJobs = await db.executeQuery(CLEAR_STALE_BILL_CHECK_SQL, [vettedJobIds]);
         testLogger.log(`cleared ${staleJobs.length} stale BILL_CHECK row(s) from core_engine.jobs`);
       }
 

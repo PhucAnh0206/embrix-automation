@@ -77,6 +77,30 @@ export function uniqueRunSuffix(): string {
   return candidate;
 }
 
+/**
+ * Every meter this suite invents MUST match this — `M-QA<TAG>-<suffix>`.
+ *
+ * provisioningEnabled is ON on jasec-dev, so a seeded account can dispatch
+ * SUSPEND/RESUME to JASEC's live AMI. The old seed shape, `002100` + 11 digits,
+ * was 17 numeric chars — indistinguishable from a real device such as
+ * 00210018641144770; only the AMI answering "El Medidor No existe" kept it safe.
+ * A non-numeric prefix can never be a real JASEC meter. The Core UI order screen
+ * accepts it (manual E2E 2026-09-29 used M-202609291001) and the MDR pipeline
+ * rates it (Block A breaches M-QAAUTO- meters).
+ */
+export const QA_METER_RE = /^M-QA[A-Z]+-[0-9A-Za-z-]+$/;
+
+/** Refuse to seed a meter that could be a real one. Fails closed. */
+export function assertQaMeter(meter: string): string {
+  if (!QA_METER_RE.test(meter)) {
+    throw new Error(
+      `Refusing to seed meter "${meter}": it does not match ${QA_METER_RE}. ` +
+      `A seeded meter must never look like a real JASEC device - use an M-QA<TAG>- prefix.`,
+    );
+  }
+  return meter;
+}
+
 /** Fixture bundle required by setUpAccountInSelfCare (with-order setup). */
 export interface SetUpWithOrderFixtures {
   page: Page;
@@ -160,7 +184,7 @@ export async function createPrepaidAccountWithOrder(
 ): Promise<{ accountId: string; orderId: string; provisioningId: string }> {
   const suffix = uniqueRunSuffix();
   const customerId = `${baseRow.accountInfo.customerId}-${suffix}`;
-  const provisioningId = `${baseRow.meter.provisioningId}${suffix}`;
+  const provisioningId = assertQaMeter(`${baseRow.meter.provisioningId}${suffix}`);
   // NISE became mandatory with JEPYP-231; suffixed so reruns cannot collide.
   const clientId = `${baseRow.accountInfo.clientId ?? 'NISE'}-${suffix}`;
 

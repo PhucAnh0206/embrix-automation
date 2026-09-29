@@ -115,6 +115,18 @@ const num = (v: unknown) => Number(v ?? 0);
 const nearBase = (actual: number, expected: number) =>
   Math.abs(actual - expected) <= Math.max(CENT, Math.abs(expected) * 0.0001);
 
+/** Tolerance for a tax RATE. Rates are fractions stored to 6 decimals. */
+const nearRate = (actual: number, expected: number) => Math.abs(actual - expected) <= 1e-6;
+
+/**
+ * The ICB base above 1750 kWh: the taxable base (ENE + CVG ENE + CVG ALP) of
+ * exactly 1750 kWh under the current tariff. Equals `_agg_tax_base 1750` in
+ * `_scripts/calc/jasec-tariff-lib.sh` (130253.000000), and 25 invoices on
+ * jasec-dev carry exactly this base. A tariff change moves it - re-derive it
+ * from the lib, do not re-measure it from the product.
+ */
+const ICB_CAP_BASE = 130253;
+
 /** Per-band invoices to assert on. Rare bands hold fewer than this anyway. */
 const SAMPLE = Number(process.env.BILLING_BAND_SAMPLE ?? 10);
 /**
@@ -639,10 +651,14 @@ for (const b of BANDS) {
     test('any ICB present is charged at 1.75%, any IVA at 13%', async () => {
       const bad: string[] = [];
       for (const c of buckets.get(b.name) ?? []) {
+        // NOT `near()`: that is a two-CENT window meant for money, and on a rate
+        // it accepted any ICB from 0% to 3.75% and any IVA from 11% to 15%, so it
+        // could not catch a wrong rate. Rates are stored to 6 decimals; every row
+        // on jasec-dev reads exactly 0.017500 / 0.130000 (302 rows, 2026-09-29).
         for (const t of taxesOf(c.inv, 'BOM'))
-          if (!near(num(t.taxRate), 0.0175)) bad.push(`${label(c)}: ICB rate ${t.taxRate}, expected 0.0175`);
+          if (!nearRate(num(t.taxRate), 0.0175)) bad.push(`${label(c)}: ICB rate ${t.taxRate}, expected 0.0175`);
         for (const t of taxesOf(c.inv, 'IVA'))
-          if (!near(num(t.taxRate), 0.13)) bad.push(`${label(c)}: IVA rate ${t.taxRate}, expected 0.13`);
+          if (!nearRate(num(t.taxRate), 0.13)) bad.push(`${label(c)}: IVA rate ${t.taxRate}, expected 0.13`);
       }
       expect(bad, `wrong tax rate:\n${bad.join('\n')}`).toEqual([]);
     });
@@ -691,6 +707,26 @@ for (const b of BANDS) {
             bad.push(`${label(c)}: ICB base ${icb[0].taxableAmount} is NOT capped — equals the full base ${full.toFixed(2)}`);
         }
         expect(bad, `ICB cap not applied above 1750 kWh:\n${bad.join('\n')}`).toEqual([]);
+
+        // "Below the full base" alone accepts ANY reduction, so assert the cap
+        // VALUE too - on whole-cycle post-fix invoices only. A slice of a cycle
+        // billed twice carries only part of the base, and pre-fix invoices were
+        // capped under the old rates (108,854.36 / 129,492.80 / 133,035 on
+        // jasec-dev, all below 2793) and were never re-rated.
+        const { post, pre } = splitAtFix((buckets.get(b.name) ?? []).filter((c) => c.wholeCycle));
+        reportPreFix(pre, 'ICB cap value', (c) =>
+          taxesOf(c.inv, 'BOM').map((t) => `ICB base ${t.taxableAmount}`).join(' | ') || '(no ICB row)');
+        const wrongCap: string[] = [];
+        let judged = 0;
+        for (const c of post) {
+          const icb = taxesOf(c.inv, 'BOM');
+          if (!icb.length) continue;
+          judged++;
+          if (!nearBase(num(icb[0].taxableAmount), ICB_CAP_BASE))
+            wrongCap.push(`${label(c)}: ICB base ${icb[0].taxableAmount}, expected the 1750 kWh cap ${ICB_CAP_BASE}`);
+        }
+        console.log(`[${b.name}] ICB cap value checked on ${judged}`);
+        expect(wrongCap, `ICB base is capped at the wrong amount:\n${wrongCap.join('\n')}`).toEqual([]);
       });
     }
 

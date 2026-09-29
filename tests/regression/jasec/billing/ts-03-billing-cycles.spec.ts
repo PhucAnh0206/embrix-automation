@@ -28,6 +28,7 @@
  */
 import { test, expect } from '@playwright/test';
 import { BillingGqlHelper, energiaKwh, lineName, summaryTotal, type InvoiceDoc } from '../../../../helpers/billing-gql.helper';
+import { blockedIf } from '../../../../helpers/blocked.helper';
 
 /**
  * Account with two consecutive BILLED cycles.
@@ -37,6 +38,12 @@ import { BillingGqlHelper, energiaKwh, lineName, summaryTotal, type InvoiceDoc }
  * skipping. See `resolveTwoCycleAccount` for why that is safe.
  */
 let ACCOUNT = process.env.JASEC_TWO_CYCLE_ACCOUNT ?? '';
+/**
+ * Whether ACCOUNT was SUPPLIED (seeded by us) rather than resolved off the
+ * tenant. The ledger-order assertion depends on it: back-dated rows on a seeded
+ * account are a defect, on a borrowed one they are our own history.
+ */
+const ACCOUNT_SUPPLIED = ACCOUNT.trim() !== '';
 
 /**
  * Find a PREPAID account on THIS tenant carrying at least two billed cycles.
@@ -64,6 +71,12 @@ let ACCOUNT = process.env.JASEC_TWO_CYCLE_ACCOUNT ?? '';
  * would cost up to 200 calls to find one subject.
  */
 async function resolveTwoCycleAccount(g: BillingGqlHelper): Promise<string> {
+  // Prefer an account whose ledger is in order: a back-dated one can only
+  // BLOCK the chain case (see there), so taking it first would give up
+  // coverage another account could provide. Bounded - one statement read each.
+  let backDatedFallback = '';
+  let probes = 0;
+  const MAX_PROBES = 20;
   for (let page = 1; page <= 4; page++) {
     const batch = await g.searchInvoices(page, 200).catch(() => []);
     if (!batch.length) break;
@@ -80,10 +93,21 @@ async function resolveTwoCycleAccount(g: BillingGqlHelper): Promise<string> {
       .map(([id]) => id);
 
     for (const id of candidates) {
-      if ((await g.accountCategory(id).catch(() => '')) === 'PREPAID') return id;
+      if ((await g.accountCategory(id).catch(() => '')) !== 'PREPAID') continue;
+      if (probes >= MAX_PROBES) return backDatedFallback || id;
+      probes++;
+      const lines = await g.getAccountStatement(id).catch(() => []);
+      if (!ledgerBackDated(lines)) return id;
+      if (!backDatedFallback) backDatedFallback = id;
     }
   }
-  return '';
+  return backDatedFallback;
+}
+
+/** Same predicate the chain case asserts: ids must descend when read newest-first. */
+function ledgerBackDated(lines: Array<{ lineReferenceId?: unknown }>): boolean {
+  const ids = lines.map((l) => idNum(l.lineReferenceId));
+  return ids.some((v, i) => i + 1 < ids.length && v < ids[i + 1]);
 }
 
 /** JASEC includes the first 30 kWh in the monthly fixed charge. */
@@ -169,13 +193,23 @@ test.describe('Prepaid account across two consecutive billed cycles', () => {
     if (setupNote) { console.log(`\n[two-cycle] BLOCKED, not failed: ${setupNote}\n`); test.skip(true, setupNote); return; }
 
     /**
-     * BACK-DATED ROWS ARE AN ASSERTION HERE, NOT A SKIP. The predecessor skipped
-     * such accounts because it sampled a shared pool it did not control. This
-     * account is seeded by us and billed forward, so out-of-order ids mean
-     * something really went wrong and must fail.
+     * BACK-DATED ROWS ARE AN ASSERTION HERE, NOT A SKIP - on a SUPPLIED account.
+     * The predecessor skipped such accounts because it sampled a shared pool it
+     * did not control. A seeded account is billed forward, so out-of-order ids
+     * mean something really went wrong and must fail.
+     *
+     * A RESOLVED account is exactly that shared pool. Billing on a rewound CCP
+     * clock back-dates rows, and ts-04 measured 57 such ledgers on jasec-dev, all
+     * ours. Failing one of those would manufacture a defect from our own test
+     * history, so it is BLOCKED instead - `resolveTwoCycleAccount` already
+     * prefers accounts without back-dated rows, so this only fires when none was
+     * found.
      */
     const ids = statement.map((l) => idNum(l.lineReferenceId));
     const outOfOrder = ids.filter((v, i) => i + 1 < ids.length && v < ids[i + 1]);
+    if (blockedIf(!ACCOUNT_SUPPLIED && outOfOrder.length > 0,
+      `resolved account ${ACCOUNT} has back-dated ledger rows (${JSON.stringify(ids)}), `
+      + `which on a borrowed account is clock-rewind history, not a defect. ${HOW_TO_SEED}`)) return;
     expect(
       outOfOrder,
       `ledger ids must descend when read newest-first; got ${JSON.stringify(ids)}. `
@@ -354,6 +388,8 @@ test.describe('Prepaid account across two consecutive billed cycles', () => {
  */
 /** `let` for the same reason as ACCOUNT above: resolved when nothing is supplied. */
 let FIXED_CHARGE_ACCOUNT = process.env.JASEC_FIXED_CHARGE_ACCOUNT ?? '';
+/** A supplied account was billed by us under current rules; a resolved one may not be. */
+const FIXED_CHARGE_SUPPLIED = FIXED_CHARGE_ACCOUNT.trim() !== '';
 
 /**
  * Find a PREPAID account on THIS tenant whose newest invoice bills at or under
@@ -369,8 +405,17 @@ let FIXED_CHARGE_ACCOUNT = process.env.JASEC_FIXED_CHARGE_ACCOUNT ?? '';
  * subject, so the two specs agree on what "the fixed-charge band" means.
  */
 async function resolveFixedChargeAccount(g: BillingGqlHelper): Promise<string> {
-  const found = await g.findInvoicesInBand(0, MIN_BILLED_KWH, 4, 200, 10).catch(() => []);
-  const prepaid = await g.filterByAccountCategory(found, 'PREPAID').catch(() => []);
+  // No early stop: `enough` cut the scan at the first 10 matches in SCAN order,
+  // which is not invoice order, so they could all be 2319.30-era invoices.
+  // Resolving to one of those and asserting 1943.40 blamed the current rules for
+  // uncorrected history. Four pages is four requests; the category lookups are
+  // bounded by taking the 10 newest post-fix matches.
+  const found = await g.findInvoicesInBand(0, MIN_BILLED_KWH, 4, 200).catch(() => []);
+  const postFix = found
+    .filter((inv) => idNum(inv.id) >= FIRST_POST_FIX_INVOICE)
+    .sort((a, b) => idNum(b.id) - idNum(a.id))
+    .slice(0, 10);
+  const prepaid = await g.filterByAccountCategory(postFix, 'PREPAID').catch(() => []);
   // Newest first: the most recently billed cycle is the least likely to have
   // been disturbed by anything since.
   prepaid.sort((a, b) => idNum(b.id) - idNum(a.id));
@@ -419,6 +464,15 @@ test.describe('Prepaid fixed charge on a freshly billed sub-30 kWh cycle', () =>
     console.log(`[fixed-charge] ${FIXED_CHARGE_ACCOUNT}: invoice ${fixedInv.id} ` +
       `[${fixedInv.startDate}..${fixedInv.endDate}] billed ${billedKwh} kWh`);
 
+    // A RESOLVED subject was not billed by us, so it is only fair game if it was
+    // issued under the current rates. A supplied one is post-fix by construction.
+    if (!FIXED_CHARGE_SUPPLIED && idNum(fixedInv.id) < FIRST_POST_FIX_INVOICE) {
+      fixedNote =
+        `resolved account ${FIXED_CHARGE_ACCOUNT}'s newest invoice ${fixedInv.id} predates ` +
+        `${FIRST_POST_FIX_INVOICE}, so it carries uncorrected pre-fix charges. ${HOW_TO_SEED_FIXED}`;
+      return;
+    }
+
     // Guard the PREMISE. A cycle over 30 kWh is billed on consumption, not the
     // minimum, so asserting 1943.40 on it would be wrong - and silently so.
     if (billedKwh > MIN_BILLED_KWH) {
@@ -449,8 +503,9 @@ test.describe('Prepaid fixed charge on a freshly billed sub-30 kWh cycle', () =>
     expect(
       near(subtotal, EXPECTED_TOTAL_AT_30_KWH),
       `invoice ${inv.id} on ${FIXED_CHARGE_ACCOUNT} metered ${billedKwh} kWh and subtotals ` +
-      `${subtotal}, expected the flat ${EXPECTED_TOTAL_AT_30_KWH}. This cycle was billed by ` +
-      `this suite under CURRENT rules, so there is no pre-fix history to excuse it: the ` +
+      `${subtotal}, expected the flat ${EXPECTED_TOTAL_AT_30_KWH}. This cycle was ` +
+      (FIXED_CHARGE_SUPPLIED ? `billed by this suite` : `issued at or after ${FIRST_POST_FIX_INVOICE}`) +
+      ` under CURRENT rules, so there is no pre-fix history to excuse it: the ` +
       `rate table this tenant is using produces the wrong monthly fixed charge. ` +
       `Check the four *-MIN-TRUEUP rates against jasec-tariff-lib.sh.`,
     ).toBe(true);

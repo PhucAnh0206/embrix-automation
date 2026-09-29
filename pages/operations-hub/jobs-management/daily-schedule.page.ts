@@ -158,11 +158,17 @@ export class DailySchedulePage extends BasePage {
     /**
      * Clear existing job schedule for a date via DB, then refresh the UI.
      * If job cards are visible, query DB for the schedule ID and delete it.
+     *
+     * `onlyIds` restricts the delete to schedules the caller has already vetted
+     * as idle. A schedule on the date that is NOT in the list appeared after the
+     * vetting - possibly someone else's live run - so it is refused rather than
+     * deleted. Omitted, every schedule on the date is deleted, as before.
      */
     async clearExistingJobSchedule(
         jobScheduleDbHelper: JobScheduleDbHelper,
         date: string,
-        testLogger: TestLogger
+        testLogger: TestLogger,
+        onlyIds?: string[],
     ): Promise<void> {
         const hasJobs = await this.isJobListVisible();
         if (!hasJobs) {
@@ -175,6 +181,16 @@ export class DailySchedulePage extends BasePage {
         try {
             const jobSchedules = await jobScheduleDbHelper.getJobSchedule(date);
             testLogger.data('Job Schedules to delete', jobSchedules);
+
+            if (onlyIds) {
+                const unvetted = jobSchedules.filter((j) => !onlyIds.includes(String(j.id)));
+                if (unvetted.length) {
+                    throw new Error(
+                        `Refusing to delete job schedule(s) ${unvetted.map((j) => `${j.id}:${j.status}`).join(', ')} ` +
+                        `on ${date}: they appeared after the idle check, so they may belong to a live run.`,
+                    );
+                }
+            }
 
             for (const job of jobSchedules) {
                 await jobScheduleDbHelper.deleteJobScheduleById(job.id);

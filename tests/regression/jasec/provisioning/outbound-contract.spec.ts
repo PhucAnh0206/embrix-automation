@@ -376,10 +376,6 @@ test.describe('JASEC provisioning - outbound contract and config', () => {
     const sent = await one<{ n: string }>(
       `SELECT count(*)::text AS n FROM core_engine.activity WHERE apiname ILIKE '%UTILITIES%'`,
     );
-    const accepted = await one<{ n: string }>(
-      `SELECT count(*)::text AS n FROM core_engine.activity
-        WHERE apiname ILIKE '%UPDATE_PROVISIONING%' AND response::text LIKE '%FINALIZADO%'`,
-    );
 
     /**
      * READINESS, NOT CORRECTNESS - so a tenant that has never dispatched is
@@ -426,24 +422,38 @@ test.describe('JASEC provisioning - outbound contract and config', () => {
      *
      * A rejected METER (CodRespuesta 03) still counts as authenticated: JASEC
      * talked to us and made a judgement. That is the distinction that matters.
+     *
+     * JUDGED ON THE RECENT REPLIES, not all history. Counting every reply ever
+     * meant that once one command had authenticated this could never go red
+     * again, so a later credential break would pass. The newest RECENT_REPLIES
+     * commands decide it. Ordered by the numeric part of the id: activity ids are
+     * 'A-nnnnnn' strings, so a plain ORDER BY id puts A-99999 above A-105521, and
+     * createddate is CCP-stamped. A null response (no answer yet) is not an auth
+     * rejection, so it counts as authenticated only if something else did.
      */
-    const authed = await one<{ n: string }>(
-      `SELECT count(*)::text AS n FROM core_engine.activity
-        WHERE apiname ILIKE '%UTILITIES%'
-          AND response::text NOT ILIKE '%Autenticaci%'`,
+    const RECENT_REPLIES = 10;
+    const recent = await one<{ n: string; authed: string }>(
+      `SELECT count(*)::text AS n,
+              count(*) FILTER (WHERE response IS NOT NULL
+                                 AND response::text NOT ILIKE '%Autenticaci%')::text AS authed
+         FROM (SELECT response FROM core_engine.activity
+                WHERE apiname ILIKE '%UTILITIES%'
+                ORDER BY nullif(regexp_replace(id, '[^0-9]', '', 'g'), '')::bigint DESC NULLS LAST
+                LIMIT ${RECENT_REPLIES}) t`,
     );
+    console.log(`  last ${recent?.n} provisioning replies: ${recent?.authed} authenticated`);
     expect(
-      Number(authed?.n ?? 0),
-      `Every provisioning command this tenant has sent (${sent?.n}) was rejected by ` +
-      `JASEC with an authentication error, so no meter can ever be suspended or ` +
-      `reconnected here. The order flow, the payload contract and the callback chain ` +
-      `are all fine - the credentials are not. Compare jasec-dev, which authenticates ` +
-      `and receives real response codes over the same endpoint.`,
+      Number(recent?.authed ?? 0),
+      `None of the last ${recent?.n} provisioning commands this tenant sent (of ${sent?.n} ` +
+      `ever) was answered as an authenticated caller - every reply is an authentication ` +
+      `error, so no meter can be suspended or reconnected here now. The order flow, the ` +
+      `payload contract and the callback chain are all fine - the credentials are not. ` +
+      `Compare jasec-dev, which authenticates and receives real response codes over the ` +
+      `same endpoint.`,
     ).toBeGreaterThan(0);
 
-    // Informational, deliberately not asserted upward: all of these were
-    // generated on our side. Zero callbacks have ever followed a command JASEC
-    // accepted, so this number must NOT be quoted as evidence the round trip works.
-    expect(Number(accepted?.n ?? 0)).toBeGreaterThanOrEqual(0);
+    // Callbacks (UPDATE_PROVISIONING ... FINALIZADO) are deliberately NOT counted
+    // here: all of them were generated on our side, and zero have ever followed a
+    // command JASEC accepted, so that number is no evidence the round trip works.
   });
 });

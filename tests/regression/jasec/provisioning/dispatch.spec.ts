@@ -25,11 +25,18 @@
  * An earlier version of this spec guarded the prov-* column and was therefore
  * safe only by luck. assertSafeToDispatch checks the value that is really sent.
  *
- * WHAT MAKES A CANDIDATE SAFE. Its meter must be one JASEC have never answered
- * 00 for. That set is derived from their own replies rather than a hardcoded
- * list, so a newly released meter is excluded automatically. They answer "El
- * Medidor No existe" to everything else, so the command is refused on the way in
- * and no physical device is involved.
+ * WHAT MAKES A CANDIDATE SAFE. It is SEEDED by this spec, with a meter named
+ * M-QADISP-<suffix> that cannot be a JASEC device, and that meter must never have
+ * been accepted by JASEC (re-checked at dispatch time). JASEC answer "El Medidor
+ * No existe" to it, so the command is refused on the way in and no physical
+ * device is involved.
+ *
+ * It used to BORROW candidates: any ACTIVE metered account with no open order,
+ * preferring ACT-* ids but falling back to named manual accounts (TRI-01,
+ * LCHONG...). On dev nearly every such meter is numeric - JASEC's real device
+ * shape - and only "never answered 00" kept a real meter off the wire. TC-116
+ * also left the borrowed account's service unit SUSPENDED. Seeding its own
+ * subject removes both: nothing borrowed, nothing to restore.
  *
  * Verified 2026-09-07: a refused dispatch leaves service_unit ACTIVE - the
  * suspension only happens on the callback - so these runs do not suspend anyone.
@@ -52,13 +59,19 @@
  * A reprocessed order is the exception - it gets a single attempt, because
  * retriedcount is not reset. Confirmed by the team as expected behaviour.
  *
- * SAFETY. Every candidate is checked to carry a prov-* meter and to have no open
- * order, and the accounts behind the staged orders are excluded outright. A
- * numeric meter is refused: those are JASEC's real devices.
+ * SAFETY. Every candidate is an account this spec just seeded, with an M-QADISP-
+ * meter and no open order; the accounts behind the staged orders are excluded
+ * outright. assertSafeToDispatch (helpers/provisioning-safety.helper.ts) refuses
+ * any meter that is not a QA meter or that JASEC have ever accepted.
  */
 
 import { test, expect } from '@playwright/test';
 import { DbHelper } from '../../../../helpers/db.helper';
+import { PrepaidSeedHelper } from '../../../../helpers/prepaid-seed.helper';
+import { uniqueRunSuffix } from '../../../../fixtures/create-prepaid-account.helper';
+import {
+  STAGED_ACCOUNTS, assertSafeToDispatch as assertMeterSafe,
+} from '../../../../helpers/provisioning-safety.helper';
 
 const RUN = process.env.JASEC_DISPATCH_RUN === 'true';
 const BATCH_N = Number(process.env.JASEC_BATCH_N ?? '3');
@@ -93,8 +106,8 @@ const TXN = process.env.JASEC_TXN_GRAPHQL_URL ?? `https://service-transactional.
 const USER = process.env.EMBRIX_USERNAME ?? 'congeroadmin';
 const PASS = process.env.EMBRIX_PASSWORD ?? '';
 
-/** Accounts behind orders staged for a JASEC session. Never build on these. */
-const STAGED_ACCOUNTS = ['ACT-100064', '01365966', '031201', 'ACT-100774'];
+/** Every candidate meter this spec seeds starts with this. */
+const METER_PREFIX = 'M-QADISP-';
 
 /** accion values, from ccp_properties provisioningUtilities{Suspend,Resume}SubType. */
 // Follows TENANT for the same reason as CRM/TXN above — a callback posted to the
@@ -137,68 +150,76 @@ test.afterAll(async () => {
   if (db) await db.disconnect();
 });
 
+/** Why the last seedCandidates() came back short - printed in the BLOCKED reason. */
+let seedProblem = '';
+
 /**
- * Candidates whose dispatch JASEC will refuse, with no order in flight.
- *
- * The meter is taken from service_provision, because that is the one that
- * reaches JASEC. Any meter they have EVER answered 00 for is excluded: that set
- * is exactly the real, working devices, and it is derived from their own replies
- * rather than from a hardcoded list that would go stale the moment they release
- * another meter.
+ * Seed `n` fresh candidates whose dispatch JASEC will refuse, with no order in
+ * flight. Each is an account + meter made by PrepaidSeedHelper; the NEW order
+ * completes asynchronously, so re-read until the metered service unit is ACTIVE
+ * and nothing is left open. Returns fewer than `n` (with seedProblem set) rather
+ * than throwing, so the caller reports BLOCKED - a seeding hiccup is an unmet
+ * precondition, not a dispatch defect.
  */
-async function candidates(limit: number): Promise<Candidate[]> {
-  return db.query<Candidate>(
-    `SELECT su.accountid,
-            su.id AS svc,
-            coalesce(su.bundleid,'') AS bundleid,
-            su.provisioningid,
-            sp.provisioningid AS "dispatchedMeter"
-       FROM core_engine.service_unit su
-       JOIN core_engine.service_provision sp
-         ON sp.id = su.id AND sp.type = 'METER'
-      WHERE su.status = 'ACTIVE'
-        AND coalesce(sp.provisioningid,'') <> ''
-        AND NOT (su.accountid = ANY($2))
-        -- never a meter JASEC has ever accepted
-        AND sp.provisioningid NOT IN (
-              SELECT DISTINCT substring(a.request::text from '<medidor>([^<]+)')
-                FROM core_engine.activity a
-               WHERE a.apiname ILIKE '%UTILITIES%'
-                 AND a.response::text LIKE '%CodRespuesta>00<%'
-                 AND substring(a.request::text from '<medidor>([^<]+)') IS NOT NULL)
-        AND NOT EXISTS (
-              SELECT 1 FROM core_oms."order" o
-               WHERE o.accountid = su.accountid
-                 AND coalesce(o.status,'') NOT IN ('COMPLETED','CANCELLED'))
-      -- Prefer automation-created ACT-nnnnnn accounts. The named ones
-      -- (TRI-01, LCHONG000001, JASEC000002, LCG-...) are somebody's manual test
-      -- data and raising orders on them would disturb work in progress.
-      ORDER BY (su.accountid LIKE 'ACT-%') DESC, su.accountid DESC
-      LIMIT $1`,
-    [limit, STAGED_ACCOUNTS],
-  );
+async function seedCandidates(n: number): Promise<Candidate[]> {
+  seedProblem = '';
+  const seed = new PrepaidSeedHelper();
+  const out: Candidate[] = [];
+  for (let i = 0; i < n; i++) {
+    const suffix = uniqueRunSuffix();
+    const meter = `${METER_PREFIX}${suffix}`;
+    let accountId = '';
+    try {
+      ({ accountId } = await seed.seed({ meter, customerId: `QADISP-${suffix}`, name: `QADISP ${suffix}` }));
+    } catch (e) {
+      seedProblem = `seeding failed: ${(e as Error).message.slice(0, 300)}`;
+      return out;
+    }
+    let row: (Candidate & { status: string; open: string }) | undefined;
+    for (let t = 0; t < 24; t++) {
+      const rows = await db.query<Candidate & { status: string; open: string }>(
+        `SELECT su.accountid,
+                su.id AS svc,
+                coalesce(su.bundleid,'') AS bundleid,
+                su.provisioningid,
+                sp.provisioningid AS "dispatchedMeter",
+                su.status,
+                (SELECT count(*)::text FROM core_oms."order" o
+                  WHERE o.accountid = su.accountid
+                    AND coalesce(o.status,'') NOT IN ('COMPLETED','CANCELLED')) AS open
+           FROM core_engine.service_unit su
+           JOIN core_engine.service_provision sp ON sp.id = su.id AND sp.type = 'METER'
+          WHERE su.accountid = $1 AND NOT (su.accountid = ANY($2))`,
+        [accountId, STAGED_ACCOUNTS]);
+      row = rows.length === 1 ? rows[0] : undefined;
+      if (row && row.status === 'ACTIVE' && row.open === '0') break;
+      await new Promise(r => setTimeout(r, 5_000));
+    }
+    if (!row || row.status !== 'ACTIVE' || row.open !== '0') {
+      seedProblem = `${accountId} did not reach an ACTIVE metered service unit with no open order ` +
+        `within 2 min (${row ? `${row.status}, ${row.open} open order(s)` : 'no metered service unit'})`;
+      return out;
+    }
+    expect(row.dispatchedMeter, `${accountId}: service_provision holds ${row.dispatchedMeter}, not ${meter}`)
+      .toBe(meter);
+    console.log(`  seeded candidate ${accountId}, meter ${meter}`);
+    out.push({
+      accountid: row.accountid, svc: row.svc, bundleid: row.bundleid,
+      provisioningid: row.provisioningid, dispatchedMeter: row.dispatchedMeter,
+    });
+  }
+  return out;
 }
 
 /**
- * Refuse to dispatch on anything JASEC might actually act on. Checks the meter
- * that goes on the wire, and re-checks the accepted-meter set at call time so a
- * newly released meter is excluded even mid-run.
+ * Refuse to dispatch on anything JASEC might actually act on. Re-reads the meter
+ * on service_provision (what goes on the wire, NOT service_unit.provisioningid),
+ * requires it to be an M-QADISP- meter, and re-checks the accepted-meter set at
+ * call time so a newly released meter is excluded even mid-run.
  */
 async function assertSafeToDispatch(c: Candidate) {
   expect(c.dispatchedMeter, `${c.accountid} has no meter on service_provision.`).not.toBe('');
-
-  const accepted = await db.query<{ medidor: string }>(
-    `SELECT DISTINCT substring(request::text from '<medidor>([^<]+)') AS medidor
-       FROM core_engine.activity
-      WHERE apiname ILIKE '%UTILITIES%' AND response::text LIKE '%CodRespuesta>00<%'`);
-  const real = accepted.map(a => a.medidor).filter(Boolean);
-
-  expect(
-    real,
-    `${c.accountid} would dispatch meter ${c.dispatchedMeter}, which JASEC have ` +
-    `accepted before - that is a real device and this test must never touch one. ` +
-    `Note the meter comes from service_provision, NOT service_unit.provisioningid.`,
-  ).not.toContain(c.dispatchedMeter);
+  await assertMeterSafe(db, { accountId: c.accountid, svc: c.svc, meter: c.dispatchedMeter }, METER_PREFIX);
 }
 
 async function signIn(request: any): Promise<string> {
@@ -272,10 +293,10 @@ test.describe('JEPYP-27 - dispatch cases that need no JASEC input', () => {
     expect(BATCH_N, 'Keep N small - every order sends a real command to JASEC.')
       .toBeLessThanOrEqual(10);
 
-    const cs = await candidates(BATCH_N);
+    const cs = await seedCandidates(BATCH_N);
     test.skip(
       cs.length < BATCH_N,
-      `BLOCKED: only ${cs.length} clean candidate account(s) available, need ${BATCH_N}.`,
+      `BLOCKED: only ${cs.length} of ${BATCH_N} candidate account(s) seeded - ${seedProblem}.`,
     );
 
     for (const c of cs) await assertSafeToDispatch(c);
@@ -352,8 +373,8 @@ test.describe('JEPYP-27 - dispatch cases that need no JASEC input', () => {
     gate();
     test.setTimeout(900_000);
 
-    const cs = await candidates(1);
-    test.skip(cs.length < 1, 'BLOCKED: no clean candidate account available.');
+    const cs = await seedCandidates(1);
+    test.skip(cs.length < 1, `BLOCKED: could not seed a candidate account - ${seedProblem}.`);
     const c = cs[0];
     await assertSafeToDispatch(c);
     console.log(`  ${c.accountid}, meter on the wire: ${c.dispatchedMeter}`);
@@ -408,8 +429,8 @@ test.describe('JEPYP-27 - dispatch cases that need no JASEC input', () => {
     gate();
     test.setTimeout(600_000);
 
-    const cs = await candidates(1);
-    test.skip(cs.length < 1, 'BLOCKED: no clean candidate account available.');
+    const cs = await seedCandidates(1);
+    test.skip(cs.length < 1, `BLOCKED: could not seed a candidate account - ${seedProblem}.`);
     const c = cs[0];
     await assertSafeToDispatch(c);
     console.log(`  candidate ${c.accountid}, meter on the wire: ${c.dispatchedMeter}`);
@@ -451,7 +472,7 @@ test.describe('JEPYP-27 - dispatch cases that need no JASEC input', () => {
     }
 
     // JASEC must have answered something. A refusal is the expected outcome on a
-    // prov-* meter and proves their service parsed the envelope; what would be a
+    // QA (M-QADISP-) meter and proves their service parsed the envelope; what would be a
     // real problem is no answer at all.
     const code = res.match(/CodRespuesta>([^<]*)</)?.[1] ?? '';
     const descr = res.match(/DescripcionRespuesta>([^<]*)</)?.[1] ?? '';
@@ -489,8 +510,8 @@ test.describe('JEPYP-27 - dispatch cases that need no JASEC input', () => {
     token = await signIn(request);
     expect(token, 'Could not sign in.').not.toBe('');
 
-    const cs = await candidates(1);
-    test.skip(cs.length < 1, 'BLOCKED: no clean candidate account available.');
+    const cs = await seedCandidates(1);
+    test.skip(cs.length < 1, `BLOCKED: could not seed a candidate account - ${seedProblem}.`);
     const c = cs[0];
     await assertSafeToDispatch(c);
 

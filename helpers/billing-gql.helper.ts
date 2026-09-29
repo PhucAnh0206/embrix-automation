@@ -292,15 +292,16 @@ export class BillingGqlHelper {
 
   async getAccumulatorRows(accountId: string): Promise<AccumulatorRow[] | null> {
     if (this.accumCache.has(accountId)) return this.accumCache.get(accountId)!;
-    let out: AccumulatorRow[] | null = null;
-    try {
-      const d = await this.post(`{ getBalanceUnitByAccountId(input:{id:"${accountId}"}) {
-          accountId accumulators { accumulatorId amount startDate endDate }
-        } }`);
-      out = this.normaliseAccumulators(d?.getBalanceUnitByAccountId?.accumulators);
-    } catch {
-      out = null;   // account with no balance unit — caller falls back
-    }
+    // NO catch. "No balance unit" is not an error: the resolver returns null data
+    // (QueryResolver.getBalanceUnitByAccountId: `found ? map(found) : null`), and
+    // normaliseAccumulators turns that into null below. What a catch-all used to
+    // swallow was transport, auth and schema failures - and callers then banded
+    // the invoice on its own kWh, so a network blip silently moved an invoice to
+    // a different band. Those now propagate, and are not cached.
+    const d = await this.post(`{ getBalanceUnitByAccountId(input:{id:"${accountId}"}) {
+        accountId accumulators { accumulatorId amount startDate endDate }
+      } }`);
+    const out = this.normaliseAccumulators(d?.getBalanceUnitByAccountId?.accumulators);
     this.accumCache.set(accountId, out);
     return out;
   }

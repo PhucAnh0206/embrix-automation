@@ -44,7 +44,7 @@ import { DbHelper } from '../../../../helpers/db.helper';
 import { PrepaidSeedHelper } from '../../../../helpers/prepaid-seed.helper';
 import { OrderOutcomeHelper } from '../../../../helpers/order-outcome.helper';
 import { TestLogger } from '../../../../helpers/test-logger';
-import { uniqueRunSuffix } from '../../../../fixtures/create-prepaid-account.helper';
+import { uniqueRunSuffix, assertQaMeter } from '../../../../fixtures/create-prepaid-account.helper';
 import { blockedIf } from '../../../../helpers/blocked.helper';
 import { shiftDate } from '../../../../helpers/accounting-gql.helper';
 
@@ -93,17 +93,20 @@ test.describe('JASEC billing — 0-30 kWh true-up and cycle length (MUTATING)', 
       const seed = new PrepaidSeedHelper(logger);
       const startDate = await seed.ccpDate();
       const suffix = uniqueRunSuffix();
+      // A QA meter, never the numeric 17-digit device shape: dev has
+      // provisioningEnabled=true, so a real-looking meter can reach the live AMI.
+      const meter = assertQaMeter(`M-QABIL-${suffix}`);
 
       // ── step 1: seed on today's clock ───────────────────────────────
       const { accountId } = await seed.seed({
-        meter: `002100999${suffix}`.slice(0, 17),
+        meter,
         customerId: `E2ETRUEUP-A-${suffix}`,
         name: `E2ETRUEUP-A ${suffix}`,
       });
       console.log(`\n  seeded ${accountId} on ${startDate}`);
 
       const problems = await new OrderOutcomeHelper(logger).readAndVerify(accountId, {
-        meter: `002100999${suffix}`.slice(0, 17), bundleId: 'B-100000-E',
+        meter, bundleId: 'B-100000-E',
       });
       expect(problems, 'the seeded contract is not usable').toEqual([]);
 
@@ -193,9 +196,10 @@ test.describe('JASEC billing — 0-30 kWh true-up and cycle length (MUTATING)', 
       const seed = new PrepaidSeedHelper(logger);
       const today = await seed.ccpDate();
       const suffix = uniqueRunSuffix();
+      const meter = assertQaMeter(`M-QABIL-${suffix}`);
 
       const { accountId } = await seed.seed({
-        meter: `002100998${suffix}`.slice(0, 17),
+        meter,
         customerId: `E2ETRUEUP-B-${suffix}`,
         name: `E2ETRUEUP-B ${suffix}`,
       });

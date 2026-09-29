@@ -44,6 +44,7 @@
 
 import { test, expect } from '@playwright/test';
 import { DbHelper } from '../../../../helpers/db.helper';
+import { DO_NOT_TOUCH_ORDERS, QA_METER_PREFIX } from '../../../../helpers/provisioning-safety.helper';
 
 // Follows TEST_ENV. This defaulted to a hardcoded jasec-dev host, so a preprod
 // run posted callbacks at DEV's gateway while believing it was testing preprod -
@@ -65,7 +66,7 @@ const ENDPOINT =
  * valid callback would CLOSE it, and each order can be closed exactly once.
  * Kept as a guard: the helper below refuses to send a payload naming one.
  */
-const DO_NOT_TOUCH = ['ORD-1059', 'ORD-1322', 'ORD-1323', 'ORD-1381'];
+const DO_NOT_TOUCH = DO_NOT_TOUCH_ORDERS;
 
 /**
  * COMPLETED and therefore terminal. A callback on it is refused by design.
@@ -134,11 +135,14 @@ async function checkTerminal(): Promise<void> {
       // requirement: after a tenant data wipe it will not exist, and three cases
       // would block forever on a fixture that is trivially re-derivable.
       //
-      // So fall back to ANY genuinely terminal SUSPEND order on this tenant.
-      // Same safety bar as the configured one - COMPLETED or CANCELLED only, and
-      // never anything on DO_NOT_TOUCH - so the fallback cannot widen the blast
-      // radius. Newest first, because a recently closed order is the least
-      // likely to be part of someone's staged session.
+      // So fall back to a genuinely terminal order on this tenant. Same safety
+      // bar as the configured one - COMPLETED or CANCELLED only, and never
+      // anything on DO_NOT_TOUCH - PLUS it must belong to a QA-owned account (one
+      // whose meter is an invented M-QA... id). It used to take ANY account's
+      // order, so if the refusal logic ever broke, the COMPLETED callback would
+      // land on a real customer - possibly re-suspending one since resumed.
+      // Newest first, because a recently closed order is the least likely to be
+      // part of someone's staged session.
       const fallback = await db.query<{ id: string; accountid: string; status: string }>(
         `SELECT id, accountid, status
            FROM core_oms.order
@@ -154,18 +158,29 @@ async function checkTerminal(): Promise<void> {
           -- live AMI, so the fixture would have cost a client-facing dispatch.
           WHERE status = ANY($1)
             AND id <> ALL($2)
+            AND EXISTS (
+                  SELECT 1 FROM core_engine.service_unit su
+                    JOIN core_engine.service_provision sp ON sp.id = su.id AND sp.type = 'METER'
+                   WHERE su.accountid = core_oms.order.accountid
+                     AND sp.provisioningid LIKE $3)
           -- Order by completion, NOT by a number parsed out of the id. Preprod
           -- carries both ORD-nnn and OR-nnn ids, and a template literal collapses
           -- a lone backslash, so the regexp arrived as 'D' and the cast blew up on
           -- 'OR-77'. completeddate is what "most recently closed" actually means.
           ORDER BY (type = 'SUSPEND') DESC, completeddate DESC NULLS LAST, id DESC
           LIMIT 1`,
-        [TERMINAL_STATES, DO_NOT_TOUCH],
+        [TERMINAL_STATES, DO_NOT_TOUCH, `${QA_METER_PREFIX}%`],
       );
       if (fallback.length === 0) {
         // Nothing terminal exists at all. blockIfOrderAbsent reports it per case
         // with the seeding instructions - a better message than anything here.
-        terminalGuard = null;
+        //
+        // But only when the configured order is ABSENT. If it exists and is not
+        // terminal it is a LIVE order, and clearing the guard would post a valid
+        // callback at it - the one outcome this spec exists to avoid.
+        terminalGuard = rows.length === 0 ? null
+          : `${TERMINAL_ORDER.orderId} is ${rows[0].status} (not terminal) on ${TENANT} and no QA-owned `
+            + 'terminal order exists to fall back to. Refusing to post a callback at a live order.';
         return;
       }
       // eslint-disable-next-line no-console
