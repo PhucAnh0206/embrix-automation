@@ -117,33 +117,6 @@ export const INVOICED_BILL_UNIT_SQL = `
 export const NOT_ALREADY_EXTRACTED_SQL = `
   NOT EXISTS (SELECT 1 FROM core_revenue.accounting_entry ae WHERE ae.journalid = rj.id)`;
 
-/**
- * Top-up journals never reach the ERP, so they are not "extractable".
- *
- * Measured on jasec-dev 2026-09-25 across every journal that has an
- * accounting_entry row:
- *
- *     revenueactivitytype   status    rows
- *     USAGE / BILLING       POSTED    3213     <- 100% post
- *     PURCHASE (top-up)     BILLED      22     <- never post
- *     PURCHASE (top-up)     POSTED       1
- *
- * Every non-posting journal on the tenant is a top-up
- * (`RECARGA SALDO ELECTRICIDAD PREPAGO`, item I-100007), and every other
- * activity type posts. That is consistent with the accounting: a prepaid top-up
- * is a liability, not recognised revenue, so it has nothing to report.
- *
- * Counting them as extractable made TC-141 fail on a journal the extract was
- * never going to post - journal 5685 on 2026-09-24, which DID gain an
- * accounting_entry row and still stayed BILLED. The extract was right; the
- * expectation was wrong.
- *
- * The single POSTED top-up is left unexplained on purpose rather than tidied
- * away: if top-ups start posting, this exclusion is what needs revisiting.
- */
-export const NOT_A_TOPUP_SQL = `
-  rj.revenueactivitytype IS DISTINCT FROM 'PURCHASE'`;
-
 export const OPEN_CYCLE_SQL = `
   EXISTS (SELECT 1 FROM core_engine.bill_unit bu
            WHERE bu.id = rj.billunitid AND bu.status = 'PENDING')`;
@@ -214,7 +187,6 @@ export class AccountingDbHelper {
         WHERE rj.extractbatchid IS NULL
           AND rj.status <> ALL ($1::text[])
           AND ${NOT_ALREADY_EXTRACTED_SQL}
-          AND ${NOT_A_TOPUP_SQL}
           AND iu.invoicedate IS NOT NULL
         GROUP BY 1
         ORDER BY 1 DESC
@@ -243,8 +215,7 @@ export class AccountingDbHelper {
               count(*) FILTER (WHERE EXISTS (
                 SELECT 1 FROM core_engine.invoice_unit iu
                  WHERE iu.billunitid = rj.billunitid AND iu.invoicedate::date = $2::date)
-                AND ${NOT_ALREADY_EXTRACTED_SQL}
-                AND ${NOT_A_TOPUP_SQL})::int AS extractable
+                AND ${NOT_ALREADY_EXTRACTED_SQL})::int AS extractable
          FROM core_revenue.revenue_journal rj
         WHERE rj.extractbatchid IS NULL
           AND rj.status <> ALL ($1::text[])
@@ -269,7 +240,6 @@ export class AccountingDbHelper {
         WHERE rj.extractbatchid IS NULL
           AND rj.status <> ALL ($1::text[])
           AND ${NOT_ALREADY_EXTRACTED_SQL}
-          AND ${NOT_A_TOPUP_SQL}
           AND EXISTS (SELECT 1 FROM core_engine.invoice_unit iu
                        WHERE iu.billunitid = rj.billunitid
                          AND iu.invoicedate::date = $2::date)`,
