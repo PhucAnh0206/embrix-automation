@@ -10,6 +10,8 @@ playwright/.auth/
 # The active one gets copied to .env by the switcher.
 .env.dev
 .env.preprod
+.env.prod
+.env.production
 .env.staging
 .env.local
 .env.bak

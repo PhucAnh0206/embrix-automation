@@ -34,6 +34,8 @@ export interface Tenant {
   /**
    * Playwright projects allowed against this tenant, by prefix.
    * `*` means any — used only for tenant-agnostic projects like `setup`.
+   * A trailing `$` means EXACT name, not prefix: `jasec-accounting$` allows
+   * jasec-accounting but not jasec-accounting-run.
    */
   suites: string[];
   /** Shown in errors so a refusal explains itself. */
@@ -64,6 +66,24 @@ export const TENANTS: Record<string, Tenant> = {
     crmGatewayUrl: 'https://crm-gateway.jasec-preprod.embrix.org',
     dbName: 'coredb-jasec-preprod',
     suites: ['jasec-'],
+  },
+
+  // JASEC PRODUCTION, test build (build 1). Added 2026-09-30. The team will wipe
+  // it and rebuild for the customer afterwards - but anything that reaches
+  // OUTSIDE Embrix cannot be wiped: provisioning is fully armed against JASEC's
+  // live AMI and account creation would send real commands. So only READ-ONLY
+  // projects are allowed, by exact name. Widen this list deliberately, one
+  // project at a time, once PRODUCTION-SETUP-CHECKLIST.md section H allows it.
+  // dbName is left out until the team sends the prod DB details.
+  jasec: {
+    baseUrl: 'https://core-ui.jasec.embrix.org/',
+    graphqlUrl: 'https://service-transactional.jasec.embrix.org/graphql',
+    selfcareUrl: 'https://selfcare-ui.jasec.embrix.org/',
+    crmGatewayUrl: 'https://crm-gateway.jasec.embrix.org',
+    // jasec-billing-ui also holds ts-06/ts-08, which mutate but are each gated
+    // behind their own *_RUN env flag; only ts-07 runs without one.
+    suites: ['jasec-billing-read$', 'jasec-accounting$', 'jasec-billing-ui$'],
+    note: 'JASEC production test build - read-only projects only.',
   },
 
   'coopeg-sandbox': {
@@ -195,7 +215,7 @@ export function assertSuiteAllowed(projectName: string, tenantName: string): voi
 
   if (!isSuiteAllowed(projectName, tenantName)) {
     const allowed = Object.entries(TENANTS)
-      .filter(([, t]) => t.suites.some(p => p === '*' || projectName.startsWith(p)))
+      .filter(([, t]) => t.suites.some(p => suiteMatches(p, projectName)))
       .map(([n]) => n);
     throw new Error(
       `Project '${projectName}' is not valid against tenant '${tenantName}'.\n` +
@@ -212,7 +232,14 @@ export function isSuiteAllowed(projectName: string, tenantName: string): boolean
   if (TENANT_AGNOSTIC.includes(projectName)) return true;
   const tenant = TENANTS[tenantName];
   if (!tenant) return false;
-  return tenant.suites.some(p => p === '*' || projectName.startsWith(p));
+  return tenant.suites.some(p => suiteMatches(p, projectName));
+}
+
+/** `*` = any, `name$` = exactly that project, otherwise a prefix. */
+function suiteMatches(pattern: string, projectName: string): boolean {
+  if (pattern === '*') return true;
+  if (pattern.endsWith('$')) return projectName === pattern.slice(0, -1);
+  return projectName.startsWith(pattern);
 }
 
 /**
