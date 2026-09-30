@@ -82,8 +82,16 @@ export const TENANTS: Record<string, Tenant> = {
     crmGatewayUrl: 'https://crm-gateway.jasec.embrix.org',
     // jasec-billing-ui also holds ts-06/ts-08, which mutate but are each gated
     // behind their own *_RUN env flag; only ts-07 runs without one.
-    suites: ['jasec-billing-read$', 'jasec-accounting$', 'jasec-billing-ui$'],
-    note: 'JASEC production test build - read-only projects only.',
+    // 2026-09-30 widened to account creation + top-up, approved by Anh (test
+    // data on build 1 is fine; the team wipes and rebuilds for the customer).
+    // Checked the same day on prod: provisioningEnabled=false (no AMI
+    // dispatch), pacEnabled=false (no Hacienda), batchFinancialExtract=true (no
+    // live ledger post), PlaceToPay = checkout-test. Re-check before each run.
+    suites: ['jasec-billing-read$', 'jasec-accounting$', 'jasec-billing-ui$',
+             'jasec-regression$', 'jasec-top-up$',
+             // Seeding zero-usage invoices, approved by Anh 2026-09-30.
+             'jasec-seed$'],
+    note: 'JASEC production test build - read-only projects plus account creation and top-up.',
   },
 
   'coopeg-sandbox': {
