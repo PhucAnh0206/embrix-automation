@@ -798,15 +798,18 @@ test.describe('TS-03 — rendered notification content (replay)', () => {
    * having recorded on every run rather than re-derived by hand.
    */
   test('coverage — row counts and SMTP split per type', async () => {
-    // Fail loudly and specifically on an empty table rather than reporting a
-    // per-type miss for all nine templates — the cause is the connection, not
-    // the templates.
-    expect(
-      totalRows,
-      `core_engine.email_notification is EMPTY on "${connectedDb}". This suite ` +
-      `replays existing notifications, so it needs a database that has some. ` +
-      `Point DB_NAME at coredb-jasec-dev (switch-env.ps1 dev, or DB_NAME=... inline).`,
-    ).toBeGreaterThan(0);
+    // An empty table is an unmet PRECONDITION - there is nothing to replay - so it
+    // is BLOCKED, not FAILED (it used to fail here; JASEC prod, 2026-09-30, 0 rows).
+    // Say loudly and specifically why, rather than a per-type miss for all nine
+    // templates. On a tenant that HAS had top-ups, zero rows is itself a finding:
+    // check whether notifications are being created at all.
+    if (blockedIf(
+      totalRows === 0,
+      `core_engine.email_notification is EMPTY on "${connectedDb}" - nothing to replay. ` +
+      `This suite replays existing notifications. If this tenant has had top-ups or ` +
+      `failed MDR files, zero rows means notifications are not being CREATED - check ` +
+      `that before anything else. Otherwise point DB_NAME at a tenant that has some.`,
+    )) return;
 
     const all = await notifyDb.getNotifications({});
     const byType = new Map<string, { total: number; failed: number }>();
