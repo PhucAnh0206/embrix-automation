@@ -52,9 +52,12 @@ import { DO_NOT_TOUCH_ORDERS, QA_METER_PREFIX } from '../../../../helpers/provis
 // order on the wrong tenant (ORD-1582). Account ids collide across tenants, so
 // nothing looks wrong when this happens; it has to be prevented, not spotted.
 const TENANT = (process.env.TEST_ENV ?? 'jasec-dev').trim();
-if (!/^jasec-(dev|preprod)$/.test(TENANT)) {
+// 'jasec' = PROD build 1 (2026-09-30). Every payload here must be REFUSED (absent
+// order, or a terminal one proven COMPLETED/CANCELLED in the DB first), so it can
+// run on prod. dispatch / auto-suspend-resume keep their dev+preprod-only guard.
+if (!/^jasec(-dev|-preprod)?$/.test(TENANT)) {
   throw new Error(
-    `inbound-contract.spec: TEST_ENV must be jasec-dev or jasec-preprod (got '${TENANT}').`,
+    `inbound-contract.spec: TEST_ENV must be jasec-dev, jasec-preprod or jasec (got '${TENANT}').`,
   );
 }
 const ENDPOINT =
@@ -87,6 +90,8 @@ const TERMINAL_DEFAULTS: Record<string, { orderId: string; accountId: string }> 
   // 2026-09-15: the fixture existed the whole time and the default was dev's.
   // Same class of fault as FIRST_V5_INVOICE and BILLING_FIX_CUTOFF.
   'jasec-preprod': { orderId: 'ORD-77', accountId: 'ACT-100051' },
+  // PROD build 1: NEW, COMPLETED on 2026-09-30 - our own TS-01 account, QA meter.
+  jasec: { orderId: 'ORD-2', accountId: 'ACT-100001' },
 };
 const TERMINAL_ORDER: { orderId: string; accountId: string } = {
   orderId: process.env.JASEC_TERMINAL_ORDER ?? TERMINAL_DEFAULTS[TENANT].orderId,

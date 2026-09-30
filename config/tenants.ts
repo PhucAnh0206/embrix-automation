@@ -92,7 +92,11 @@ export const TENANTS: Record<string, Tenant> = {
     suites: ['jasec-billing-read$', 'jasec-accounting$', 'jasec-billing-ui$',
              'jasec-regression$', 'jasec-top-up$',
              // Seeding zero-usage invoices, approved by Anh 2026-09-30.
-             'jasec-seed$'],
+             'jasec-seed$',
+             // Read-only / refused-by-design only (2026-09-30). In jasec-provisioning,
+             // run inbound-contract, outbound-contract, order-integrity: dispatch and
+             // auto-suspend-resume refuse this tenant at load, and stay that way.
+             'jasec-provisioning$', 'jasec-notification-content$'],
     note: 'JASEC production test build - read-only projects plus account creation and top-up.',
   },
 
