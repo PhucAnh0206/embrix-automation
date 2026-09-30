@@ -187,9 +187,13 @@ const REQUIRED_LINES = ['ENERGIA', 'CVG ENERGIA', 'ALUMBRADO PUBLICO'];
  * FIRST_V5_INVOICE in ts-02, JASEC_CYCLE_CHARGE in the notification suite).
  * Any cutoff expressed as an invoice NUMBER has to be per tenant.
  */
+// 2026-09-30: default flipped to "dev only". The old form named the one tenant
+// that should NOT use 2793 (preprod), so every NEW tenant - JASEC prod first -
+// silently inherited dev's number and excused all of its invoices. Only dev
+// has the uncorrected pre-fix history; every other tenant asserts everything.
 const TENANT = (process.env.TEST_ENV ?? '').trim();
 const FIRST_POST_FIX_INVOICE = Number(
-  process.env.BILLING_FIX_CUTOFF ?? (TENANT === 'jasec-preprod' ? '1' : '2793'),
+  process.env.BILLING_FIX_CUTOFF ?? (TENANT === 'jasec-dev' ? '2793' : '1'),
 );
 
 /** Split a sample into invoices issued under the current rules, and older ones. */
@@ -560,6 +564,15 @@ test.beforeAll(async () => {
 for (const b of BANDS) {
   test.describe(`Monthly invoice — ${b.name} kWh (scenario doc ${b.doc})`,
     { tag: ['@jasec', '@billing', `@band-${b.name}`, `@tc-${b.tc}`] }, () => {
+
+    // Every test in this band loops over the band's invoices. With none, each
+    // loop ran zero times and the test PASSED having checked nothing - 37 such
+    // passes on the empty JASEC prod tenant (2026-09-30). One guard here covers
+    // every sibling, including ones added later.
+    test.beforeEach(() => {
+      const inv = buckets.get(b.name) ?? [];
+      blockedIf(inv.length === 0, `no PREPAID invoices in the ${b.name} kWh band on this tenant${noDataHint()}`);
+    });
 
     test('band has prepaid invoices to assert on', async () => {
       const inv = buckets.get(b.name) ?? [];

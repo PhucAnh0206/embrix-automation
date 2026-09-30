@@ -499,7 +499,8 @@ test.describe('Invoice document format vs JEPYP-125 and JEPYP-266 (both shipped)
      */
     const FIRST_V5_INVOICE = Number(
       process.env.JASEC_FIRST_V5_INVOICE ??
-      (TENANT === 'jasec-preprod' ? '1' : '2793'),
+      // dev only (2026-09-30): every other tenant started on v5.
+      (TENANT === 'jasec-dev' ? '2793' : '1'),
     );
     const numMatch = /_(\d{6})_/.exec(pdfName);
     const invoiceNo = numMatch ? Number(numMatch[1]) : null;

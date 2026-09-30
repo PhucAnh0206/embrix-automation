@@ -54,7 +54,18 @@ import { BillingGqlHelper, energiaKwh, lineName, summaryTotal } from '../../../.
 // preserves the intent exactly: one invoice in 201-280 (ICB, 201+ block break)
 // and one sub-30 (fixed-charge minimum, no tax). Same lesson as the terminal-order
 // fallback and the tariff-band seeding - a fixture must be re-derivable.
+//
+// 2026-09-30: the fixed ids are DEV ids and are used on dev only. Every rebuilt
+// tenant restarts numbering at 000001, so on preprod/prod "002796" will one day
+// EXIST - as some other customer's invoice - and would be tested against
+// ACT-100857's expectations. Elsewhere the subject is resolved by band from the
+// start (invoiceId '').
 type UiInvoiceCase = { invoiceId: string; account: string; note: string; lo: number; hi: number };
+const TENANT = (process.env.TEST_ENV ?? '').trim();
+const DEV_CASES: UiInvoiceCase[] = [
+  { invoiceId: '002796', account: 'ACT-100857', note: '220 kWh, ICB only, 201+ block break', lo: 201, hi: 280 },
+  { invoiceId: '002797', account: 'ACT-100858', note: '25 kWh, 30 kWh minimum, no tax', lo: 0, hi: 30 },
+];
 const CASES: UiInvoiceCase[] =
   process.env.JASEC_UI_INVOICE
     ? [{
@@ -63,10 +74,9 @@ const CASES: UiInvoiceCase[] =
         note: 'supplied via JASEC_UI_INVOICE',
         lo: 0, hi: Number.MAX_SAFE_INTEGER,
       }]
-    : [
-        { invoiceId: '002796', account: 'ACT-100857', note: '220 kWh, ICB only, 201+ block break', lo: 201, hi: 280 },
-        { invoiceId: '002797', account: 'ACT-100858', note: '25 kWh, 30 kWh minimum, no tax', lo: 0, hi: 30 },
-      ];
+    : TENANT === 'jasec-dev'
+      ? DEV_CASES
+      : DEV_CASES.map((c) => ({ ...c, invoiceId: '', account: '' }));
 
 const CENT = 0.02;
 const num = (v: unknown) => Number(v ?? 0);
@@ -81,14 +91,14 @@ const col = (row: UiRow, ...names: string[]): string | null => {
 const gql = new BillingGqlHelper();
 
 for (const c of CASES) {
-  test.describe(`Monthly invoice ${c.invoiceId} in Core UI — ${c.note}`, () => {
-    test(`invoice ${c.invoiceId} renders correctly for an agent @jasec @billing @ui-invoice @tc-134`, async ({
+  test.describe(`Monthly invoice ${c.invoiceId || `${c.lo}-${c.hi} kWh`} in Core UI — ${c.note}`, () => {
+    test(`invoice ${c.invoiceId || `${c.lo}-${c.hi} kWh`} renders correctly for an agent @jasec @billing @ui-invoice @tc-134`, async ({
       page, invoiceDetailPage,
     }) => {
       test.setTimeout(240_000);
 
       // ── the source of truth, first ──────────────────────────────────────
-      let truth = await gql.getInvoice(c.invoiceId).catch(() => null);
+      let truth = c.invoiceId ? await gql.getInvoice(c.invoiceId).catch(() => null) : null;
       let subjectId = c.invoiceId;
       if (!truth || !truth.id) {
         // Re-resolve from THIS tenant before giving up (2026-09-17).
@@ -99,7 +109,7 @@ for (const c of CASES) {
           subjectId = String(truth.id);
           console.log(
             `
-[ui-invoice] ${c.invoiceId} is not on this tenant; using ${subjectId} `
+[ui-invoice] ${c.invoiceId ? `${c.invoiceId} is not on this tenant; using` : 'resolved by band:'} ${subjectId} `
             + `(${c.lo}-${c.hi} kWh band) instead.
 `,
           );
@@ -107,7 +117,8 @@ for (const c of CASES) {
       }
       if (!truth || !truth.id) {
         const why =
-          `BLOCKED, not failed: invoice ${c.invoiceId} does not exist on this tenant. `
+          `BLOCKED, not failed: ${c.invoiceId ? `invoice ${c.invoiceId} does not exist` : 'no PREPAID invoice'} `
+          + `on this tenant in the ${c.lo}-${c.hi} kWh band. `
           + `These two invoices were billed on dev on 2026-09-11 (ACT-100857 BDOM 18, `
           + `ACT-100858 BDOM 19). On a rebuilt tenant, re-seed with `
           + `run-tarif-e2e.ps1 + run-billing-cycle-e2e.ps1 and pass JASEC_UI_INVOICE / `

@@ -127,9 +127,10 @@ const idNum = (s: unknown) => Number(String(s ?? '').replace(/\D/g, '')) || 0;
  * its numbering at 000001, so applying dev's number there would excuse every
  * invoice and leave the assertion with no subject at all.
  */
+// Default is "dev only" (2026-09-30) - see the same constant in ts-01.
 const TENANT = (process.env.TEST_ENV ?? '').trim();
 const FIRST_POST_FIX_INVOICE = Number(
-  process.env.BILLING_FIX_CUTOFF ?? (TENANT === 'jasec-preprod' ? '1' : '2793'),
+  process.env.BILLING_FIX_CUTOFF ?? (TENANT === 'jasec-dev' ? '2793' : '1'),
 );
 
 const HOW_TO_SEED =
