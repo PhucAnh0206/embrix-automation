@@ -21,7 +21,7 @@
  *     $env:JASEC_USAGE_RUN='true'
  *     npx playwright test --project=jasec-usage-run
  *
- * WHY THIS IS NEW COVERAGE. The breach NOTIFICATION is covered (TC-78/79/80 in
+ * WHY THIS IS NEW COVERAGE. The breach NOTIFICATION is covered (TC-79/79/80 in
  * the notification block). The USAGE-RECORD half never was: nothing in the suite
  * asserts that the reading parks, that nothing is charged, or that it can be
  * replayed — `processUsageRecords` appears in no other file. The tariff scripts

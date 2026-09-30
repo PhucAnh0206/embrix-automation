@@ -30,7 +30,18 @@ export class JasecOrderManagementPage extends OrderManagementPage {
   private get jasecViewProvisioningModal() { return this.page.locator('//h5[@class="modal-title"][text()="View Provisioning Data"]/../..'); }
   private get jasecViewProvisioningModalAddBtn() { return this.jasecViewProvisioningModal.getByRole('button', { name: /\+?\s*Add/i }); }
   private get jasecViewProvisioningModalProvisioningIDInput() { return this.jasecViewProvisioningModal.locator("//input[@name='provisioningId']").last(); }
-  private get jasecViewProvisioningModalMeterReadingInput() { return this.jasecViewProvisioningModal.locator("//input[@name='flexAttr1']").last(); }
+  // "Lectura Inicial kWh" moved from flexAttr1 to flexAttr16 in the Core UI. That
+  // move IS the fix for the initial-reading defect: the rating side
+  // (update_service_provision) always read flexattr16, while the order screen had
+  // been writing flexattr1, so the declared reading never reached rating and the
+  // first bill had no baseline to subtract.
+  //
+  // Matching BOTH names, newest first, on purpose - the environments do not all
+  // carry the UI change at the same time, and a locator pinned to one name makes a
+  // correctly-fixed environment look broken (which is exactly how this was found:
+  // ts-01 failed on preprod on 2026-09-30 because the old name was gone).
+  // Remove the flexAttr1 fallback once every environment has the change.
+  private get jasecViewProvisioningModalMeterReadingInput() { return this.jasecViewProvisioningModal.locator("//input[@name='flexAttr16' or @name='flexAttr1']").last(); }
   private get jasecViewProvisioningModalSubmitButton() { return this.jasecViewProvisioningModal.getByRole('button', { name: 'Submit' }); }
   private get jasecSubmitOrderButton() { return this.page.getByRole('button', { name: /^\s*(Submit\s*order|Enviar\s*orden)\s*$/i }).first(); }
   private get addBundleButton() { return this.page.getByRole('button', { name: /ADD BUNDLE/i }); }

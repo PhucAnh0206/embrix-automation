@@ -36,6 +36,19 @@ const row = rows[0];
 // remote bash calc script via the METER env var.
 const isCalcMode = process.env.JASEC_CALC_MODE === 'true';
 
+// JASEC_LECTURA_INICIAL overrides the calc-mode initial reading. DEFAULTS TO '0',
+// which is exactly what calc mode did before this existed, so the sixteen Block E
+// cases are unaffected and must stay that way - they compare engine output against
+// a tariff table computed from zero.
+//
+// It exists for the ONE case that cannot run at zero. With a declared initial of 0,
+// "delta since service start" and "the meter's odometer" are the same number, so a
+// baseline that never reaches rating is indistinguishable from one that does. Every
+// rating case in this block is therefore structurally blind to the initial-reading
+// defect, and that is why it went uncaught. The invariant case declares a NON-ZERO
+// initial reading precisely so the two numbers separate.
+const calcLecturaInicial = process.env.JASEC_LECTURA_INICIAL ?? '0';
+
 test.describe('TS-01 — Prepaid Account Creation (Energia Prepago)', {
   tag: ['@regression', '@jasec', '@ts-01', '@tc-c01'],
 }, () => {
@@ -194,7 +207,7 @@ test.describe('TS-01 — Prepaid Account Creation (Energia Prepago)', {
     await orderManagementPage.clickNextBelowSubscription();
 
     // 2d.v–vii. Override Options → View → +ADD → meter data → Submit
-    const lecturaInicialKwh = isCalcMode ? '0' : row.meter.lecturaInicialKwh;
+    const lecturaInicialKwh = isCalcMode ? calcLecturaInicial : row.meter.lecturaInicialKwh;
     await orderManagementPage.addMeterProvisioningData(
       provisioningId,
       lecturaInicialKwh,
@@ -292,7 +305,7 @@ test.describe('TS-01 — Prepaid Account Creation (Energia Prepago)', {
       // scripts read this file and they should not have to change in lockstep.
       // Readers should prefer artifacts/ and fall back.
       const payload = JSON.stringify(
-        { accountId, provisioningId, orderId, lecturaInicialKwh: '0' }, null, 2);
+        { accountId, provisioningId, orderId, lecturaInicialKwh: calcLecturaInicial }, null, 2);
       for (const dir of ['artifacts', 'test-results']) {
         const handoffPath = path.join(process.cwd(), dir, 'jasec-latest-meter.json');
         fs.mkdirSync(path.dirname(handoffPath), { recursive: true });

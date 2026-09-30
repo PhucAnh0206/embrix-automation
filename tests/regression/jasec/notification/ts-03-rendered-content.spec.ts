@@ -590,7 +590,7 @@ test.describe('TS-03 — rendered notification content (replay)', () => {
    * production — that is history, not a licence to add more.)
    *
    * Consequence for the plan: stamping is not "blocked pending pacEnabled", it is
-   * **not verifiable on dev at all**. TC-89 (case 7.5) and the XML half of TC-86
+   * **not verifiable on dev at all**. TC-90 (case 7.5) and the XML half of TC-87
    * inherit that. This case is deliberately built to need none of it — it reads
    * calls already recorded in the gateway log.
    *

@@ -14,11 +14,11 @@
  * held the rows. It was fixed on jasec-dev and is STILL OPEN on jasec-preprod.
  * It escaped because nothing in the suite looked at either screen.
  *
- * TC-60 and TC-61 in the CoopeG platform suite (`embrixPlatform/ts-02.spec.ts`)
+ * TC-60 and TC-62 in the CoopeG platform suite (`embrixPlatform/ts-02.spec.ts`)
  * appear to cover this and do not:
  *   - TC-60 asserts the grid settles into rows OR "No records found". An empty
  *     screen after rating is a PASS. It cannot fail the way that matters.
- *   - TC-61 never asserts a row exists; it only checks an export downloads.
+ *   - TC-62 never asserts a row exists; it only checks an export downloads.
  * Both also build their date filter from `new Date()` — real today — which on a
  * CCP tenant filters everything out and then passes via the empty branch. This
  * spec derives its window from the rated row itself, never from the wall clock.
