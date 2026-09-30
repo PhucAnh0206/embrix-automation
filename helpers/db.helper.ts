@@ -16,6 +16,15 @@ import { assertDbMatchesTenant } from '../config/tenants';
  *   const bu = await db.getBalanceUnitIdForAccount('ACT-100171');
  *   await db.setBalanceAmount(bu, 500);   // put account into debt
  */
+/**
+ * True when the four DB_* values are present. A tenant can be reachable over
+ * UI + GraphQL days before anyone hands over DB credentials (JASEC prod,
+ * 2026-09-30); callers use this to report BLOCKED instead of failing.
+ */
+export function hasDbConfig(): boolean {
+  return !!(process.env.DB_HOST && process.env.DB_NAME && process.env.DB_USER && process.env.DB_PASSWORD);
+}
+
 export class DbHelper {
   private pool: Pool | null = null;
   private logger?: TestLogger;

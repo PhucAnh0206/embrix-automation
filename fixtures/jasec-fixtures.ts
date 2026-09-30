@@ -20,7 +20,7 @@ import { SelfcareTopupPage } from '../pages/selfcare/selfcare-topup.page';
 import { SelfcareMakePaymentPage } from '../pages/selfcare/selfcare-make-payment.page';
 import { SelfcarePaymentsPage } from '../pages/selfcare/selfcare-payments.page';
 import { PlaceToPayCheckoutPage } from '../pages/selfcare/placetopay-checkout.page';
-import { DbHelper } from '../helpers/db.helper';
+import { DbHelper, hasDbConfig } from '../helpers/db.helper';
 import { EmailHelper } from '../helpers/email.helper';
 
 /**
@@ -128,7 +128,17 @@ export const test = base.extend<JasecFixtures & JasecOptions>({
     await use(new PlaceToPayCheckoutPage(page));
   },
 
-  dbHelper: async ({ testLogger }, use) => {
+  dbHelper: async ({ testLogger }, use, testInfo) => {
+    // No DB credentials is an unmet PRECONDITION, not a product failure:
+    // report BLOCKED (printed, since the list reporter hides skip reasons).
+    if (!hasDbConfig()) {
+      const why = 'BLOCKED, not failed: this test needs direct DB access and no DB_* credentials are configured for this tenant';
+      console.log(`
+  ${why}
+`);
+      testInfo.skip(true, why);
+      return;
+    }
     const db = new DbHelper(testLogger);
     await db.connect();
     try {

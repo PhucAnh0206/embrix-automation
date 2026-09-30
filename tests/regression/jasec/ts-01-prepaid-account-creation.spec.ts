@@ -23,7 +23,7 @@ import { test, expect } from '../../../fixtures/jasec-fixtures';
 import type { PrepaidAccountPayload } from '../../../pages/customer-hub/customer-management/create-account.page';
 import { uniqueRunSuffix, assertQaMeter, type PrepaidAccountWithOrderRow } from '../../../fixtures/create-prepaid-account.helper';
 import { OrderOutcomeHelper } from '../../../helpers/order-outcome.helper';
-import { DbHelper } from '../../../helpers/db.helper';
+import { DbHelper, hasDbConfig } from '../../../helpers/db.helper';
 
 const dataFile = path.join(process.cwd(), 'test-data', 'jasec-prepaid-accounts.data.json');
 const rows: PrepaidAccountWithOrderRow[] = JSON.parse(fs.readFileSync(dataFile, 'utf-8'));
@@ -118,6 +118,17 @@ test.describe('TS-01 — Prepaid Account Creation (Energia Prepago)', {
     // too, because that is the thing legalEntity used to buy us: an account
     // matching no profile can never warn and never suspend, and it would sail
     // through account creation looking perfectly healthy.
+    // Without DB credentials (a new tenant, before hand-over) the read-back is
+    // BLOCKED but the account + order journey still runs. Recorded as an
+    // annotation so a pass here is never mistaken for a checked account shape.
+    if (!hasDbConfig()) {
+      const why = 'account read-back BLOCKED: no DB_* credentials for this tenant - stored legalentity/currency/category NOT checked';
+      testLogger.log(`⚠ ${why}`);
+      console.log(`
+  PARTIAL: ${why}
+`);
+      test.info().annotations.push({ type: 'partial', description: why });
+    } else {
     const db = new DbHelper();
     await db.connect();
     try {
@@ -152,6 +163,7 @@ test.describe('TS-01 — Prepaid Account Creation (Energia Prepago)', {
       );
     } finally {
       await db.disconnect();
+    }
     }
 
     // ── Step 2: Crear nueva orden, agregar Paquete Prepago, meter ────
