@@ -213,7 +213,7 @@ export class AccountingGqlHelper {
     // Same shape the Core UI sends: a plain query (not a mutation), field
     // `userName` (not `userId`), values inlined.
     const d = await this.post(
-      `{ userLogin(input: {userName: "${user}", password: "${pass}"}) { token } }`,
+      `{ userLogin(input: {userName: ${JSON.stringify(user)}, password: ${JSON.stringify(pass)}}) { token } }`,
       false,
     );
     const t = d?.userLogin?.token;
@@ -276,8 +276,8 @@ export class AccountingGqlHelper {
     const parts: string[] = [];
     if (filter?.type) parts.push(`type: ${filter.type}`);
     if (filter?.extractStatus) parts.push(`extractStatus: ${filter.extractStatus}`);
-    if (filter?.batchId) parts.push(`batchId: "${filter.batchId}"`);
-    if (filter?.period) parts.push(`period: "${filter.period}"`);
+    if (filter?.batchId) parts.push(`batchId: ${JSON.stringify(filter.batchId)}`);
+    if (filter?.period) parts.push(`period: ${JSON.stringify(filter.period)}`);
     const f = parts.length ? `, filter:{${parts.join(', ')}}` : '';
     const d = await this.post(
       `{ searchEbsExtract(page:${page}, size:${size}, sort: createdDate_DESC${f}) { ${AccountingGqlHelper.HEADER_FIELDS} } }`,
@@ -287,7 +287,7 @@ export class AccountingGqlHelper {
 
   /** The GL lines of one extract. Takes the HEADER id, not the batchId. */
   async getDetails(headerId: string): Promise<EbsDetail[]> {
-    const d = await this.post(`{ getEbsExtractDetailsById(input:{id:"${headerId}"}) {
+    const d = await this.post(`{ getEbsExtractDetailsById(input:{id:${JSON.stringify(headerId)}}) {
         index credit debit glAccount glOffset accountingCode offsetAccountingCode
         period glDate batchId batchName type
       } }`);
@@ -298,7 +298,7 @@ export class AccountingGqlHelper {
   private propCache = new Map<string, string | null>();
   async ccpProperty(name: string): Promise<string | null> {
     if (this.propCache.has(name)) return this.propCache.get(name)!;
-    const d = await this.post(`{ getCcpPropertyByName(name:"${name}") { property value } }`);
+    const d = await this.post(`{ getCcpPropertyByName(name:${JSON.stringify(name)}) { property value } }`);
     const v = d?.getCcpPropertyByName?.value ?? null;
     this.propCache.set(name, v);
     return v;
@@ -342,7 +342,7 @@ export class AccountingGqlHelper {
   async ebsExtract(journalDate: string, type: EbsExtractType = 'INVOICE'): Promise<EbsExtractResult[]> {
     this.logger?.log(`ebsExtract(journalDate:"${journalDate}", type:${type})`);
     const d = await this.post(
-      `mutation { ebsExtract(input:{journalDate:"${journalDate}", type: ${type}}) { id batchId batchName } }`,
+      `mutation { ebsExtract(input:{journalDate:${JSON.stringify(journalDate)}, type: ${type}}) { id batchId batchName } }`,
     );
     const out: EbsExtractResult[] = d?.ebsExtract ?? [];
     this.logger?.data('ebsExtract result', out);
@@ -354,9 +354,9 @@ export class AccountingGqlHelper {
    * batchId and flips the original to RESENT — see note 6.
    */
   async resendEbsExtract(headerId: string, batchId?: string, reExtract = false): Promise<EbsExtractResult[]> {
-    const b = batchId ? `, batchId:"${batchId}"` : '';
+    const b = batchId ? `, batchId:${JSON.stringify(batchId)}` : '';
     const d = await this.post(
-      `mutation { resendEbsExtract(input:{id:"${headerId}"${b}, reExtract:${reExtract}}) { id batchId batchName } }`,
+      `mutation { resendEbsExtract(input:{id:${JSON.stringify(headerId)}${b}, reExtract:${reExtract}}) { id batchId batchName } }`,
     );
     return d?.resendEbsExtract ?? [];
   }

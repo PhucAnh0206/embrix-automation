@@ -255,10 +255,21 @@ export class OrderOutcomeHelper {
     return bad;
   }
 
-  /** Read and verify in one call. Logs a readable summary either way. */
-  async readAndVerify(accountId: string, expected: ExpectedOutcome): Promise<string[]> {
-    const outcome = await this.read(accountId);
-    const problems = this.verify(outcome, expected);
+  /**
+   * Read and verify in one call. Logs a readable summary either way.
+   *
+   * Re-reads for up to `timeoutMs` while problems remain: the NEW order
+   * completes a few seconds after seed() returns, so one read can race it.
+   */
+  async readAndVerify(accountId: string, expected: ExpectedOutcome, timeoutMs = 30_000): Promise<string[]> {
+    const deadline = Date.now() + timeoutMs;
+    let outcome = await this.read(accountId);
+    let problems = this.verify(outcome, expected);
+    while (problems.length > 0 && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 3_000));
+      outcome = await this.read(accountId);
+      problems = this.verify(outcome, expected);
+    }
     this.logger?.data(`order outcome for ${accountId}`, {
       subscription: outcome.subscription,
       activeServiceUnits: outcome.serviceUnits.filter((s) => s.status === 'ACTIVE').map((s) => `${s.id}:${s.type}`),

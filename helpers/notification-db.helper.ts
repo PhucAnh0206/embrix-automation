@@ -185,7 +185,10 @@ export class NotificationDbHelper {
    */
   async findEligibleAccounts(filter: EligibleAccountFilter): Promise<EligibleAccount[]> {
     const rows = await this.db.query<any>(
-      `SELECT a.id                              AS "accountId",
+      // DISTINCT ON: the bill_unit / subscription / balance joins can repeat an
+      // account, and a repeated account would be planned for two events.
+      `SELECT DISTINCT ON (a.id)
+              a.id                              AS "accountId",
               COALESCE(bub.amount, 0)           AS balance,
               pp.paymentmethod                  AS "paymentMethod",
               (SELECT count(*) FROM core_engine.balance_unit bu2
@@ -223,7 +226,7 @@ export class NotificationDbHelper {
           AND ($3::varchar IS NULL OR EXISTS (
                 SELECT 1 FROM core_engine.contact ct
                  WHERE ct.accountid = a.id AND ct.email = $3::varchar))
-        ORDER BY a.id
+        ORDER BY a.id, bal.id DESC NULLS LAST
         LIMIT $4`,
       [
         filter.scheduleDate,
@@ -731,7 +734,7 @@ export class NotificationDbHelper {
     const rows = await this.db.query<{ d: string; n: string }>(
       `SELECT to_char(bp.nextaccountingdate + core_engine.get_future_cycle_date(a.id),
                       'YYYY-MM-DD') AS d,
-              count(*) AS n
+              count(DISTINCT a.id) AS n
          FROM core_engine.account a
          JOIN core_engine.billing_profile bp ON bp.accountid = a.id
          JOIN core_engine.bill_unit bu       ON bu.accountid = a.id AND bu.status = 'PENDING'
@@ -739,6 +742,10 @@ export class NotificationDbHelper {
          JOIN core_engine.subscription s     ON s.accountid = a.id AND s.status = 'ACTIVE'
         WHERE a.accountcategory = 'PREPAID'
           AND a.status = 'ACTIVE'
+          -- Same rule as findEligibleAccounts, so a date's count is what it can deliver.
+          AND EXISTS (
+                SELECT 1 FROM core_engine.service_unit su
+                 WHERE su.accountid = a.id AND su.status = 'ACTIVE')
           AND ($1::varchar IS NULL OR pp.paymentmethod = $1::varchar)
           AND ($2::varchar IS NULL OR EXISTS (
                 SELECT 1 FROM core_engine.contact ct
@@ -746,8 +753,8 @@ export class NotificationDbHelper {
           AND ($3::date IS NULL OR
                bp.nextaccountingdate + core_engine.get_future_cycle_date(a.id) >= $3::date)
         GROUP BY 1
-        HAVING count(*) >= $4
-        ORDER BY count(*) DESC, 1`,
+        HAVING count(DISTINCT a.id) >= $4
+        ORDER BY count(DISTINCT a.id) DESC, 1`,
       [opts.paymentMethod ?? null, opts.contactEmail ?? null, opts.fromDate ?? null, opts.minAccounts ?? 7],
     );
 
@@ -1113,8 +1120,10 @@ export class NotificationDbHelper {
   async getNotifications(opts: {
     accountIds?: string[];
     type?: string;
-    sinceMinutes?: number;
-    /** Watermark from getMaxNotificationId(). Strongly preferred over sinceMinutes. */
+    /**
+     * Watermark from getMaxNotificationId(). The only safe scope: createddate is
+     * stamped by the CCP clock, so a "last N minutes" window against now() is wrong.
+     */
     afterId?: string;
   } = {}): Promise<NotificationRow[]> {
     const rows = await this.db.query<any>(
@@ -1123,10 +1132,9 @@ export class NotificationDbHelper {
          FROM core_engine.email_notification
         WHERE ($1::varchar[] IS NULL OR accountid = ANY($1::varchar[]))
           AND ($2::varchar   IS NULL OR type = $2::varchar)
-          AND ($3::int       IS NULL OR createddate > now() - ($3 || ' minutes')::interval)
-          AND ($4::varchar   IS NULL OR id > $4::varchar)
+          AND ($3::varchar   IS NULL OR id > $3::varchar)
         ORDER BY id DESC`,
-      [opts.accountIds ?? null, opts.type ?? null, opts.sinceMinutes ?? null, opts.afterId || null],
+      [opts.accountIds ?? null, opts.type ?? null, opts.afterId || null],
     );
     return rows.map((r) => ({ ...r, createdDate: new Date(r.createdDate) }));
   }
@@ -1143,12 +1151,12 @@ export class NotificationDbHelper {
    * Returns the row count seen in the window.
    */
   async waitForNotificationsToSettle(opts: {
-    sinceMinutes?: number;
-    afterId?: string;
+    /** Watermark from getMaxNotificationId(), taken before the job ran. */
+    afterId: string;
     quietMs?: number;
     timeoutMs?: number;
     onTick?: (count: number) => void;
-  } = {}): Promise<number> {
+  }): Promise<number> {
     const quietMs = opts.quietMs ?? 30_000;
     const timeoutMs = opts.timeoutMs ?? 420_000;
     const deadline = Date.now() + timeoutMs;
@@ -1157,10 +1165,7 @@ export class NotificationDbHelper {
     let stableSince = Date.now();
 
     for (; ;) {
-      const count = (await this.getNotifications({
-        sinceMinutes: opts.afterId ? undefined : (opts.sinceMinutes ?? 120),
-        afterId: opts.afterId,
-      })).length;
+      const count = (await this.getNotifications({ afterId: opts.afterId })).length;
       if (count !== last) {
         last = count;
         stableSince = Date.now();
@@ -1236,7 +1241,7 @@ export class NotificationDbHelper {
   async getRenderedEmail(
     accountId: string,
     type: BillingEvent | string,
-    scope: { sinceMinutes?: number; afterId?: string } = {},
+    scope: { afterId?: string } = {},
   ): Promise<{ email: ParsedEmail; row: NotificationRow } | null> {
     const rows = await this.getNotifications({ accountIds: [accountId], type, ...scope });
     if (!rows.length) return null;

@@ -428,14 +428,23 @@ export class DbHelper {
    *
    * Guards against the "UI shows success but backend silently no-op'd" case
    * (e.g., subscription effective date not reached, orchestration failed).
+   *
+   * Polls like waitForTopUpJournal: the balance is written after the redirect,
+   * so a single read on the success screen can race it.
    */
   async assertTopUpApplied(
     accountId: string,
     topUpAmount: number,
     balanceBefore: number,
+    timeoutMs = 30_000,
   ): Promise<number> {
-    const balanceAfter = await this.getAccountBalance(accountId);
     const expected = balanceBefore - topUpAmount;
+    const deadline = Date.now() + timeoutMs;
+    let balanceAfter = await this.getAccountBalance(accountId);
+    while (Math.abs(balanceAfter - expected) > 0.01 && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 3_000));
+      balanceAfter = await this.getAccountBalance(accountId);
+    }
     if (Math.abs(balanceAfter - expected) > 0.01) {
       throw new Error(
         `Top-up did not reach backend: expected balance ${expected} CRC, got ${balanceAfter} CRC ` +

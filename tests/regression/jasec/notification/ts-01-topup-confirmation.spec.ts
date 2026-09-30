@@ -191,6 +191,8 @@ async function verifyTopUpEmail(a: {
   channel: (typeof CHANNELS)[keyof typeof CHANNELS];
   accountId: string; row: PrepaidAccountWithOrderRow; ccpDate: string;
   balanceAfter: number; triggeredAt: Date;
+  /** getMaxNotificationId() taken before the top-up, so the DB fallback can only see this run's row. */
+  notificationWatermark: string;
   testInfo: any; testLogger: any; emailHelper: any; dbHelper: any;
 }): Promise<void> {
   const { channel, accountId, row, ccpDate, balanceAfter, triggeredAt } = a;
@@ -226,7 +228,9 @@ async function verifyTopUpEmail(a: {
 
   if (!email) {
     const notifyDb = new NotificationDbHelper(a.dbHelper, a.testLogger);
-    const stored = await notifyDb.getRenderedEmail(accountId, 'BALANCE_TOPUP');
+    const stored = await notifyDb.getRenderedEmail(accountId, 'BALANCE_TOPUP', {
+      afterId: a.notificationWatermark,
+    });
 
     /**
      * NO NOTIFICATION AFTER AN UNAPPLIED TOP-UP IS A MISSING PRECONDITION, NOT A
@@ -435,6 +439,8 @@ test.describe(
         // Pay Now silently no-ops (same trap as top-up TS-02 TC 2.2).
         await selfcareTopupPage.reload(selfcareActivityPage);
 
+        const notificationWatermark =
+          await new NotificationDbHelper(dbHelper, testLogger).getMaxNotificationId();
         const triggeredAt = new Date();
         await selfcareTopupPage.enterAmount(TOP_UP_AMOUNT);
         await selfcareTopupPage.clickPayNow();
@@ -446,7 +452,7 @@ test.describe(
 
         await verifyTopUpEmail({
           channel: CHANNELS.payNow, accountId, row, ccpDate, balanceAfter,
-          triggeredAt, testInfo, testLogger, emailHelper, dbHelper,
+          triggeredAt, notificationWatermark, testInfo, testLogger, emailHelper, dbHelper,
         });
       },
     );
@@ -476,6 +482,8 @@ test.describe(
         await selfcareActivityPage.navigateToTopUp();
         await selfcareTopupPage.assertLoaded();
 
+        const notificationWatermark =
+          await new NotificationDbHelper(dbHelper, testLogger).getMaxNotificationId();
         const triggeredAt = new Date();
         await selfcareTopupPage.enterAmount(TOP_UP_AMOUNT);
         await selfcareTopupPage.clickPayWithPlaceToPay();
@@ -491,7 +499,7 @@ test.describe(
 
         await verifyTopUpEmail({
           channel: CHANNELS.placeToPay, accountId, row, ccpDate, balanceAfter,
-          triggeredAt, testInfo, testLogger, emailHelper, dbHelper,
+          triggeredAt, notificationWatermark, testInfo, testLogger, emailHelper, dbHelper,
         });
       },
     );

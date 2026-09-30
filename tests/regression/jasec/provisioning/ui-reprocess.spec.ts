@@ -47,6 +47,7 @@
 
 import { test, expect } from '@playwright/test';
 import { DbHelper } from '../../../../helpers/db.helper';
+import { blockedIf } from '../../../../helpers/blocked.helper';
 import { ACCEPTED_REPLY_SQL, DO_NOT_TOUCH_ORDERS } from '../../../../helpers/provisioning-safety.helper';
 
 const RUN = process.env.JASEC_UI_REPROCESS_RUN === 'true';
@@ -56,15 +57,22 @@ const ORDER = process.env.JASEC_UI_REPROCESS_ORDER ?? '';
 const DO_NOT_TOUCH = DO_NOT_TOUCH_ORDERS;
 
 let db: DbHelper;
+let dbUp = false;
+let dbError = '';
 
 test.beforeAll(async () => {
   if (!RUN) return;
   db = new DbHelper();
-  await db.connect();
+  try {
+    await db.connect();
+    dbUp = true;
+  } catch (e) {
+    dbError = String((e as Error)?.message ?? e);
+  }
 });
 
 test.afterAll(async () => {
-  if (db) await db.disconnect();
+  if (dbUp) await db.disconnect();
 });
 
 test.describe('JEPYP-27 - manual reprocess through the UI', () => {
@@ -72,6 +80,7 @@ test.describe('JEPYP-27 - manual reprocess through the UI', () => {
     test.skip(!RUN, 'GATED: dispatches to the live AMI. Set JASEC_UI_REPROCESS_RUN=true.');
     test.skip(!ORDER, 'BLOCKED: set JASEC_UI_REPROCESS_ORDER to an order in PROVISIONING_ERROR.');
     test.setTimeout(600_000);
+    blockedIf(!dbUp, `cannot reach the JASEC database. ${dbError}`);
 
     expect(DO_NOT_TOUCH, `${ORDER} is staged for a JASEC session.`).not.toContain(ORDER);
 
@@ -84,20 +93,22 @@ test.describe('JEPYP-27 - manual reprocess through the UI', () => {
                           JOIN core_engine.service_provision sp ON sp.id=su.id AND sp.type='METER'
                          WHERE su.accountid=o.accountid LIMIT 1),'') AS meter
          FROM core_oms."order" o WHERE o.id = $1`, [ORDER]);
-    expect(pre.length, `${ORDER} does not exist on this tenant.`).toBe(1);
+    // The order named in JASEC_UI_REPROCESS_ORDER is test data: if it is not in
+    // the state this case needs, the case is BLOCKED, not failed.
+    blockedIf(pre.length !== 1, `${ORDER} does not exist on this tenant.`);
     const { status, svcline, seq, meter } = pre[0];
     console.log(`  ${ORDER}: ${status}, service line ${svcline}, sequence ${seq}, meter ${meter || '(none)'}`);
 
-    expect(status, 'This case is about an order stopped at PROVISIONING_ERROR.')
-      .toBe('PROVISIONING_ERROR');
-    expect(seq, 'The provisioning step must be FAILED for the reprocess to have anything to re-run.')
-      .toBe('FAILED');
-    expect(
-      svcline,
+    blockedIf(status !== 'PROVISIONING_ERROR',
+      `${ORDER} is ${status}; this case is about an order stopped at PROVISIONING_ERROR.`);
+    blockedIf(seq !== 'FAILED',
+      `${ORDER}'s provisioning step is ${seq}; it must be FAILED for the reprocess to have anything to re-run.`);
+    blockedIf(
+      svcline !== 'CREATED',
       `Service line is ${svcline}. Only no-status, PROVISIONING_INITIATED or ` +
       `CREATED survive the service filter - anything else short circuits before ` +
       `the sequence loop, so this test would prove nothing.`,
-    ).toBe('CREATED');
+    );
 
     // The order must not be dated ahead of the CCP clock. createddate is not a
     // real date here - the tenant runs on a frozen clock - and an order dated in
@@ -108,13 +119,13 @@ test.describe('JEPYP-27 - manual reprocess through the UI', () => {
     const dated = await db.query<{ ahead: boolean; created: string }>(
       `SELECT o.createddate > now() AS ahead, o.createddate::date::text AS created
          FROM core_oms."order" o WHERE o.id = $1`, [ORDER]);
-    expect(
-      dated[0]?.ahead,
+    blockedIf(
+      dated[0]?.ahead !== false,
       `${ORDER} is dated ${dated[0]?.created}, ahead of the clock. Re-submitting ` +
       `it schedules a FUTURE_ORDERS job for that date, which is almost certainly ` +
       `not configured, and the order fails before provisioning runs - proving ` +
       `nothing about reprocess. Pick an order dated in the past.`,
-    ).toBe(false);
+    );
 
     // Never reprocess onto a meter JASEC actually act on.
     const accepted = await db.query<{ medidor: string }>(
@@ -130,7 +141,8 @@ test.describe('JEPYP-27 - manual reprocess through the UI', () => {
     const countCmds = async (): Promise<number> => {
       const r = await db.query<{ n: string }>(
         `SELECT count(*)::text AS n FROM core_engine.activity
-          WHERE apiname ILIKE '%UTILITIES%' AND request::text LIKE $1`, [`%${ORDER}%`]);
+          WHERE apiname ILIKE '%UTILITIES%' AND request::text LIKE $1`,
+        [`%>${ORDER}<%`]); // between tags, so ORD-18 cannot match ORD-1869
       return Number(r[0]?.n ?? 0);
     };
     const before = await countCmds();

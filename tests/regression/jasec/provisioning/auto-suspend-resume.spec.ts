@@ -220,11 +220,19 @@ async function commands(db: DbHelper, order: string): Promise<Cmd[]> {
     [`%<numeroOrden>${order}</numeroOrden>%`]);
 }
 
-async function readingRecord(db: DbHelper, meter: string) {
+/** The row for the file just sent - not the meter's latest row, which may be an older reading. */
+async function readingRecord(db: DbHelper, meter: string, file: string) {
   const r = await db.query<{ id: string; status: string; errorcode: string; errormsg: string }>(
     `SELECT id, status, coalesce(errorcode,'') AS errorcode, coalesce(left(errormsg,220),'') AS errormsg
-       FROM core_usage.file_detail_record WHERE provisioningid = $1 ORDER BY id DESC LIMIT 1`, [meter]);
+       FROM core_usage.file_detail_record WHERE provisioningid = $1 AND id = $2`, [meter, file]);
   return r[0];
+}
+
+/** The MDR file name submitReading produced. */
+function mdrFile(out: string): string {
+  const file = out.match(/MDR_PREPAGO_[0-9-]+\.csv/)?.[0] ?? '';
+  expect(file, 'submitReading did not report the file it produced').not.toBe('');
+  return file;
 }
 
 /**
@@ -327,8 +335,8 @@ async function fundedAccount(db: DbHelper, logger: TestLogger, tag: string, nise
 /** Send the breach reading, assert it parked and the system raised a SUSPEND. */
 async function breach(db: DbHelper, mdr: MdrRemoteHelper, s: Seeded, testInfo: TestInfo) {
   const before = await balance(db, s.accountId);
-  await mdr.submitReading(s.meter, BREACH_READING);
-  const rec = await poll(() => readingRecord(db, s.meter), r => !!r && r.status !== 'PENDING', 180_000, 5_000);
+  const file = mdrFile(await mdr.submitReading(s.meter, BREACH_READING));
+  const rec = await poll(() => readingRecord(db, s.meter, file), r => !!r && r.status !== 'PENDING', 180_000, 5_000);
   console.log(`  breach reading: ${rec?.id} ${rec?.status}/${rec?.errorcode} ${rec?.errormsg.replace(/\s+/g, ' ')}`);
   expect(rec, 'the breach reading never appeared in file_detail_record').toBeTruthy();
   expect(rec.errormsg, 'the breach reading FAILED on order_clientid_fkey: the automatic SUSPEND could not be saved ' +
@@ -608,8 +616,8 @@ test.describe('JEPYP-27 - automatic suspend and resume (credit breach / top-up)'
 
         await test.step('inside the window: the reading parks but nothing is suspended', async () => {
           const before = await balance(db, s.accountId);
-          await mdr.submitReading(s.meter, BREACH_READING);
-          const rec = await poll(() => readingRecord(db, s.meter), r => !!r && r.status !== 'PENDING', 180_000, 5_000);
+          const file = mdrFile(await mdr.submitReading(s.meter, BREACH_READING));
+          const rec = await poll(() => readingRecord(db, s.meter, file), r => !!r && r.status !== 'PENDING', 180_000, 5_000);
           console.log(`  breach reading: ${rec?.id} ${rec?.status}/${rec?.errorcode}`);
           expect(`${rec?.status}/${rec?.errorcode}`, 'a reading the balance cannot fund must still PARK')
             .toBe('SUSPENDED/CURRENCY_CREDIT_LIMIT_EXCEEDED');

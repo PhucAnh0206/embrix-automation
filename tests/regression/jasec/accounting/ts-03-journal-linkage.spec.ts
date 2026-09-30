@@ -32,34 +32,22 @@ import { blockedIf } from '../../../../helpers/blocked.helper';
  * Delete an entry only when the row itself is fixed; do not add one without a
  * written reason and a date.
  */
-const KNOWN_UNPOSTED_JOURNALS = [
-  // Journal 1028, batch 10002 (the tenant's only ACCOUNT_RECEIVABLE batch,
-  // created 2026-08-26 09:22). -1000 CRC, revenueenddate 2026-08-05. Its sibling
-  // row 1024 in the same batch DID post.
-  //
-  // CAUSE, from the team + verified here: the journal DOES have an accounting
-  // entry (entry 13), but its `objectid` is "1028" — the journal id itself —
-  // where sibling 1024's entry (entry 5) carries the invoice number "001785".
-  // So the entry was written and the journal was stamped, but the step that
-  // moves the row to POSTED keyed on something it could not match.
-  //
-  // MY EARLIER READING WAS WRONG and is corrected here: I guessed the cause was
-  // a malformed `accountid`, because `031201` is not an `ACT-######` id. It is a
-  // REAL account — verified ACTIVE / PREPAID / RESIDENTIAL — and JASEC's own
-  // account numbers legitimately look like that. The id was never the problem.
-  //
-  // It is the only row in the whole database stamped with a batch and not POSTED.
-  '1028',
-];
+// Journal 1028 (batch 10002) was the one entry here. The team restored it to
+// POSTED on 2026-09-29, so the entry was removed, as the rule above says.
+const KNOWN_UNPOSTED_JOURNALS: string[] = [];
 
-const KNOWN_BATCHES_WITHOUT_FILE = [
-  // Batch 10001, header 2001 — the FIRST extract ever run on this tenant
-  // (2026-08-26 09:10:58), PENDING, count 2 with 4 detail rows, 4354.35. It is
-  // the only header without a filepath; batch 10002, twelve minutes later, has
-  // one. Same bring-up window, while the ledger accounts were being repaired and
-  // the extract re-run. Confirmed as debris by the team 2026-09-15.
-  '10001',
-];
+// Keyed by tenant: these are row ids, and the same id on another tenant is an
+// unrelated row that must not be excused.
+const KNOWN_BATCHES_WITHOUT_FILE: Record<string, string[]> = {
+  'jasec-dev': [
+    // Batch 10001, header 2001 — the FIRST extract ever run on this tenant
+    // (2026-08-26 09:10:58), PENDING, count 2 with 4 detail rows, 4354.35. It is
+    // the only header without a filepath; batch 10002, twelve minutes later, has
+    // one. Same bring-up window, while the ledger accounts were being repaired and
+    // the extract re-run. Confirmed as debris by the team 2026-09-15.
+    '10001',
+  ],
+};
 
 let db: DbHelper;
 let acct: AccountingDbHelper;
@@ -265,7 +253,7 @@ test.describe('JASEC accounting — journal linkage', { tag: ['@jasec', '@accoun
           .toMatch(/\/data\/journal\/EBS_JOURNAL_EXTRACT_/);
         continue;
       }
-      if (KNOWN_BATCHES_WITHOUT_FILE.includes(r.batchid)) {
+      if ((KNOWN_BATCHES_WITHOUT_FILE[process.env.TEST_ENV ?? ''] ?? []).includes(r.batchid)) {
         console.log(`  known pre-existing anomaly, see KNOWN_BATCHES_WITHOUT_FILE — batch ${r.batchid}`);
         continue;
       }

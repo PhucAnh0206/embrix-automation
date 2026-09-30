@@ -187,6 +187,11 @@ test.describe('JASEC billing — 0-30 kWh true-up and cycle length (MUTATING)', 
 
   test('B — a zero-length cycle produces no true-up at all', async () => {
     blockedIf(!RUN_ENABLED, 'JASEC_TRUEUP_RUN is not "true".');
+    // A PASS here records today's behaviour; it is not a verdict on whether it is right.
+    test.info().annotations.push({
+      type: 'open-question',
+      description: 'Should a same-day (zero-length) cycle still bill the 1943.40 fixed charge? (Huy)',
+    });
 
     const logger = new TestLogger('ts-10-trueup-zero-length');
     const db = new DbHelper(logger);

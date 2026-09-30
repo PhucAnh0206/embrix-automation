@@ -101,7 +101,7 @@ export class PrepaidSeedHelper {
     const user = process.env.EMBRIX_USER;
     const pass = process.env.EMBRIX_PASSWORD;
     if (!user || !pass) throw new Error('EMBRIX_USER / EMBRIX_PASSWORD are required.');
-    const d = await this.post(`{ userLogin(input: {userName: "${user}", password: "${pass}"}) { token } }`, false);
+    const d = await this.post(`{ userLogin(input: {userName: ${JSON.stringify(user)}, password: ${JSON.stringify(pass)}}) { token } }`, false);
     const t = d?.userLogin?.token;
     if (!t) throw new Error('userLogin returned no token');
     PrepaidSeedHelper.cachedToken = t;
@@ -251,8 +251,16 @@ export class PrepaidSeedHelper {
    * it, so only call it from a gated, mutating spec that says it will.
    */
   async setCcpDate(date: string): Promise<string> {
-    const d = await this.post(`mutation { setCcpTime(input:{ccpTime:"${date}"}) { ccpTime } }`);
-    const got = String(d?.setCcpTime?.ccpTime ?? '').slice(0, 10);
+    await this.post(`mutation { setCcpTime(input:{ccpTime:${JSON.stringify(date)}}) { ccpTime } }`);
+    // Trust a fresh read, not the mutation's echo: the echo says `date` even when
+    // futureOrderDateSystemTime pins the clock elsewhere.
+    let got = '';
+    for (let attempt = 1; attempt <= 5; attempt++) {
+      got = await this.ccpDate();
+      if (got === date) break;
+      await new Promise((r) => setTimeout(r, 500));
+    }
+    if (got !== date) throw new Error(`setCcpTime asked for ${date} but the clock reads ${got}`);
     this.logger?.log(`CCP clock -> ${got}`);
     return got;
   }

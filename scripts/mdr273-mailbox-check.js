@@ -69,13 +69,15 @@ const FILES_ARG = process.argv.find((a) => a.startsWith('--files'));
       user: process.env.DB_USER, password: process.env.DB_PASSWORD,
       ssl: { rejectUnauthorized: false }, connectionTimeoutMillis: 25000,
     });
-    // Every MDR notification written in the window, with the filename it should name.
+    // Every MDR notification for a file loaded in the window. The window is on the
+    // FILE's load time (wall clock): email_notification.createddate carries the CCP
+    // date, so a "last N hours" test against now() on it matches nothing.
     const res = await pool.query(
       `SELECT n.id, n.status, n.email, s.filename, s.statusmessage
          FROM core_engine.email_notification n
          JOIN core_mediation.cdr_load_statistics s ON n.entityid = 'MDRFILE-' || s.id
         WHERE n.entityid LIKE 'MDRFILE-%'
-          AND n.createddate >= now() - ($1 || ' hours')::interval
+          AND s.createddate >= now() - ($1 || ' hours')::interval
         ORDER BY n.id`,
       [String(HOURS)],
     ).catch((err) => {
@@ -84,8 +86,16 @@ const FILES_ARG = process.argv.find((a) => a.startsWith('--files'));
       console.error('server verifier printed:  node scripts/mdr273-mailbox-check.js --files a.csv,b.csv');
       process.exit(1);
     });
-    expected = res.rows;
-    console.log(`DB: ${expected.length} MDR notification(s) written in the last ${HOURS}h`);
+    // Only mail sent to the monitored inbox can be checked here. Anything else
+    // (a client recipient on preprod) is not missing - it went somewhere we cannot see.
+    const inbox = (process.env.NOTIFY_EMAIL_TO ?? '').trim().toLowerCase();
+    const elsewhere = res.rows.filter((r) => (r.email ?? '').trim().toLowerCase() !== inbox);
+    expected = res.rows.filter((r) => !elsewhere.includes(r));
+    console.log(`DB: ${expected.length} MDR notification(s) to ${inbox || '(NOTIFY_EMAIL_TO unset)'} in the last ${HOURS}h`);
+    if (elsewhere.length) {
+      console.log(`     ${elsewhere.length} more went to other recipients - not checked: ` +
+        [...new Set(elsewhere.map((r) => r.email))].join(', '));
+    }
     if (!expected.length) {
       console.log('Nothing to check. Produce a failure and trigger the notifier first.');
       await pool.end();

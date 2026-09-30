@@ -155,7 +155,7 @@ export class BillingGqlHelper {
     // Same shape the Core UI sends: a plain query (not a mutation), field
     // `userName` (not `userId`), values inlined.
     const d = await this.post(
-      `{ userLogin(input: {userName: "${user}", password: "${pass}"}) { token } }`,
+      `{ userLogin(input: {userName: ${JSON.stringify(user)}, password: ${JSON.stringify(pass)}}) { token } }`,
       false,
     );
     const t = d?.userLogin?.token;

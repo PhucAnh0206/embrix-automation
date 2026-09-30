@@ -83,7 +83,13 @@ export interface AccountAndOrderPayload {
  */
 export class AccountOrderApiHelper {
   private request: APIRequestContext;
-  private crmGatewayUrl = process.env.CRM_GATEWAY_URL ?? 'https://crm-gateway.coopeg.embrix.org';
+  // No fallback host (see ServerHelper.graphqlUrl). congero-oci has no CRM
+  // gateway, so a gateway call there now fails instead of reaching CoopeG.
+  private get crmGatewayUrl(): string {
+    const url = process.env.CRM_GATEWAY_URL;
+    if (!url) throw new Error('AccountOrderApiHelper: CRM_GATEWAY_URL is not set - this tenant has no CRM gateway in config/tenants.ts');
+    return url;
+  }
   private logger?: TestLogger;
 
   /**
@@ -155,10 +161,12 @@ export class AccountOrderApiHelper {
           }
         }
       } catch (e) {
-        this.logger?.error(`Failed to load service data by name "${name}"`, e);
+        throw new Error(`Failed to load service data by name "${name}": ${(e as Error).message}`);
       }
     }
-    return this.loadServicesConfig();
+    // A name was asked for and not found. Falling back to the default bundle
+    // would silently order the wrong catalog item.
+    throw new Error(`No service profile named "${name}" in test-data/services.data.json`);
   }
 
   /**

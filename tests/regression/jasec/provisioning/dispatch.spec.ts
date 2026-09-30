@@ -140,14 +140,22 @@ let token = '';
 
 test.describe.configure({ mode: 'serial' });
 
+let dbUp = false;
+let dbError = '';
+
 test.beforeAll(async ({ }) => {
   if (!RUN) return;
   db = new DbHelper();
-  await db.connect();
+  try {
+    await db.connect();
+    dbUp = true;
+  } catch (e) {
+    dbError = String((e as Error)?.message ?? e);
+  }
 });
 
 test.afterAll(async () => {
-  if (db) await db.disconnect();
+  if (dbUp) await db.disconnect();
 });
 
 /** Why the last seedCandidates() came back short - printed in the BLOCKED reason. */
@@ -283,6 +291,7 @@ async function waitForCommands(target: number, seconds = 180): Promise<number> {
 function gate() {
   test.skip(!RUN, 'GATED: dispatches to JASEC\'s live AMI. Set JASEC_DISPATCH_RUN=true to run.');
   test.skip(!PASS, 'BLOCKED: EMBRIX_PASSWORD not set, cannot sign in.');
+  test.skip(!dbUp, `BLOCKED: cannot reach the JASEC database. ${dbError}`);
 }
 
 test.describe('JEPYP-27 - dispatch cases that need no JASEC input', () => {
@@ -390,7 +399,8 @@ test.describe('JEPYP-27 - dispatch cases that need no JASEC input', () => {
     const countFor = async (): Promise<number> => {
       const r = await db.query<{ n: string }>(
         `SELECT count(*)::text AS n FROM core_engine.activity
-          WHERE apiname ILIKE '%UTILITIES%' AND request::text LIKE $1`, [`%${order}%`]);
+          WHERE apiname ILIKE '%UTILITIES%' AND request::text LIKE $1`,
+        [`%>${order}<%`]); // between tags, so ORD-18 cannot match ORD-1869
       return Number(r[0]?.n ?? 0);
     };
 
@@ -448,7 +458,7 @@ test.describe('JEPYP-27 - dispatch cases that need no JASEC input', () => {
          FROM core_engine.activity
         WHERE apiname ILIKE '%UTILITIES%' AND request::text LIKE $1
         ORDER BY id DESC LIMIT 1`,
-      [`%${order}%`],
+      [`%>${order}<%`],
     );
     expect(rows.length, `No command was dispatched for ${order}.`).toBe(1);
     const { request: req, response: res } = rows[0];

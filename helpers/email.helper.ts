@@ -475,6 +475,9 @@ export class EmailHelper {
           const message = await client.fetchOne(String(uid), { source: true }, { uid: true });
           if (!message || !message.source) continue;
           const email = await this.toParsedEmail(message.source);
+          // IMAP SINCE is by DATE only, so it returns the whole day. Apply the
+          // actual cut-off here, or mail from an earlier run today counts.
+          if (email.receivedAt < since) continue;
           if (options.match(email)) out.push(email);
         }
       } finally {

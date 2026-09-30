@@ -368,7 +368,7 @@ test.describe('TS-05 — threshold email tier boundaries', () => {
 
     const slots = await notifyDb.getScheduleSlots(SCHEDULE_DATE);
     console.log(`[TS-05] slots used on ${SCHEDULE_DATE}: ${slots.length ? slots.map((s) => `${s.frequency}=${s.id}/${s.status}`).join(' ') : 'none'}`);
-    expect(slots.length, `both job_schedule slots on ${SCHEDULE_DATE} are taken — pick another date via JEPYP230_TIER_DATE`).toBeLessThan(2);
+    if (blockedIf(slots.length >= 2, `both job_schedule slots on ${SCHEDULE_DATE} are taken — pick another date via JEPYP230_TIER_DATE`)) return;
     const frequency = slots.some((s) => s.frequency === 'DAILY') ? 'SCHEDULED' : 'DAILY';
 
     // ── account selection ────────────────────────────────────────────────────
@@ -385,13 +385,13 @@ test.describe('TS-05 — threshold email tier boundaries', () => {
       `[TS-05] threshold-capable pool on ${SCHEDULE_DATE} (${pool.length}): ` +
       pool.map((p) => `${p.accountId}(${p.fires})`).join(' '),
     );
-    expect(
-      pool.length,
-      `Need ${needed} threshold-capable account(s) billable on ${SCHEDULE_DATE}, found ` +
+    if (blockedIf(
+      pool.length < needed,
+      `need ${needed} threshold-capable account(s) billable on ${SCHEDULE_DATE}, found ` +
       `${pool.length}. Capable means the credit profile carries a valuethreshold — on ` +
       `this tenant 42% of prepaid accounts do not. Pick a date with more via ` +
       `JEPYP230_TIER_DATE, or lower JEPYP230_TIER_ACCOUNTS.`,
-    ).toBeGreaterThanOrEqual(needed);
+    )) return;
 
     scenarios.forEach((s, i) => {
       s.accounts = pool

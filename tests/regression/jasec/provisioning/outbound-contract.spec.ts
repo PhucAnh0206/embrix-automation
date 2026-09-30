@@ -327,6 +327,9 @@ test.describe('JASEC provisioning - outbound contract and config', () => {
     // indistinguishable - JASEC never queued the refused one, so no callback can
     // ever arrive and a session waits forever.
     //
+    // The order id is matched between XML tags (>ORD-n<) so ORD-18 cannot match
+    // ORD-1869; both contracts (<numOrder>, <numeroOrden>) put it there.
+    //
     // Known offenders at the time of writing: ORD-1371, parked there by
     // reSubmitOrder without a dispatch (see reprocess.spec.ts).
     const rows = await db.query<{ id: string; answer: string }>(
@@ -334,14 +337,14 @@ test.describe('JASEC provisioning - outbound contract and config', () => {
               coalesce((SELECT coalesce(substring(a.response::text from 'CodRespuesta>([^<]*)'),'no response')
                           FROM core_engine.activity a
                          WHERE a.apiname ILIKE '%UTILITIES%'
-                           AND a.request::text LIKE '%' || o.id || '%'
+                           AND a.request::text LIKE '%>' || o.id || '<%'
                          ORDER BY a.id DESC LIMIT 1),'none recorded') AS answer
          FROM core_oms."order" o
         WHERE coalesce(o.status,'') = 'PROVISIONING_INITIATED'
           AND coalesce((SELECT substring(a.response::text from 'CodRespuesta>([^<]*)')
                           FROM core_engine.activity a
                          WHERE a.apiname ILIKE '%UTILITIES%'
-                           AND a.request::text LIKE '%' || o.id || '%'
+                           AND a.request::text LIKE '%>' || o.id || '<%'
                          ORDER BY a.id DESC LIMIT 1),'') <> '00'
         ORDER BY o.id`,
     );

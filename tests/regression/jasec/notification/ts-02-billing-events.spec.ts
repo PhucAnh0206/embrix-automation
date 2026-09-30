@@ -371,12 +371,12 @@ test.describe('TS-02 — staged billing run', () => {
         `[TS-02] usable dates (${FREQUENCY} slot free), best first: ` +
         (usable.map((u) => `${u.date}(${u.eligibleCount})`).join(', ') || '(none)'),
       );
-      expect(
-        usable.length,
-        `No usable schedule date. A date needs >= 7 eligible accounts AND a free ` +
+      if (blockedIf(
+        usable.length === 0,
+        `no usable schedule date. A date needs >= 7 eligible accounts AND a free ` +
         `${FREQUENCY} slot. Either advance the accounts' cycle or free a slot ` +
         `(delete a spent schedule, children first).`,
-      ).toBeGreaterThan(0);
+      )) return;
 
       // Best date whose WHOLE billing cohort mails only the monitored mailbox —
       // see the cohort guard below. Skipping here, rather than blocking on the
@@ -440,12 +440,12 @@ test.describe('TS-02 — staged billing run', () => {
     });
 
     console.log(`[TS-02] ${candidates.length} eligible accounts for scheduleDate ${scheduleDate}`);
-    expect(
-      candidates.length,
-      `No eligible accounts for ${scheduleDate}. An account is eligible only when ` +
-      `required_scheduledate == scheduleDate exactly; accounts billed by a previous ` +
-      `run have advanced a cycle.`,
-    ).toBeGreaterThanOrEqual(7);
+    if (blockedIf(
+      candidates.length < 7,
+      `only ${candidates.length} eligible account(s) for ${scheduleDate}, 7 needed. An account ` +
+      `is eligible only when required_scheduledate == scheduleDate exactly; accounts billed ` +
+      `by a previous run have advanced a cycle.`,
+    )) return;
 
     // Three accounts carry the Event 3 tiers and cannot double as 1A–1C/4+5,
     // because Event 3 is decided by kWh AND by which threshold is crossed.

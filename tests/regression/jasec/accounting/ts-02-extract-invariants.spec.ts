@@ -39,6 +39,11 @@ let gql: AccountingGqlHelper;
 let headers: EbsHeader[] = [];
 const detailsOf = new Map<string, EbsDetail[]>();
 
+/** Every test that loops over `headers` would pass vacuously on an empty list. */
+function requireHeaders() {
+  blockedIf(headers.length === 0, 'this tenant has no accounting extracts to assert on');
+}
+
 test.describe('JASEC accounting — extract invariants', { tag: ['@jasec', '@accounting', '@tc-142'] }, () => {
 
   test.beforeAll(async () => {
@@ -111,7 +116,7 @@ test.describe('JASEC accounting — extract invariants', { tag: ['@jasec', '@acc
      * from the same account balances perfectly and moves nothing, so no totals
      * check can see it.
      */
-    blockedIf(headers.length === 0, 'this tenant has no accounting extracts to assert on');
+    requireHeaders();
 
     const violations: string[] = [];
     for (const h of headers) {
@@ -127,6 +132,7 @@ test.describe('JASEC accounting — extract invariants', { tag: ['@jasec', '@acc
   });
 
   test('every batch carries a currency, a type and at least one source record', async () => {
+    requireHeaders();
     for (const h of headers) {
       expect.soft(h.currencyCode, `batch ${h.batchId} has no currency`).toBeTruthy();
       expect.soft(h.type, `batch ${h.batchId} has no type`).toBeTruthy();
@@ -143,6 +149,7 @@ test.describe('JASEC accounting — extract invariants', { tag: ['@jasec', '@acc
   // ── the period arithmetic ───────────────────────────────────────────────
 
   test('accountingDate is the last day of the month the batch posts into', async () => {
+    requireHeaders();
     /**
      * The extract stamps the batch into an accounting period: inputDate is the
      * day extracted, accountingDate is that month's close. Real header 2030 —
@@ -160,6 +167,7 @@ test.describe('JASEC accounting — extract invariants', { tag: ['@jasec', '@acc
   });
 
   test('period names the same month as inputDate', async () => {
+    requireHeaders();
     const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
     for (const h of headers) {
       if (!h.inputDate || !h.period) continue;
@@ -176,6 +184,7 @@ test.describe('JASEC accounting — extract invariants', { tag: ['@jasec', '@acc
   // ── the two behaviours that look like bugs and are not ──────────────────
 
   test('filePath is masked while PENDING and present once SENT or RESENT', async () => {
+    requireHeaders();
     /**
      * `PGEbsExtractService.mapExtract` maps filePath as
      * `status == PENDING ? null : record.filepath`.
@@ -203,6 +212,7 @@ test.describe('JASEC accounting — extract invariants', { tag: ['@jasec', '@acc
   });
 
   test('a re-sent batch keeps its batchId, and only one header stays SENT', async () => {
+    requireHeaders();
     /**
      * `resendEbsExtract` does NOT create a new batch. It flips the existing
      * header to RESENT and writes a NEW header carrying the SAME batchId, count
@@ -247,6 +257,7 @@ test.describe('JASEC accounting — extract invariants', { tag: ['@jasec', '@acc
   });
 
   test('no batch is left FAILED', async () => {
+    requireHeaders();
     /**
      * FAILED is a real terminal state in the schema. A batch in it is revenue
      * that never reached the ERP, so it is reported as a finding rather than

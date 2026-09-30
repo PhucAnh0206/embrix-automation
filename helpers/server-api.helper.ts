@@ -7,7 +7,14 @@ import { TestLogger } from './test-logger';
  */
 export class ServerHelper {
     private request: APIRequestContext;
-    private graphqlUrl = process.env.GRAPH_URLS ?? 'https://transactional.coopeg.embrix.org/graphql';
+    // No fallback host: playwright.config sets GRAPH_URLS from config/tenants.ts,
+    // and a default here once pointed runs at CoopeG. Read at use, so building
+    // the helper for a test that never calls it cannot fail.
+    private get graphqlUrl(): string {
+        const url = process.env.GRAPH_URLS;
+        if (!url) throw new Error('ServerHelper: GRAPH_URLS is not set - run through playwright.config (TEST_ENV)');
+        return url;
+    }
     private logger?: TestLogger;
     private static cachedToken: string | null = null;
     /**
@@ -54,7 +61,7 @@ export class ServerHelper {
         const response = await this.request.post(this.graphqlUrl, {
             headers: { 'content-type': 'application/json' },
             data: {
-                query: `{ userLogin(input: {userName: "${username}", password: "${password}"}) { token } }`,
+                query: `{ userLogin(input: {userName: ${JSON.stringify(username)}, password: ${JSON.stringify(password)}}) { token } }`,
             },
         });
 

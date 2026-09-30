@@ -92,7 +92,7 @@ export class JobScheduleHelper {
     const res = await this.request.post(this.transactionalUrl, {
       headers: { 'content-type': 'application/json' },
       data: {
-        query: `{ userLogin(input: {userName: "${username}", password: "${password}"}) { token } }`,
+        query: `{ userLogin(input: {userName: ${JSON.stringify(username)}, password: ${JSON.stringify(password)}}) { token } }`,
       },
     });
     if (!res.ok()) {

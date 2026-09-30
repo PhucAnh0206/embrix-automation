@@ -60,6 +60,7 @@ import type {
 import type { Page, Response } from '@playwright/test';
 import type { TestLogger } from '../../../../helpers/test-logger';
 import type { DbHelper } from '../../../../helpers/db.helper';
+import { blockedIf } from '../../../../helpers/blocked.helper';
 import type { SelfcareLoginPage } from '../../../../pages/selfcare/selfcare-login.page';
 import type { SelfcareAccountSearchPage } from '../../../../pages/selfcare/selfcare-account-search.page';
 
@@ -1279,10 +1280,14 @@ test.describe(
           const accountId = await attachToFirstUsableAccount(
             dbHelper, testLogger, selfcareLoginPage, selfcareAccountSearchPage, 'CLOSED',
           );
-          if (!accountId) {
-            testLogger.log('! 2.11 CLOSED leg SKIPPED - see reason above.');
-            return;
-          }
+          // The no-subscription leg has already passed (its asserts are hard), but
+          // half the case did not run, so the case is BLOCKED rather than green.
+          blockedIf(
+            !accountId,
+            '2.11: the no-subscription leg PASSED, but no CLOSED-subscription account ' +
+            'could be opened in Self Care, so the CLOSED leg did not run - see the log.',
+          );
+          if (!accountId) return;
 
           const probe = await probeTopUp(f, accountId, '2.11 closed-subscription');
           assertChargeAndRegistrationAgree(probe, accountId, 'subscription CLOSED');
