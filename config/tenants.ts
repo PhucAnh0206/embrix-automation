@@ -80,6 +80,8 @@ export const TENANTS: Record<string, Tenant> = {
     graphqlUrl: 'https://service-transactional.jasec.embrix.org/graphql',
     selfcareUrl: 'https://selfcare-ui.jasec.embrix.org/',
     crmGatewayUrl: 'https://crm-gateway.jasec.embrix.org',
+    // On coopeg-prod-db (CoopeG's production DB server), reached over the Coopeg VPN.
+    dbName: 'coredb-jasec',
     // jasec-billing-ui also holds ts-06/ts-08, which mutate but are each gated
     // behind their own *_RUN env flag; only ts-07 runs without one.
     // 2026-09-30 widened to account creation + top-up, approved by Anh (test
