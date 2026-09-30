@@ -96,7 +96,13 @@ export const TENANTS: Record<string, Tenant> = {
              // Read-only / refused-by-design only (2026-09-30). In jasec-provisioning,
              // run inbound-contract, outbound-contract, order-integrity: dispatch and
              // auto-suspend-resume refuse this tenant at load, and stay that way.
-             'jasec-provisioning$', 'jasec-notification-content$'],
+             'jasec-provisioning$', 'jasec-notification-content$',
+             // 2026-09-30, ready for the re-test once the S3 / Vault fixes land. Each seeds
+             // its own data. NOT added: jasec-billing-explore (dev account/order fixtures),
+             // jasec-accounting-run (team decision), jasec-provisioning-ui (live dispatch).
+             'jasec-notification$', 'jasec-notification-live$', 'jasec-notification-reconnect$',
+             'jasec-notification-tiers$', 'jasec-usage-run$', 'jasec-usage-ui$',
+             'jasec-billing-trueup$'],
     note: 'JASEC production test build - read-only projects plus account creation and top-up.',
   },
 

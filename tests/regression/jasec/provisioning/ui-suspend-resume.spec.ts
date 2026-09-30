@@ -67,9 +67,14 @@ import { SuspendResumeOrderPage } from '../../../../pages/customer-hub/order-man
 const RUN = process.env.JASEC_UI_SUSPEND_RUN === 'true';
 
 const TENANT = (process.env.TEST_ENV ?? 'jasec-dev').trim();
-if (!/^jasec-(dev|preprod)$/.test(TENANT)) {
-  throw new Error(`ui-suspend-resume: TEST_ENV must be jasec-dev or jasec-preprod (got '${TENANT}').`);
-}
+// Still dev + preprod only - this spec raises SUSPEND/RESUME orders that dispatch to the AMI. It used to THROW on any other
+// tenant, which on JASEC prod (2026-09-30) took down the whole jasec-provisioning
+// project at load (0 tests listed). Now it SKIPS every test with a BLOCKED reason:
+// just as fail-closed, without breaking the sibling specs.
+const TENANT_REFUSED = !/^jasec-(dev|preprod)$/.test(TENANT);
+test.skip(() => TENANT_REFUSED,
+  `BLOCKED, not failed: this spec raises SUSPEND/RESUME orders that dispatch to the AMI and runs on jasec-dev / jasec-preprod only ` +
+  `(got '${TENANT}'). On prod it needs provisioningEnabled=true, accepted test meters and an agreed window.`);
 const CRM = process.env.JASEC_CRM_GATEWAY_URL ?? `https://crm-gateway.${TENANT}.embrix.org/graphql`;
 const TXN = process.env.JASEC_TXN_GRAPHQL_URL ?? `https://service-transactional.${TENANT}.embrix.org/graphql`;
 const CALLBACK_URL = process.env.JASEC_PROVISION_CALLBACK_URL

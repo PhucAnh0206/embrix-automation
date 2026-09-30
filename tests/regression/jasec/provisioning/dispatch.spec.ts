@@ -95,12 +95,14 @@ const BATCH_N = Number(process.env.JASEC_BATCH_N ?? '3');
  * code that also runs against preprod.
  */
 const TENANT = (process.env.TEST_ENV ?? 'jasec-dev').trim();
-if (!/^jasec-(dev|preprod)$/.test(TENANT)) {
-  throw new Error(
-    `dispatch.spec: TEST_ENV must be jasec-dev or jasec-preprod (got '${TENANT}'). ` +
-    'This spec dispatches to a real AMI; it will not guess a tenant.',
-  );
-}
+// Still dev + preprod only - this spec dispatches to a real AMI. It used to THROW on any other
+// tenant, which on JASEC prod (2026-09-30) took down the whole jasec-provisioning
+// project at load (0 tests listed). Now it SKIPS every test with a BLOCKED reason:
+// just as fail-closed, without breaking the sibling specs.
+const TENANT_REFUSED = !/^jasec-(dev|preprod)$/.test(TENANT);
+test.skip(() => TENANT_REFUSED,
+  `BLOCKED, not failed: this spec dispatches to a real AMI and runs on jasec-dev / jasec-preprod only ` +
+  `(got '${TENANT}'). On prod it needs provisioningEnabled=true, accepted test meters and an agreed window.`);
 const CRM = process.env.JASEC_CRM_GATEWAY_URL ?? `https://crm-gateway.${TENANT}.embrix.org/graphql`;
 const TXN = process.env.JASEC_TXN_GRAPHQL_URL ?? `https://service-transactional.${TENANT}.embrix.org/graphql`;
 const USER = process.env.EMBRIX_USERNAME ?? 'congeroadmin';

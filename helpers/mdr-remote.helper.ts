@@ -12,6 +12,15 @@ const exec = promisify(execFile);
 const WORK_DIRS: Record<string, string> = {
   'jasec-dev': '/jasec-energy/data/jasec/usage/energy',
   'jasec-preprod': '/jasec-energy/data/jasec-preprod/usage/energy',
+  // PROD: its own host (embrix-prod, CoopeG's production box), SAME path as dev.
+  jasec: '/jasec-energy/data/jasec/usage/energy',
+};
+
+/** Control server per tenant. dev + preprod share one box; prod has its own. */
+const HOSTS: Record<string, string> = {
+  'jasec-dev': 'embrix-dev',
+  'jasec-preprod': 'embrix-dev',
+  jasec: 'embrix-prod',
 };
 
 /**
@@ -55,7 +64,9 @@ export class MdrRemoteHelper {
 
   constructor(private logger?: TestLogger, opts: { host?: string; workDir?: string } = {}) {
     const tenant = (process.env.TEST_ENV ?? '').trim();
-    this.host = opts.host ?? process.env.MDR_SSH_HOST ?? 'embrix-dev';
+    // The tree path alone cannot tell prod from dev (identical), so the host is
+    // derived from the tenant too. The PG_DB_URL check below still backstops it.
+    this.host = opts.host ?? process.env.MDR_SSH_HOST ?? HOSTS[tenant] ?? 'embrix-dev';
     const workDir = opts.workDir ?? process.env.MDR_WORK_DIR ?? WORK_DIRS[tenant];
     if (!workDir) {
       throw new Error(
