@@ -1373,8 +1373,19 @@ test.describe(
           const accountId = await createPrepaidAccountViaGateway(
             { testLogger, accountOrderApiHelper }, baseRow,
           );
-          const subId = await dbHelper.setSubscriptionStatus(accountId, 'SUSPENDED');
-          testLogger.log(`2.12 SUSPENDED: ${accountId} / ${subId} forced to SUSPENDED`);
+          // DIAGNOSTIC CONTROL (2026-09-30, JASEC prod): JASEC_212_CONTROL_ACTIVE=true
+          // keeps everything else identical - same gateway-created account, same
+          // probe - but leaves the subscription ACTIVE. It separates "the gateway
+          // path left this subscription with no credit profile" from "suspended".
+          const controlActive =
+            String(process.env.JASEC_212_CONTROL_ACTIVE ?? '').trim().toLowerCase() === 'true';
+          const wantStatus = controlActive ? 'ACTIVE' : 'SUSPENDED';
+          if (controlActive) {
+            testLogger.log(`2.12 CONTROL: ${accountId} left ACTIVE (JASEC_212_CONTROL_ACTIVE=true)`);
+          } else {
+            const subId = await dbHelper.setSubscriptionStatus(accountId, 'SUSPENDED');
+            testLogger.log(`2.12 SUSPENDED: ${accountId} / ${subId} forced to SUSPENDED`);
+          }
 
           await attachToAccountInSelfCare(
             { selfcareLoginPage, selfcareAccountSearchPage }, accountId,
@@ -1385,15 +1396,15 @@ test.describe(
           const status = await dbHelper.getSubscriptionStatus(accountId);
           expect(
             status,
-            `2.12 SUSPENDED leg expected a SUSPENDED subscription for ${accountId}`,
-          ).toBe('SUSPENDED');
+            `2.12 ${wantStatus} leg expected a ${wantStatus} subscription for ${accountId}`,
+          ).toBe(wantStatus);
           testLogger.log(
             `2.12 SUSPENDED: using ${accountId} (synthetic), ` +
             `subscription status ${status}`,
           );
 
-          const probe = await probeTopUp(f, accountId, '2.12 suspended');
-          assertChargeAndRegistrationAgree(probe, accountId, 'subscription SUSPENDED');
+          const probe = await probeTopUp(f, accountId, controlActive ? '2.12 control-active' : '2.12 suspended');
+          assertChargeAndRegistrationAgree(probe, accountId, `subscription ${wantStatus}`);
 
           expect
             .soft(probe.charged, `${accountId} (SUSPENDED) was never charged`)
