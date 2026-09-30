@@ -470,6 +470,11 @@ export default defineConfig({
       name: 'jasec-billing-trueup',
       testMatch: ['**/regression/jasec/billing/ts-10-*.spec.ts'],
     },
+    {
+      // Seeding only (gated JASEC_SEED_RUN): zero-usage invoices over GraphQL.
+      name: 'jasec-seed',
+      testMatch: ['**/regression/jasec/seed/*.spec.ts'],
+    },
 
     // ── JASEC USAGE: the credit breach, the parked reading and its replay.
     // MUTATING — seeds an account, drops real MDR files through the loader and
