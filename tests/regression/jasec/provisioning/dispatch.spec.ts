@@ -34,7 +34,7 @@
  * It used to BORROW candidates: any ACTIVE metered account with no open order,
  * preferring ACT-* ids but falling back to named manual accounts (TRI-01,
  * LCHONG...). On dev nearly every such meter is numeric - JASEC's real device
- * shape - and only "never answered 00" kept a real meter off the wire. TC-117
+ * shape - and only "never answered 00" kept a real meter off the wire. TC-116
  * also left the borrowed account's service unit SUSPENDED. Seeding its own
  * subject removes both: nothing borrowed, nothing to restore.
  *
@@ -500,7 +500,7 @@ test.describe('JEPYP-27 - dispatch cases that need no JASEC input', () => {
   });
 
   /**
-   * TC-117. An accepted callback drives the full effect chain.
+   * TC-116. An accepted callback drives the full effect chain.
    *
    * WHY THIS IS SAFE TO AUTOMATE, having previously been thought not to be.
    * The belief was that an order can only be closed by a callback once JASEC
@@ -601,7 +601,7 @@ test.describe('JEPYP-27 - dispatch cases that need no JASEC input', () => {
       `subscription - billing continues while supply is cut.`,
     ).toBe('ACTIVE');
 
-    console.log(`[TC-117] ${order} on ${c.accountid}: order ${end?.ord}, ` +
+    console.log(`[TC-116] ${order} on ${c.accountid}: order ${end?.ord}, ` +
       `service ${end?.svc}, unit ${end?.unit}, subscription ${end?.sub}`);
   });
 });

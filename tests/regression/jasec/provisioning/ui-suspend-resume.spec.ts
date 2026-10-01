@@ -15,7 +15,7 @@
  * The screen sends `subscriptions:[...]` and no `services`
  * (SuspendSubscription.js onPressCreateButton). On ORD-1869 an accepted
  * callback suspended the subscription and the service unit but left the ORDER
- * at PROVISIONING_ERROR. The older effect-chain case (TC-117) passes only
+ * at PROVISIONING_ERROR. The older effect-chain case (TC-116) passes only
  * because its subject has the service line production never creates.
  *
  * TWO TESTS, run separately (each is ~5 min and long runs get killed):

@@ -235,18 +235,22 @@ interface Band {
   icbCapped?: boolean;
   /** Scenario-doc case this band comes from. */
   doc: string;
-  /** EPDP-348 sub-task number, used as the `@tc-nnn` tag. */
+  /**
+   * EPDP-348 sub-task number, used as the `@tc-nnn` tag. A bare string, so the
+   * renumber tool (which matches `TC-nn` / `@tc-nn`) never sees it: UPDATE BY HAND
+   * on every renumber. Was 2 behind on 2026-10-01; must equal the INDEX row.
+   */
   tc: string;
 }
 
 const BANDS: Band[] = [
-  { name: '0-30',       lo: 0,     hi: 30,       icb: false, iva: false, doc: 'TC20', tc: '125' },
-  { name: '31-100',     lo: 31,    hi: 100,      icb: false, iva: false, doc: 'TC21', tc: '126' },
-  { name: '101-200',    lo: 101,   hi: 200,      icb: true,  iva: false, doc: 'TC22', tc: '127' },
-  { name: '201-280',    lo: 201,   hi: 280,      icb: true,  iva: false, doc: 'TC23', tc: '128' },
-  { name: '281-1750',   lo: 281,   hi: 1750,     icb: true,  iva: true,  doc: 'TC24', tc: '129' },
-  { name: '1751-50000', lo: 1751,  hi: 50000,    icb: true,  iva: true,  doc: 'TC25', tc: '130', icbCapped: true },
-  { name: '50001+',     lo: 50001, hi: Infinity, icb: true,  iva: true,  doc: 'TC26', tc: '131', icbCapped: true },
+  { name: '0-30',       lo: 0,     hi: 30,       icb: false, iva: false, doc: 'TC20', tc: '127' },
+  { name: '31-100',     lo: 31,    hi: 100,      icb: false, iva: false, doc: 'TC21', tc: '128' },
+  { name: '101-200',    lo: 101,   hi: 200,      icb: true,  iva: false, doc: 'TC22', tc: '129' },
+  { name: '201-280',    lo: 201,   hi: 280,      icb: true,  iva: false, doc: 'TC23', tc: '130' },
+  { name: '281-1750',   lo: 281,   hi: 1750,     icb: true,  iva: true,  doc: 'TC24', tc: '131' },
+  { name: '1751-50000', lo: 1751,  hi: 50000,    icb: true,  iva: true,  doc: 'TC25', tc: '132', icbCapped: true },
+  { name: '50001+',     lo: 50001, hi: Infinity, icb: true,  iva: true,  doc: 'TC26', tc: '133', icbCapped: true },
 ];
 
 /**
