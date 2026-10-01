@@ -223,15 +223,29 @@ test.describe('JASEC usage — credit breach, park and replay (MUTATING)', {
        */
       expect(await balance(), 'a 3,300 top-up must read as -3300.00 credit').toBe(-INITIAL_TOPUP);
 
+      const processedRows = async () => db.query<any>(
+        `SELECT id, quantity::float8 AS quantity FROM core_usage.file_detail_record_processed
+          WHERE provisioningid = $1 AND status = 'PROCESSED'`,
+        [meter],
+      );
+
+      // ── step 2b: baseline ───────────────────────────────────────────
+      // A fresh meter's FIRST reading is its baseline and rates 0 kWh by design
+      // (confirmed by the team on JASEC prod, 2026-09-30). Without this the
+      // 20 kWh below was the baseline, charged nothing, and failed step 3.
+      await mdr.submitReading(meter, 0);
+      const baselined = await waitFor('the baseline reading to process', async () => {
+        const rows = await processedRows();
+        return rows.length ? rows : null;
+      });
+      expect(baselined, 'the 0 kWh baseline reading never processed').not.toBeNull();
+      const baselineCount = baselined!.length;
+
       // ── step 3: a reading the balance CAN fund ──────────────────────
       await mdr.submitReading(meter, FIRST_READING);
       const firstRated = await waitFor('the first reading to rate', async () => {
-        const rows = await db.query<any>(
-          `SELECT id, quantity::float8 AS quantity FROM core_usage.file_detail_record_processed
-            WHERE provisioningid = $1 AND status = 'PROCESSED'`,
-          [meter],
-        );
-        return rows.length ? rows : null;
+        const rows = await processedRows();
+        return rows.length > baselineCount ? rows : null;
       });
       expect(firstRated, `the first ${FIRST_READING} kWh reading never rated`).not.toBeNull();
 

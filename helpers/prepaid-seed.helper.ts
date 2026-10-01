@@ -215,11 +215,24 @@ export class PrepaidSeedHelper {
    * Mis-signing this is the single most common JASEC mistake.
    */
   async topUp(accountId: string, amount: number): Promise<void> {
-    await this.post(`mutation { subscriptionTopUp(input:{
-      accountId:"${accountId}", userId:"congeroadmin", amount: ${amount},
-      serviceType: ELECTRICITY, validityTerm: 1, validityTermUnit: MONTHS,
-      applyPayment: false
-    }){ id } }`);
+    // A top-up sent the instant a seed returns can be refused NO_SUBSCRIPTION_EXIST
+    // although the subscription is already ACTIVE in the database (JASEC prod,
+    // 2026-10-01, ACT-100080: refused at +1s, accepted a minute later). Retry that
+    // one refusal briefly, and say so, rather than fail the case on a seeding race.
+    for (let attempt = 1; ; attempt++) {
+      try {
+        await this.post(`mutation { subscriptionTopUp(input:{
+          accountId:"${accountId}", userId:"congeroadmin", amount: ${amount},
+          serviceType: ELECTRICITY, validityTerm: 1, validityTermUnit: MONTHS,
+          applyPayment: false
+        }){ id } }`);
+        break;
+      } catch (e) {
+        if (attempt >= 6 || !/NO_SUBSCRIPTION_EXIST/.test(String(e))) throw e;
+        this.logger?.log(`topUp ${accountId}: NO_SUBSCRIPTION_EXIST right after seeding - retry ${attempt}/5 in 10s`);
+        await new Promise((r) => setTimeout(r, 10_000));
+      }
+    }
     this.logger?.log(`topped up ${accountId} by ${amount} CRC`);
   }
 

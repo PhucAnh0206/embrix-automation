@@ -331,6 +331,14 @@ async function fundedAccount(db: DbHelper, logger: TestLogger, tag: string, nise
     await new PrepaidSeedHelper(logger).topUp(s.accountId, INITIAL_TOPUP);
     const b0 = await poll(() => balance(db, s.accountId), v => v === -INITIAL_TOPUP, 60_000, 3_000);
     expect(b0, 'a top-up is a NEGATIVE CRC balance (credit)').toBe(-INITIAL_TOPUP);
+    // A fresh meter's FIRST reading is its baseline and rates 0 kWh by design
+    // (confirmed by the team on JASEC prod, 2026-09-30), so send a 0 kWh one first.
+    await mdr.submitReading(s.meter, 0);
+    const baselined = await poll(async () => (await db.query<{ n: number }>(
+      `SELECT count(*)::int AS n FROM core_usage.file_detail_record_processed
+        WHERE provisioningid = $1 AND status = 'PROCESSED'`, [s.meter]))[0].n,
+      n => n > 0, 180_000, 5_000);
+    expect(baselined, 'the 0 kWh baseline reading never processed').toBeGreaterThan(0);
     await mdr.submitReading(s.meter, FIRST_READING);
     const b1 = await poll(() => balance(db, s.accountId), v => v > -INITIAL_TOPUP, 180_000, 5_000);
     expect(b1, `the ${FIRST_READING} kWh reading never charged the balance`).toBeGreaterThan(-INITIAL_TOPUP);

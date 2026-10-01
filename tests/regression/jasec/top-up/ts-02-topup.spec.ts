@@ -1247,7 +1247,7 @@ test.describe(
       '2.11: No subscription or a CLOSED one - the customer must not be charged',
       { tag: ['@tc-2-11'] },
       async ({
-        page, testLogger, dbHelper,
+        page, testLogger, dbHelper, accountOrderApiHelper,
         searchAccountsPage, createAccountPage,
         selfcareLoginPage, selfcareAccountSearchPage,
         selfcareActivityPage, selfcareTopupPage, placeToPayCheckoutPage,
@@ -1277,9 +1277,27 @@ test.describe(
         });
 
         await test.step('account with a CLOSED subscription', async () => {
-          const accountId = await attachToFirstUsableAccount(
+          let accountId = await attachToFirstUsableAccount(
             dbHelper, testLogger, selfcareLoginPage, selfcareAccountSearchPage, 'CLOSED',
           );
+          // No usable CLOSED subscription on this tenant (a fresh one, e.g. JASEC prod
+          // build 1, 2026-10-01): seed one the way 2.12 seeds its SUSPENDED subject -
+          // a gateway-created account (no meter, so nothing can dispatch) with the
+          // subscription row set to CLOSED. SYNTHETIC, like 2.12; a real closure goes
+          // through a CANCEL order.
+          if (!accountId) {
+            const seeded = await createPrepaidAccountViaGateway(
+              { testLogger, accountOrderApiHelper }, baseRow,
+            );
+            const subId = await dbHelper.setSubscriptionStatus(seeded, 'CLOSED');
+            testLogger.log(`2.11 CLOSED: ${seeded} / ${subId} forced to CLOSED (synthetic)`);
+            await attachToAccountInSelfCare(
+              { selfcareLoginPage, selfcareAccountSearchPage }, seeded,
+            );
+            expect(await dbHelper.getSubscriptionStatus(seeded), `2.11 expected ${seeded} CLOSED`)
+              .toBe('CLOSED');
+            accountId = seeded;
+          }
           // The no-subscription leg has already passed (its asserts are hard), but
           // half the case did not run, so the case is BLOCKED rather than green.
           blockedIf(
