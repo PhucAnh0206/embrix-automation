@@ -102,7 +102,10 @@ export const TENANTS: Record<string, Tenant> = {
              // jasec-accounting-run (team decision), jasec-provisioning-ui (live dispatch).
              'jasec-notification$', 'jasec-notification-live$', 'jasec-notification-reconnect$',
              'jasec-notification-tiers$', 'jasec-usage-run$', 'jasec-usage-ui$',
-             'jasec-billing-trueup$'],
+             'jasec-billing-trueup$',
+             // Block A live flow, 2026-10-01: QA meters + our own JASEC callbacks; gated per case
+             // and self-BLOCKED while provisioningEnabled is false.
+             'jasec-provisioning-ui$'],
     note: 'JASEC production test build - read-only projects plus account creation and top-up.',
   },
 

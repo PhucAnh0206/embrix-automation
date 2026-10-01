@@ -56,9 +56,12 @@ const TENANT = (process.env.TEST_ENV ?? 'jasec-dev').trim();
 // tenant, which on JASEC prod (2026-09-30) took down the whole jasec-provisioning
 // project at load (0 tests listed). Now it SKIPS every test with a BLOCKED reason:
 // just as fail-closed, without breaking the sibling specs.
-const TENANT_REFUSED = !/^jasec-(dev|preprod)$/.test(TENANT);
+// 'jasec' = PROD build 1, opened 2026-10-01 for Block A (Anh): QA meters only (the AMI refuses
+// them; we send JASEC's callback ourselves), each case behind its own *_RUN flag, and the
+// spec still BLOCKS itself while provisioningEnabled is not true.
+const TENANT_REFUSED = !/^jasec(-dev|-preprod)?$/.test(TENANT);
 test.skip(() => TENANT_REFUSED,
-  `BLOCKED, not failed: this spec drives real suspend/resume commands to the AMI and runs on jasec-dev / jasec-preprod only ` +
+  `BLOCKED, not failed: this spec drives real suspend/resume commands to the AMI and runs on jasec-dev / jasec-preprod / jasec (prod) only ` +
   `(got '${TENANT}'). On prod it needs provisioningEnabled=true, accepted test meters and an agreed window.`);
 const CALLBACK_URL = process.env.JASEC_PROVISION_CALLBACK_URL
   ?? `https://provision-gateway.${TENANT}.embrix.org/updateProvisioningRequest`;
