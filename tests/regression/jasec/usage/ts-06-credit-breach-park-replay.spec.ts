@@ -233,7 +233,11 @@ test.describe('JASEC usage — credit breach, park and replay (MUTATING)', {
       // A fresh meter's FIRST reading is its baseline and rates 0 kWh by design
       // (confirmed by the team on JASEC prod, 2026-09-30). Without this the
       // 20 kWh below was the baseline, charged nothing, and failed step 3.
-      await mdr.submitReading(meter, 0);
+      // The readings below are absolute and assume the meter starts at 0. A declared
+      // start (flexattr16) would make the baseline go backwards - BLOCK, do not guess.
+      const declared = await db.getDeclaredStartReading(meter);
+      blockedIf(declared !== 0, `${meter} has a declared start reading of ${declared} kWh; this case assumes 0.`);
+      await mdr.submitReading(meter, declared);
       const baselined = await waitFor('the baseline reading to process', async () => {
         const rows = await processedRows();
         return rows.length ? rows : null;

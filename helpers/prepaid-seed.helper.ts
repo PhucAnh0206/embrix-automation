@@ -237,6 +237,33 @@ export class PrepaidSeedHelper {
   }
 
   /**
+   * Close the subscription the way production does: a CANCEL order, submitted.
+   * Returns the order id; the caller waits for COMPLETED.
+   *
+   * Never close a subject with a DB write instead. On JASEC prod 2026-10-01 a
+   * subscription row set to CLOSED left its service and price units ACTIVE - a
+   * state production cannot reach - and billing then crashed on it
+   * (InvoiceSummaryType.ALP). A real CANCEL (ORD-166) closed all three levels,
+   * billed cleanly, and sent nothing to the AMI.
+   *
+   * `provisioningId` is the service unit's (`prov-<account>-<order>`), not the meter.
+   */
+  async cancel(accountId: string, provisioningId: string, bundleId = 'B-100000-E'): Promise<string> {
+    const created = await this.post(`mutation { createOrder(input:{
+      type: CANCEL, accountId:"${accountId}", userId:"congeroadmin", subscriptionReason: NOT_HAPPY,
+      services:[{index:1, serviceType: ELECTRICITY, action: CANCEL,
+                 provisioningId:"${provisioningId}", bundleId:"${bundleId}"}]
+    }){ id status } }`);
+    const orderId = created?.createOrder?.id;
+    if (!orderId) throw new Error('createOrder CANCEL returned no id');
+    await this.post(`mutation { updateOrderStatus(input:{
+      id:"${orderId}", status: SUBMITTED, userId:"congeroadmin", executeFutureOrderNow:true
+    }){ id status } }`);
+    this.logger?.log(`cancel ${accountId}: ${orderId} submitted`);
+    return orderId;
+  }
+
+  /**
    * Replay a usage batch — the recovery half of a credit breach.
    *
    * `perfBatchId` is `<mdr file name>-ELECPP-1`, e.g.

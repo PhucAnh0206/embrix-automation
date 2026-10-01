@@ -333,7 +333,11 @@ async function fundedAccount(db: DbHelper, logger: TestLogger, tag: string, nise
     expect(b0, 'a top-up is a NEGATIVE CRC balance (credit)').toBe(-INITIAL_TOPUP);
     // A fresh meter's FIRST reading is its baseline and rates 0 kWh by design
     // (confirmed by the team on JASEC prod, 2026-09-30), so send a 0 kWh one first.
-    await mdr.submitReading(s.meter, 0);
+    // Readings below are absolute and assume a 0 start; a declared start
+    // (flexattr16) would make this baseline go backwards - BLOCK, do not guess.
+    const declared = await db.getDeclaredStartReading(s.meter);
+    blockedIf(declared !== 0, `${s.meter} has a declared start reading of ${declared} kWh; this case assumes 0.`);
+    await mdr.submitReading(s.meter, declared);
     const baselined = await poll(async () => (await db.query<{ n: number }>(
       `SELECT count(*)::int AS n FROM core_usage.file_detail_record_processed
         WHERE provisioningid = $1 AND status = 'PROCESSED'`, [s.meter]))[0].n,

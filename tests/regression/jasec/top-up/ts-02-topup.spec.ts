@@ -48,8 +48,11 @@ import {
   attachToAccountInSelfCare,
   createPrepaidAccountOnly,
   createPrepaidAccountViaGateway,
+  uniqueRunSuffix,
+  assertQaMeter,
   type PrepaidAccountWithOrderRow,
 } from '../../../../fixtures/create-prepaid-account.helper';
+import { PrepaidSeedHelper } from '../../../../helpers/prepaid-seed.helper';
 import { SharedAccount } from '../../../../fixtures/shared-account.helper';
 import type { SelfcareActivityPage } from '../../../../pages/selfcare/selfcare-activity.page';
 import type { SelfcareTopupPage } from '../../../../pages/selfcare/selfcare-topup.page';
@@ -67,6 +70,39 @@ import type { SelfcareAccountSearchPage } from '../../../../pages/selfcare/selfc
 const dataFile = path.join(process.cwd(), 'test-data', 'jasec-prepaid-accounts.data.json');
 const dataRows: PrepaidAccountWithOrderRow[] = JSON.parse(fs.readFileSync(dataFile, 'utf-8'));
 const baseRow = dataRows[0];
+
+/** The NEW order completes asynchronously; poll until the service unit exists. */
+async function waitForSvcProvisioningId(db: DbHelper, accountId: string): Promise<string> {
+  for (let i = 0; i < 30; i++) {
+    const rows = await db.query<{ provisioningid: string }>(
+      `SELECT provisioningid FROM core_engine.service_unit WHERE accountid = $1 AND status = 'ACTIVE'`,
+      [accountId],
+    );
+    if (rows.length === 1 && rows[0].provisioningid) return rows[0].provisioningid;
+    await new Promise((r) => setTimeout(r, 2_000));
+  }
+  throw new Error(`${accountId}: no single ACTIVE service unit 60s after seeding`);
+}
+
+/**
+ * True once the CANCEL order is COMPLETED and the subscription, service unit and
+ * every price unit read CLOSED. Checks all three levels on purpose: a CLOSED
+ * subscription over ACTIVE units is exactly the fake state this replaced.
+ */
+async function waitForAllLevelsClosed(db: DbHelper, accountId: string, orderId: string): Promise<boolean> {
+  for (let i = 0; i < 30; i++) {
+    const r = await db.query<{ ord: string; open: number }>(
+      `SELECT (SELECT status FROM core_oms."order" WHERE id = $2) AS ord,
+              ((SELECT count(*) FROM core_engine.subscription WHERE accountid = $1 AND status <> 'CLOSED')
+             + (SELECT count(*) FROM core_engine.service_unit WHERE accountid = $1 AND status <> 'CLOSED')
+             + (SELECT count(*) FROM core_engine.price_unit   WHERE accountid = $1 AND status <> 'CLOSED'))::int AS open`,
+      [accountId, orderId],
+    );
+    if (r[0]?.ord === 'COMPLETED' && r[0].open === 0) return true;
+    await new Promise((res) => setTimeout(res, 3_000));
+  }
+  return false;
+}
 
 /**
  * TC 2.6-2.10 exercise the Top-Up receipt feature, which is behind the
@@ -1277,20 +1313,30 @@ test.describe(
         });
 
         await test.step('account with a CLOSED subscription', async () => {
-          let accountId = await attachToFirstUsableAccount(
+          // JASEC_211_SEED=true skips the pool and always seeds + cancels, to prove that path.
+          let accountId = process.env.JASEC_211_SEED === 'true' ? null : await attachToFirstUsableAccount(
             dbHelper, testLogger, selfcareLoginPage, selfcareAccountSearchPage, 'CLOSED',
           );
-          // No usable CLOSED subscription on this tenant (a fresh one, e.g. JASEC prod
-          // build 1, 2026-10-01): seed one the way 2.12 seeds its SUSPENDED subject -
-          // a gateway-created account (no meter, so nothing can dispatch) with the
-          // subscription row set to CLOSED. SYNTHETIC, like 2.12; a real closure goes
-          // through a CANCEL order.
+          // No usable CLOSED subscription on this tenant (a fresh one, e.g. a rebuilt
+          // prod): seed one and close it the PRODUCTION way, with a CANCEL order.
+          // It used to set the subscription row to CLOSED by DB write; that left the
+          // service and price units ACTIVE, and billing later crashed on the account
+          // (InvoiceSummaryType.ALP, JASEC prod 2026-10-01) - a fake defect. A real
+          // CANCEL closes all three levels and sends nothing to the AMI (ORD-166).
           if (!accountId) {
-            const seeded = await createPrepaidAccountViaGateway(
-              { testLogger, accountOrderApiHelper }, baseRow,
-            );
-            const subId = await dbHelper.setSubscriptionStatus(seeded, 'CLOSED');
-            testLogger.log(`2.11 CLOSED: ${seeded} / ${subId} forced to CLOSED (synthetic)`);
+            const seed = new PrepaidSeedHelper(testLogger);
+            const suffix = uniqueRunSuffix();
+            const { accountId: seeded } = await seed.seed({
+              meter: assertQaMeter(`M-QACXL-${suffix}`),
+              customerId: `E2ECLOSED-${suffix}`,
+              name: `E2ECLOSED ${suffix}`,
+            });
+            const svc = await waitForSvcProvisioningId(dbHelper, seeded);
+            const order = await seed.cancel(seeded, svc);
+            const closed = await waitForAllLevelsClosed(dbHelper, seeded, order);
+            expect(closed, `2.11: CANCEL ${order} on ${seeded} did not close subscription + service + price units`)
+              .toBe(true);
+            testLogger.log(`2.11 CLOSED: ${seeded} closed by CANCEL ${order} (all levels CLOSED)`);
             await attachToAccountInSelfCare(
               { selfcareLoginPage, selfcareAccountSearchPage }, seeded,
             );

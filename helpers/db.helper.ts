@@ -377,7 +377,27 @@ export class DbHelper {
   }
 
   /**
+   * The kWh a fresh meter's BASELINE reading must carry: its declared start
+   * (`service_provision.flexattr16`), else 0. A 0 baseline on a meter declared at
+   * 12,300 kWh goes backwards and is rejected as INVALID_METER_READING (ACT-100057,
+   * JASEC prod 2026-10-01). A non-numeric value falls back to 0.
+   */
+  async getDeclaredStartReading(meter: string): Promise<number> {
+    const rows = await this.query<{ v: string | null }>(
+      `SELECT flexattr16 AS v FROM core_engine.service_provision
+        WHERE provisioningid = $1 AND type = 'METER' LIMIT 1`,
+      [meter],
+    );
+    const v = Number(rows[0]?.v ?? 0);
+    return Number.isFinite(v) && v >= 0 ? v : 0;
+  }
+
+  /**
    * Force the account's primary subscription into `status`, returning its id.
+   *
+   * NEVER use 'CLOSED' for a subject that will later be billed: it leaves the
+   * service and price units ACTIVE, and billing crashes on that state
+   * (InvoiceSummaryType.ALP, 2026-10-01). Close with PrepaidSeedHelper.cancel().
    *
    * Used only as a FALLBACK when the environment holds no account in the state a
    * test needs -- creating a genuinely suspended account means driving it into
