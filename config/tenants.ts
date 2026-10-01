@@ -105,7 +105,10 @@ export const TENANTS: Record<string, Tenant> = {
              'jasec-billing-trueup$',
              // Block A live flow, 2026-10-01: QA meters + our own JASEC callbacks; gated per case
              // and self-BLOCKED while provisioningEnabled is false.
-             'jasec-provisioning-ui$'],
+             'jasec-provisioning-ui$',
+             // 2026-10-01, approved by Anh: prod build 1 runs batchFinancialExtract=true (FILE
+             // mode: CSV only, nothing posted to JASEC). The spec refuses gateway mode itself.
+             'jasec-accounting-run$'],
     note: 'JASEC production test build - read-only projects plus account creation and top-up.',
   },
 
