@@ -264,6 +264,31 @@ export class PrepaidSeedHelper {
   }
 
   /**
+   * Suspend the whole account the way a credit breach does - an account-level
+   * SUSPEND (no service or subscription lines), reason CREDIT_LIMIT_EXCEEDED -
+   * but BILLING ONLY, so it provisions nothing. Returns the order id.
+   *
+   * Shape matters. On JASEC prod 2026-10-01: the system's breach suspend (ORD-130)
+   * carries no lines and leaves subscription + service unit SUSPENDED. A SUSPEND
+   * with a service line suspends only the service (subscription stays ACTIVE), and
+   * the old DB write left the subscription SUSPENDED over ACTIVE units. This one
+   * (ORD-175) matched the breach shape, completed at once, sent no AMI command.
+   */
+  async suspendAccountBillingOnly(accountId: string): Promise<string> {
+    const created = await this.post(`mutation { createOrder(input:{
+      type: SUSPEND, accountId:"${accountId}", userId:"congeroadmin",
+      subscriptionReason: CREDIT_LIMIT_EXCEEDED, billingOnlyFlag: true
+    }){ id status } }`);
+    const orderId = created?.createOrder?.id;
+    if (!orderId) throw new Error('createOrder SUSPEND returned no id');
+    await this.post(`mutation { updateOrderStatus(input:{
+      id:"${orderId}", status: SUBMITTED, userId:"congeroadmin", executeFutureOrderNow:true
+    }){ id status } }`);
+    this.logger?.log(`suspend (billing only) ${accountId}: ${orderId} submitted`);
+    return orderId;
+  }
+
+  /**
    * Replay a usage batch — the recovery half of a credit breach.
    *
    * `perfBatchId` is `<mdr file name>-ELECPP-1`, e.g.

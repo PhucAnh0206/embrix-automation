@@ -53,6 +53,7 @@ import {
   type PrepaidAccountWithOrderRow,
 } from '../../../../fixtures/create-prepaid-account.helper';
 import { PrepaidSeedHelper } from '../../../../helpers/prepaid-seed.helper';
+import { ACCEPTED_REPLY_SQL } from '../../../../helpers/provisioning-safety.helper';
 import { SharedAccount } from '../../../../fixtures/shared-account.helper';
 import type { SelfcareActivityPage } from '../../../../pages/selfcare/selfcare-activity.page';
 import type { SelfcareTopupPage } from '../../../../pages/selfcare/selfcare-topup.page';
@@ -102,6 +103,35 @@ async function waitForAllLevelsClosed(db: DbHelper, accountId: string, orderId: 
     await new Promise((res) => setTimeout(res, 3_000));
   }
   return false;
+}
+
+/**
+ * Polls until the SUSPEND order is COMPLETED and both the subscription and the
+ * service unit read SUSPENDED - the credit-breach shape. Also counts AMI commands
+ * on the account, which must stay 0 for a billing-only order.
+ */
+async function waitForSuspendedShape(
+  db: DbHelper, accountId: string, orderId: string,
+): Promise<{ ok: boolean; ord: string; sub: string; svc: string; amiCommands: number }> {
+  let last = { ok: false, ord: '?', sub: '?', svc: '?', amiCommands: -1 };
+  for (let i = 0; i < 30; i++) {
+    const r = await db.query<{ ord: string; sub: string; svc: string; ami: number }>(
+      `SELECT (SELECT status FROM core_oms."order" WHERE id = $2) AS ord,
+              (SELECT string_agg(status, ',') FROM core_engine.subscription WHERE accountid = $1) AS sub,
+              (SELECT string_agg(status, ',') FROM core_engine.service_unit WHERE accountid = $1) AS svc,
+              (SELECT count(*)::int FROM core_engine.activity
+                WHERE accountid = $1 AND apiname ILIKE '%UTILIT%') AS ami`,
+      [accountId, orderId],
+    );
+    const x = r[0];
+    last = {
+      ok: x?.ord === 'COMPLETED' && x?.sub === 'SUSPENDED' && x?.svc === 'SUSPENDED',
+      ord: x?.ord ?? '(none)', sub: x?.sub ?? '(none)', svc: x?.svc ?? '(none)', amiCommands: x?.ami ?? -1,
+    };
+    if (last.ok) return last;
+    await new Promise((res) => setTimeout(res, 3_000));
+  }
+  return last;
 }
 
 /**
@@ -1424,15 +1454,22 @@ test.describe(
           // on jasec-dev, and the pool includes subscriptions the team armed).
           //
           // Created via the gateway, which attaches NO meter (see
-          // createPrepaidAccountViaGateway), so a RESUME it raises has nothing to
-          // dispatch to. Driving an account into debt and waiting for
+          // createPrepaidAccountViaGateway). CORRECTED 2026-10-01: a RESUME it raises
+          // still dispatches when provisioningEnabled=true - accion C with the meter
+          // field left as the literal placeholder `--IdMedidor--`, which JASEC refuses
+          // ("El Medidor No existe"; AC-677054 / ORD-181). No device can match that,
+          // and the leg below asserts every such command was refused. Driving an account into debt and waiting for
           // CREDIT_LIMIT_ACTIONS is ts-04's job and costs ~17 minutes, so the
-          // subscription is suspended directly instead. Created WITHOUT logging in
-          // again -- a second Self Care login inside one test leaves the form
-          // unrendered and everything after it times out.
+          // account is suspended by a BILLING-ONLY account-level SUSPEND order: the
+          // same shape as the system's credit-breach suspend (subscription + service
+          // unit SUSPENDED), with no provisioning. It used to set the subscription
+          // row to SUSPENDED by DB write, which left the units ACTIVE - a state
+          // production never has (2026-10-01). Created WITHOUT logging in again --
+          // a second Self Care login inside one test leaves the form unrendered and
+          // everything after it times out.
           testLogger.log(
-            '2.12 SUSPENDED: creating a fresh account and forcing the state ' +
-            '(SYNTHETIC, subscription row only - never a borrowed account).',
+            '2.12 SUSPENDED: creating a fresh meterless account and suspending it ' +
+            'with a billing-only SUSPEND order (never a borrowed account).',
           );
           const accountId = await createPrepaidAccountViaGateway(
             { testLogger, accountOrderApiHelper }, baseRow,
@@ -1447,8 +1484,13 @@ test.describe(
           if (controlActive) {
             testLogger.log(`2.12 CONTROL: ${accountId} left ACTIVE (JASEC_212_CONTROL_ACTIVE=true)`);
           } else {
-            const subId = await dbHelper.setSubscriptionStatus(accountId, 'SUSPENDED');
-            testLogger.log(`2.12 SUSPENDED: ${accountId} / ${subId} forced to SUSPENDED`);
+            const order = await new PrepaidSeedHelper(testLogger).suspendAccountBillingOnly(accountId);
+            const s = await waitForSuspendedShape(dbHelper, accountId, order);
+            expect(s.ok, `2.12: SUSPEND ${order} on ${accountId} did not reach the breach shape ` +
+              `(order ${s.ord}, subscription ${s.sub}, service unit ${s.svc})`).toBe(true);
+            expect(s.amiCommands, `2.12: billing-only SUSPEND ${order} dispatched to the AMI`).toBe(0);
+            testLogger.log(`2.12 SUSPENDED: ${accountId} suspended by billing-only ${order} ` +
+              `(subscription + service unit SUSPENDED, no AMI command)`);
           }
 
           await attachToAccountInSelfCare(
@@ -1463,12 +1505,23 @@ test.describe(
             `2.12 ${wantStatus} leg expected a ${wantStatus} subscription for ${accountId}`,
           ).toBe(wantStatus);
           testLogger.log(
-            `2.12 SUSPENDED: using ${accountId} (synthetic), ` +
+            `2.12 ${wantStatus}: using ${accountId}, ` +
             `subscription status ${status}`,
           );
 
           const probe = await probeTopUp(f, accountId, controlActive ? '2.12 control-active' : '2.12 suspended');
           assertChargeAndRegistrationAgree(probe, accountId, `subscription ${wantStatus}`);
+
+          // Fail closed on the AMI: the top-up's automatic RESUME may dispatch (see the
+          // note above). Any command on this meterless account must have been REFUSED.
+          const accepted = await dbHelper.query<{ n: number }>(
+            `SELECT count(*)::int AS n FROM core_engine.activity
+              WHERE accountid = $1 AND apiname ILIKE '%UTILITIES%' AND ${ACCEPTED_REPLY_SQL}`,
+            [accountId],
+          );
+          expect(accepted[0]?.n ?? 0,
+            `${accountId}: JASEC ACCEPTED an AMI command for a meterless test account - stop and tell the team`)
+            .toBe(0);
 
           expect
             .soft(probe.charged, `${accountId} (SUSPENDED) was never charged`)
