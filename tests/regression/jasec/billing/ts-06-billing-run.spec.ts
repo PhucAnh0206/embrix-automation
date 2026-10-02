@@ -49,7 +49,7 @@
  */
 
 import { test, expect } from '../../../../fixtures/page-factory';
-import { DatabaseHelper } from '../../../../helpers/database.helper';
+import { DbHelper } from '../../../../helpers/db.helper';
 import { blockedIf } from '../../../../helpers/blocked.helper';
 
 /**
@@ -309,11 +309,12 @@ test.describe('Billing via the Core UI Daily Schedule', () => {
       'or the run bills nobody. See the header comment.',
     ).toBe(true);
 
-    const db = new DatabaseHelper();
+    const db = new DbHelper();
+    await db.connect();
 
     try {
       // ── 1. Who will this bill, and is that an acceptable blast radius? ──
-      const eligible = await db.executeQuery(ELIGIBLE_SQL, [date]);
+      const eligible = await db.query(ELIGIBLE_SQL, [date]);
       // Cap the list. A bulk date resolves to ~200 accounts and printing them all
       // buries the count, which is the number that actually matters here.
       const shown = eligible
@@ -326,7 +327,7 @@ test.describe('Billing via the Core UI Daily Schedule', () => {
       );
 
       // Say what the chain will skip, so a low count is never a mystery.
-      const excluded = await db.executeQuery(EXCLUDED_BY_PAYMENT_METHOD_SQL, [date]);
+      const excluded = await db.query(EXCLUDED_BY_PAYMENT_METHOD_SQL, [date]);
       if (excluded.length) {
         testLogger.log(
           `${date}: NOT billed by this chain (no BILL_CC in the DAILY template) — ` +
@@ -360,16 +361,16 @@ test.describe('Billing via the Core UI Daily Schedule', () => {
       const balanceBefore = new Map<string, number | null>();
       const kwhBefore = new Map<string, number>();
       for (const row of eligible) {
-        const r = await db.executeQuery(INVOICE_COUNT_SQL, [row.accountid]);
+        const r = await db.query(INVOICE_COUNT_SQL, [row.accountid]);
         before.set(row.accountid, Number(r[0]?.n ?? 0));
 
-        const b = await db.executeQuery(CRC_BALANCE_SQL, [row.accountid]);
+        const b = await db.query(CRC_BALANCE_SQL, [row.accountid]);
         balanceBefore.set(row.accountid, b.length ? Number(b[0].amount) : null);
 
-        const pend = await db.executeQuery(PENDING_BILL_UNIT_SQL, [row.accountid]);
+        const pend = await db.query(PENDING_BILL_UNIT_SQL, [row.accountid]);
         const pendId = pend[0]?.id;
         const k = pendId
-          ? await db.executeQuery(CYCLE_KWH_SQL, [row.accountid, pendId])
+          ? await db.query(CYCLE_KWH_SQL, [row.accountid, pendId])
           : [];
         kwhBefore.set(row.accountid, Number(k[0]?.kwh ?? 0));
       }
@@ -398,8 +399,8 @@ test.describe('Billing via the Core UI Daily Schedule', () => {
       // pause. Anything that moved belongs to a run in flight: BLOCKED, and
       // nothing is deleted. Anything that did not is a dead run's leftover.
       const snapshot = async () => ({
-        jobs: await db.executeQuery(BILL_CHECK_JOBS_SQL),
-        schedules: await db.executeQuery(SCHEDULES_ON_DATE_SQL, [date]),
+        jobs: await db.query(BILL_CHECK_JOBS_SQL),
+        schedules: await db.query(SCHEDULES_ON_DATE_SQL, [date]),
       });
       const first = await snapshot();
       if (first.jobs.length || first.schedules.some((s: any) => s.status === 'PROCESSING')) {
@@ -430,7 +431,7 @@ test.describe('Billing via the Core UI Daily Schedule', () => {
       // and they are left behind by a run that died midway: precisely when you
       // re-run. Only the rows vetted as idle above are removed.
       if (vettedJobIds.length) {
-        const staleJobs = await db.executeQuery(CLEAR_STALE_BILL_CHECK_SQL, [vettedJobIds]);
+        const staleJobs = await db.query(CLEAR_STALE_BILL_CHECK_SQL, [vettedJobIds]);
         testLogger.log(`cleared ${staleJobs.length} stale BILL_CHECK row(s) from core_engine.jobs`);
       }
 
@@ -481,7 +482,7 @@ test.describe('Billing via the Core UI Daily Schedule', () => {
           .toBe('COMPLETED');
       }
 
-      const children = await db.executeQuery(JOB_CHILDREN_SQL, [date]);
+      const children = await db.query(JOB_CHILDREN_SQL, [date]);
       testLogger.data(
         'job chain',
         children.map((c: any) => `${c.type}=${c.status}`).join(' | '),
@@ -517,7 +518,7 @@ test.describe('Billing via the Core UI Daily Schedule', () => {
       // ── 6. The point of the whole exercise: an invoice exists. ──
       const after = new Map<string, number>();
       for (const row of eligible) {
-        const r = await db.executeQuery(INVOICE_COUNT_SQL, [row.accountid]);
+        const r = await db.query(INVOICE_COUNT_SQL, [row.accountid]);
         after.set(row.accountid, Number(r[0]?.n ?? 0));
       }
       testLogger.data('invoice_unit rows AFTER', Object.fromEntries(after));
@@ -533,7 +534,7 @@ test.describe('Billing via the Core UI Daily Schedule', () => {
       );
       const unexplained: string[] = [];
       for (const row of notBilled) {
-        const why = await db.executeQuery(BILL_REFUSAL_SQL, [row.accountid]);
+        const why = await db.query(BILL_REFUSAL_SQL, [row.accountid]);
         const reason = why[0]?.reason as string | undefined;
         if (reason && /credit limit/i.test(reason)) {
           testLogger.log(
@@ -576,28 +577,28 @@ test.describe('Billing via the Core UI Daily Schedule', () => {
       // SOFT throughout. The billing run is irreversible, so a reconciliation
       // problem must report every finding in one pass rather than abort on the
       // first - a second run to see the next failure is not available.
-      const thresholds = await db.executeQuery(TAX_THRESHOLDS_SQL);
+      const thresholds = await db.query(TAX_THRESHOLDS_SQL);
       const thresholdFor = (taxType: 'MAIN_TAX' | 'ADDITIONAL_TAX') =>
         thresholds.find((t: any) => t.name === (taxType === 'MAIN_TAX' ? 'IVA' : 'BOM'));
 
       for (const row of gained) {
         const acct = row.accountid as string;
         await test.step(`reconcile ${acct}`, async () => {
-          const inv = (await db.executeQuery(NEWEST_INVOICE_SQL, [acct]))[0];
+          const inv = (await db.query(NEWEST_INVOICE_SQL, [acct]))[0];
           expect.soft(inv, `${acct}: no invoice row to reconcile`).toBeTruthy();
           if (!inv) return;
 
-          const lines = await db.executeQuery(INVOICE_LINES_SQL, [inv.id]);
-          const taxes = await db.executeQuery(INVOICE_TAXES_SQL, [inv.billunitid]);
-          const kwhRow = await db.executeQuery(CYCLE_KWH_SQL, [acct, inv.billunitid]);
-          const period = (await db.executeQuery(BILL_PERIOD_SQL, [inv.billunitid]))[0];
-          const balRow = await db.executeQuery(CRC_BALANCE_SQL, [acct]);
+          const lines = await db.query(INVOICE_LINES_SQL, [inv.id]);
+          const taxes = await db.query(INVOICE_TAXES_SQL, [inv.billunitid]);
+          const kwhRow = await db.query(CYCLE_KWH_SQL, [acct, inv.billunitid]);
+          const period = (await db.query(BILL_PERIOD_SQL, [inv.billunitid]))[0];
+          const balRow = await db.query(CRC_BALANCE_SQL, [acct]);
           // Needs the bill period, so it must run AFTER the period lookup above.
           // Without a period there is nothing to scope to, and an unscoped total
           // would be the whole account history - report null rather than a wrong
           // number.
           const topups = period?.startdate && period?.enddate
-            ? (await db.executeQuery(CYCLE_TOPUPS_SQL, [acct, period.startdate, period.enddate]))[0]
+            ? (await db.query(CYCLE_TOPUPS_SQL, [acct, period.startdate, period.enddate]))[0]
             : null;
 
           const cycleKwh = Number(kwhRow[0]?.kwh ?? 0);

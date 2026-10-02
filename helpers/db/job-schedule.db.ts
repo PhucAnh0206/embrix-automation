@@ -1,11 +1,13 @@
 // helpers/db/job-schedule.db.ts
-import { DatabaseHelper } from '../database.helper';
+import { DbHelper } from '../db.helper';
 
 export class JobScheduleDbHelper {
-    private db: DatabaseHelper;
+    private readonly db = new DbHelper();
 
-    constructor() {
-        this.db = new DatabaseHelper();
+    /** Connects on first use, so a test that never queries never needs the DB. */
+    private async conn(): Promise<DbHelper> {
+        await this.db.connect();
+        return this.db;
     }
 
     /**
@@ -13,7 +15,7 @@ export class JobScheduleDbHelper {
      */
     async getJobSchedule(date: string): Promise<any[]> {
         const sqlQuery = `SELECT * FROM core_engine.job_schedule js WHERE scheduledate = $1::DATE;`;
-        return this.db.executeQuery(sqlQuery, [date]);
+        return (await this.conn()).query(sqlQuery, [date]);
     }
 
     /**
@@ -22,8 +24,13 @@ export class JobScheduleDbHelper {
     async deleteJobScheduleById(id: string): Promise<void> {
         const sqlQuery1 = `DELETE FROM core_engine.job_schedule_list WHERE id = $1;`;
         const sqlQuery2 = `DELETE FROM core_engine.job_schedule WHERE id = $1;`;
-        
-        await this.db.executeQuery(sqlQuery1, [id]);
-        await this.db.executeQuery(sqlQuery2, [id]);
+
+        const db = await this.conn();
+        await db.query(sqlQuery1, [id]);
+        await db.query(sqlQuery2, [id]);
+    }
+
+    async disconnect(): Promise<void> {
+        await this.db.disconnect();
     }
 }

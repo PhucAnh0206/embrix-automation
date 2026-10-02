@@ -12,7 +12,6 @@ import { AccountInfoPage } from '../pages/customer-hub/customer-management/accou
 import { CustomerManagementPage } from '../pages/customer-hub/customer-management/customer-management.page';
 import { BillsPage } from '../pages/customer-hub/customer-management/account-details/billing-data/bills.page';
 import { DailySchedulePage } from '../pages/operations-hub/jobs-management/daily-schedule.page';
-import { DatabaseHelper } from '../helpers/database.helper';
 import {
   DialogCollector,
   attachDialogCollector,
@@ -71,7 +70,6 @@ type AllFixtures = {
   userManagementPage: UserManagementPage
   billsPage: BillsPage;
   dailySchedulePage: DailySchedulePage;
-  databaseHelper: DatabaseHelper;
   /** Native alert()/confirm()/prompt() messages raised during the test. */
   dialogs: DialogCollector;
   jobScheduleDbHelper: JobScheduleDbHelper;
@@ -316,14 +314,13 @@ export const test = base.extend<AllFixtures>({
     await use(new AccountOrderApiHelper(request, testLogger));
   },
 
-  databaseHelper: async ({ }, use) => {
-    const databaseHelper = new DatabaseHelper();
-    await use(databaseHelper);
-  },
-
   jobScheduleDbHelper: async ({ }, use) => {
     const helper = new JobScheduleDbHelper();
-    await use(helper);
+    try {
+      await use(helper);
+    } finally {
+      await helper.disconnect();   // an open pool keeps the worker alive after the test
+    }
   },
 
   sidebar: async ({ page }, use) => {
