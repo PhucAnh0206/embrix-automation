@@ -144,6 +144,30 @@ export class JasecOrderManagementPage extends OrderManagementPage {
     await expect(this.jasecViewProvisioningModal).not.toBeVisible({ timeout: MEDIUM_WAIT });
   }
 
+  /**
+   * Fill the meter modal and press Submit WITHOUT asserting it closes - for the
+   * validation case (TC61X), where staying open with a message is a valid answer.
+   * Returns whether the modal is still open, plus any visible error text in it.
+   */
+  async tryMeterProvisioningData(provisioningId: string, lecturaInicial: string): Promise<{ stillOpen: boolean; message: string }> {
+    await this.primarySubPanel.waitFor({ state: 'visible', timeout: MEDIUM_WAIT });
+    await this.jasecServiceTable.clickCellLink(0, 'View');
+    await this.page.waitForLoadingToDisappear();
+    await this.jasecViewProvisioningModal.waitFor({ state: 'visible', timeout: MEDIUM_WAIT });
+    await this.jasecViewProvisioningModalAddBtn.click();
+    await this.jasecViewProvisioningModalProvisioningIDInput.fill(provisioningId);
+    await this.jasecViewProvisioningModalMeterReadingInput.fill(lecturaInicial);
+    await this.jasecViewProvisioningModalSubmitButton.click();
+    await this.page.waitForLoadingToDisappear();
+    const closed = await this.jasecViewProvisioningModal
+      .waitFor({ state: 'hidden', timeout: MEDIUM_WAIT }).then(() => true).catch(() => false);
+    if (closed) return { stillOpen: false, message: '' };
+    const message = (await this.jasecViewProvisioningModal
+      .locator('.invalid-feedback, .text-danger, [role="alert"], .error, .help-block')
+      .allInnerTexts().catch(() => [] as string[])).join(' | ').trim();
+    return { stillOpen: true, message };
+  }
+
   // ── SUBMIT / REFRESH (post-CREATE) ──────────────────────────────────
 
   async clickSubmitOrder(): Promise<void> {

@@ -155,6 +155,11 @@ export class PrepaidSeedHelper {
     return id;
   }
 
+  /** Account only, no order - for cases that drive the ORDER through the Core UI. */
+  async createAccountOnly(o: Omit<SeedPrepaidOptions, 'meter'>): Promise<string> {
+    return this.createAccount({ ...o, meter: '' });
+  }
+
   /** Create the NEW order carrying the meter, then submit it. */
   private async createAndSubmitOrder(
     accountId: string,
