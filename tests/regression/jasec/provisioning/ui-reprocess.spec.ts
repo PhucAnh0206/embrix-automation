@@ -117,7 +117,12 @@ test.describe('JEPYP-27 - manual reprocess through the UI', () => {
     // provisioning is reached, and the run looks like a reprocess defect.
     // Cost one run and ORD-965's usable state on 2026-09-08.
     const dated = await db.query<{ ahead: boolean; created: string }>(
-      `SELECT o.createddate > now() AS ahead, o.createddate::date::text AS created
+      // Against the TENANT clock, not now(): the comment above is about the CCP
+      // clock, and on a tenant frozen AHEAD of real time (JASEC prod build 2,
+      // clock 2027-05-11 on 2026-10-01) now() made every order look "ahead".
+      // Falls back to now() only when no frozen clock row exists (real time).
+      `SELECT o.createddate::date > coalesce((SELECT ccptime FROM core_config.ccp_time LIMIT 1), now()::date)
+                AS ahead, o.createddate::date::text AS created
          FROM core_oms."order" o WHERE o.id = $1`, [ORDER]);
     blockedIf(
       dated[0]?.ahead !== false,
