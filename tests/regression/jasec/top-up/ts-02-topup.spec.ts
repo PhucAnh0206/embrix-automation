@@ -47,7 +47,6 @@ import {
   setUpAccountForTopUp,
   attachToAccountInSelfCare,
   createPrepaidAccountOnly,
-  createPrepaidAccountViaGateway,
   uniqueRunSuffix,
   assertQaMeter,
   type PrepaidAccountWithOrderRow,
@@ -1453,12 +1452,15 @@ test.describe(
           // accion C to whatever meter that account holds (provisioningEnabled is ON
           // on jasec-dev, and the pool includes subscriptions the team armed).
           //
-          // Created via the gateway, which attaches NO meter (see
-          // createPrepaidAccountViaGateway). CORRECTED 2026-10-01: a RESUME it raises
-          // still dispatches when provisioningEnabled=true - accion C with the meter
-          // field left as the literal placeholder `--IdMedidor--`, which JASEC refuses
-          // ("El Medidor No existe"; AC-677054 / ORD-181). No device can match that,
-          // and the leg below asserts every such command was refused. Driving an account into debt and waiting for
+          // Seeded WITH a QA meter (PrepaidSeedHelper, M-QASUS-*). It used to be
+          // created through the CRM gateway, which attaches NO meter - and the
+          // RESUME this top-up raises then went out as accion C with the literal
+          // placeholder `--IdMedidor--` (finding F1, JASEC prod 2026-10-01/02,
+          // AC-677054 / ORD-181). That is a real product defect, but our test was
+          // what produced it on prod. With a meter the command is well formed; the
+          // M-QA prefix can never match a real device, so JASEC refuses it ("El
+          // Medidor No existe"), and the guard below still fails closed if JASEC
+          // ever accepts one. Driving an account into debt and waiting for
           // CREDIT_LIMIT_ACTIONS is ts-04's job and costs ~17 minutes, so the
           // account is suspended by a BILLING-ONLY account-level SUSPEND order: the
           // same shape as the system's credit-breach suspend (subscription + service
@@ -1468,12 +1470,15 @@ test.describe(
           // a second Self Care login inside one test leaves the form unrendered and
           // everything after it times out.
           testLogger.log(
-            '2.12 SUSPENDED: creating a fresh meterless account and suspending it ' +
+            '2.12 SUSPENDED: seeding a fresh account with a QA meter and suspending it ' +
             'with a billing-only SUSPEND order (never a borrowed account).',
           );
-          const accountId = await createPrepaidAccountViaGateway(
-            { testLogger, accountOrderApiHelper }, baseRow,
-          );
+          const suffix212 = uniqueRunSuffix();
+          const { accountId } = await new PrepaidSeedHelper(testLogger).seed({
+            meter: assertQaMeter(`M-QASUS-${suffix212}`),
+            customerId: `E2ESUSP-${suffix212}`,
+            name: `E2ESUSP ${suffix212}`,
+          });
           // DIAGNOSTIC CONTROL (2026-09-30, JASEC prod): JASEC_212_CONTROL_ACTIVE=true
           // keeps everything else identical - same gateway-created account, same
           // probe - but leaves the subscription ACTIVE. It separates "the gateway
@@ -1513,14 +1518,14 @@ test.describe(
           assertChargeAndRegistrationAgree(probe, accountId, `subscription ${wantStatus}`);
 
           // Fail closed on the AMI: the top-up's automatic RESUME may dispatch (see the
-          // note above). Any command on this meterless account must have been REFUSED.
+          // note above). Any command for this QA meter must have been REFUSED.
           const accepted = await dbHelper.query<{ n: number }>(
             `SELECT count(*)::int AS n FROM core_engine.activity
               WHERE accountid = $1 AND apiname ILIKE '%UTILITIES%' AND ${ACCEPTED_REPLY_SQL}`,
             [accountId],
           );
           expect(accepted[0]?.n ?? 0,
-            `${accountId}: JASEC ACCEPTED an AMI command for a meterless test account - stop and tell the team`)
+            `${accountId}: JASEC ACCEPTED an AMI command for a QA test meter - stop and tell the team`)
             .toBe(0);
 
           expect

@@ -193,9 +193,42 @@ export class ServerHelper {
     }
 
     /**
-     * Set CCP time
+     * Clear a stranded future-order clock pin. Called before every clock move.
+     *
+     * Orders run with `executeFutureOrderNow` set `futureOrderDateSystemTime` to
+     * their effective date and reset it at the end of the same method - not in a
+     * `finally` - so a throw in between leaves the whole tenant's clock pinned.
+     * The pin wins over `ccp_time`, so `setCcpTime` "succeeds" and then reverts
+     * within seconds (JASEC prod build 2, 2026-10-02: hours lost to it). The pin
+     * lives in Redis - the table can read '' while it is active - so the only
+     * reliable clear is the product's own `setCcpProperties` with an empty value.
+     *
+     * Failure here is logged, not thrown: the verify step after the clock move
+     * still catches a clock that did not take.
+     */
+    async clearFutureOrderPin(): Promise<void> {
+        try {
+            const response = await this.request.post(this.graphqlUrl, {
+                headers: await this.authHeaders(),
+                data: {
+                    query: `mutation { setCcpProperties(input: { ccpPropertyList: [
+                        { property: "futureOrderDateSystemTime", value: "" } ] }) { ccpPropertyList { property } } }`,
+                },
+            });
+            const body = await response.json().catch(() => ({}));
+            if (!response.ok() || body?.errors?.length) {
+                this.logger?.log(`clearFutureOrderPin: not cleared (${response.status()}) ${JSON.stringify(body?.errors ?? '').slice(0, 200)}`);
+            }
+        } catch (e) {
+            this.logger?.log(`clearFutureOrderPin: request failed - ${String((e as Error)?.message ?? e)}`);
+        }
+    }
+
+    /**
+     * Set CCP time. Clears the future-order pin first - see clearFutureOrderPin.
      */
     async setCcpTime(targetDate: string): Promise<string> {
+        await this.clearFutureOrderPin();
         this.logger?.api('POST', this.graphqlUrl);
         this.logger?.log(`GraphQL mutation: setCcpTime → ${targetDate}`);
 

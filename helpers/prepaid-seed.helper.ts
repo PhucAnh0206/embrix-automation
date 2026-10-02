@@ -316,6 +316,12 @@ export class PrepaidSeedHelper {
    * it, so only call it from a gated, mutating spec that says it will.
    */
   async setCcpDate(date: string): Promise<string> {
+    // Clear a stranded future-order pin first - our own seeds (executeFutureOrderNow)
+    // re-pin it, and a pinned clock reverts this move within seconds. Same reasoning
+    // as ServerApiHelper.clearFutureOrderPin; the verify loop below still guards.
+    await this.post(`mutation { setCcpProperties(input:{ccpPropertyList:[
+      {property:"futureOrderDateSystemTime", value:""}]}) { ccpPropertyList { property } } }`)
+      .catch((e) => this.logger?.log(`clearing future-order pin failed: ${String(e).slice(0, 200)}`));
     await this.post(`mutation { setCcpTime(input:{ccpTime:${JSON.stringify(date)}}) { ccpTime } }`);
     // Trust a fresh read, not the mutation's echo: the echo says `date` even when
     // futureOrderDateSystemTime pins the clock elsewhere.
