@@ -52,7 +52,7 @@ import { assertSafeToDispatch as assertMeterSafe } from '../../../../helpers/pro
 
 const RUN = process.env.JASEC_AUTO_PROV_RUN === 'true';
 const TENANT = (process.env.TEST_ENV ?? 'jasec-dev').trim();
-// Still dev + preprod only - this spec drives real suspend/resume commands to the AMI. It used to THROW on any other
+// Runs on jasec-dev, jasec-preprod and jasec (prod) - this spec drives real suspend/resume commands to the AMI. It used to THROW on any other
 // tenant, which on JASEC prod (2026-09-30) took down the whole jasec-provisioning
 // project at load (0 tests listed). Now it SKIPS every test with a BLOCKED reason:
 // just as fail-closed, without breaking the sibling specs.

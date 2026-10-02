@@ -67,7 +67,7 @@ import { SuspendResumeOrderPage } from '../../../../pages/customer-hub/order-man
 const RUN = process.env.JASEC_UI_SUSPEND_RUN === 'true';
 
 const TENANT = (process.env.TEST_ENV ?? 'jasec-dev').trim();
-// Still dev + preprod only - this spec raises SUSPEND/RESUME orders that dispatch to the AMI. It used to THROW on any other
+// Runs on jasec-dev, jasec-preprod and jasec (prod) - this spec raises SUSPEND/RESUME orders that dispatch to the AMI. It used to THROW on any other
 // tenant, which on JASEC prod (2026-09-30) took down the whole jasec-provisioning
 // project at load (0 tests listed). Now it SKIPS every test with a BLOCKED reason:
 // just as fail-closed, without breaking the sibling specs.

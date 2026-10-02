@@ -71,10 +71,11 @@ export const TENANTS: Record<string, Tenant> = {
   // JASEC PRODUCTION, test build (build 1). Added 2026-09-30. The team will wipe
   // it and rebuild for the customer afterwards - but anything that reaches
   // OUTSIDE Embrix cannot be wiped: provisioning is fully armed against JASEC's
-  // live AMI and account creation would send real commands. So only READ-ONLY
-  // projects are allowed, by exact name. Widen this list deliberately, one
-  // project at a time, once PRODUCTION-SETUP-CHECKLIST.md section H allows it.
-  // dbName is left out until the team sends the prod DB details.
+  // live AMI and account creation would send real commands. Projects are
+  // allowed by EXACT name, each one approved deliberately (dates below). Since
+  // 2026-09-30 that includes mutating suites, for the TEST builds only: shrink
+  // this list back to read-only before the customer build, which is check-only
+  // (PRODUCTION-SETUP-CHECKLIST.md).
   jasec: {
     baseUrl: 'https://core-ui.jasec.embrix.org/',
     graphqlUrl: 'https://service-transactional.jasec.embrix.org/graphql',

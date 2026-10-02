@@ -95,7 +95,7 @@ const BATCH_N = Number(process.env.JASEC_BATCH_N ?? '3');
  * code that also runs against preprod.
  */
 const TENANT = (process.env.TEST_ENV ?? 'jasec-dev').trim();
-// Still dev + preprod only - this spec dispatches to a real AMI. It used to THROW on any other
+// Runs on jasec-dev, jasec-preprod and jasec (prod) - this spec dispatches to a real AMI. It used to THROW on any other
 // tenant, which on JASEC prod (2026-09-30) took down the whole jasec-provisioning
 // project at load (0 tests listed). Now it SKIPS every test with a BLOCKED reason:
 // just as fail-closed, without breaking the sibling specs.

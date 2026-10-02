@@ -54,7 +54,8 @@ import { DO_NOT_TOUCH_ORDERS, QA_METER_PREFIX } from '../../../../helpers/provis
 const TENANT = (process.env.TEST_ENV ?? 'jasec-dev').trim();
 // 'jasec' = PROD build 1 (2026-09-30). Every payload here must be REFUSED (absent
 // order, or a terminal one proven COMPLETED/CANCELLED in the DB first), so it can
-// run on prod. dispatch / auto-suspend-resume keep their dev+preprod-only guard.
+// run on prod. dispatch / auto-suspend-resume / ui-suspend-resume also accept prod,
+// but every case there is behind its own *_RUN flag.
 if (!/^jasec(-dev|-preprod)?$/.test(TENANT)) {
   throw new Error(
     `inbound-contract.spec: TEST_ENV must be jasec-dev, jasec-preprod or jasec (got '${TENANT}').`,
