@@ -146,7 +146,9 @@ const PAGES = Number(process.env.BILLING_BAND_PAGES ?? 20);
 /** Accounts to resolve category + accumulator for. Bounds the GraphQL cost. */
 const ACCOUNT_BUDGET = Number(process.env.BILLING_ACCOUNT_BUDGET ?? 120);
 /** See trap 4. Off by default — the tax-computation date is not visible here. */
-const STRICT = process.env.BILLING_STRICT_THRESHOLDS === '1';
+// '1' or 'true'. It accepted only '1', so BILLING_STRICT_THRESHOLDS=true silently ran
+// the LENIENT mode (prod build 2, 2026-10-02).
+const STRICT = ['1', 'true'].includes(String(process.env.BILLING_STRICT_THRESHOLDS ?? '').trim().toLowerCase());
 
 const STRICT_OFF_REASON =
   'threshold presence is not asserted by default: GraphQL exposes no tax-computation ' +
