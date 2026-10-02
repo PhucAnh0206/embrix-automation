@@ -159,7 +159,8 @@ test.describe('Invoice document format vs JEPYP-125 and JEPYP-266 (both shipped)
         since: SINCE,
         // Was 3. Widened because the mailbox is SHARED between tenants and the
         // newest few invoices may all belong to the other one - see below.
-        limit: 12,
+        // Deeper when one invoice is targeted (JASEC_FORMAT_INVOICE): it is rarely in the newest 12.
+        limit: (process.env.JASEC_FORMAT_INVOICE ?? '').trim() ? 150 : 12,
       });
     } finally {
       await emailHelper.disconnect();
@@ -222,6 +223,10 @@ test.describe('Invoice document format vs JEPYP-125 and JEPYP-266 (both shipped)
         continue;
       }
       const [, acct, invNo] = m;
+      // Optional: aim at ONE invoice (TC-140 needs the one whose cycle had top-ups,
+      // which is rarely the newest). Unset = newest invoice of this tenant, as before.
+      const want = (process.env.JASEC_FORMAT_INVOICE ?? '').trim();
+      if (want && invNo !== want) continue;
       const doc = await gql.getInvoice(invNo).catch(() => null);
       if (doc && String(doc.accountId ?? '') === acct) { chosen = e; break; }
       rejected.push(

@@ -447,6 +447,20 @@ test.describe('Billing via the Core UI Daily Schedule', () => {
         `was not created — check whether a schedule already occupies the DAILY slot.`,
       ).toBe(true);
 
+      // Process is enabled only while the UI's clock equals the schedule date. On a
+      // frozen-clock tenant the API clock was seen reverting to an earlier date
+      // mid-run with no setCcpTime from us (prod, 2026-10-02) - test-environment
+      // friction, not what this case tests. Re-set the clock and reload ONCE, then
+      // proceed; a second disabled button still fails as before.
+      const processBtn = page.getByRole('button', { name: 'Process', exact: true });
+      const enabledSoon = await processBtn.isEnabled({ timeout: 5_000 }).catch(() => false);
+      if (!enabledSoon) {
+        testLogger.log(`Process disabled - re-setting CCP to ${date} and reloading once`);
+        await serverHelper.setCcpTime(date);
+        expect(await serverHelper.getCcpTime(), `CCP did not re-take ${date}`).toBe(date);
+        await page.reload();
+        await dailySchedulePage.inputJobCalendar(date);
+      }
       await dailySchedulePage.clickProcess();
       await dailySchedulePage.confirmProcess();
       testLogger.log('Process confirmed — waiting for the chain to finish');
@@ -542,7 +556,26 @@ test.describe('Billing via the Core UI Daily Schedule', () => {
             `a charge above the balance is refused rather than billed.`,
           );
         } else {
-          unexplained.push(`${row.accountid}${reason ? ` (${reason})` : ' (no jobs_error row)'}`);
+          // A SUSPENDED service has INACTIVE price units, and with ratewheninactive=false
+          // (JASEC: no cycle fee while suspended) there is nothing to bill - so no bill
+          // and no jobs_error row is the correct outcome, not silence. Seen on prod
+          // 2026-10-02: ACT-100029 / ACT-100032, suspended by the provisioning cases.
+          // Only when EVERY price unit is inactive and no offer rates when inactive.
+          const inactive = await db.query<{ active: number; rating: number }>(
+            `SELECT (SELECT count(*)::int FROM core_engine.price_unit
+                      WHERE accountid = $1 AND status = 'ACTIVE') AS active,
+                    (SELECT count(*)::int FROM core_pricing.price_offer
+                      WHERE ratewheninactive IS TRUE) AS rating`,
+            [row.accountid],
+          );
+          if (inactive[0]?.active === 0 && inactive[0]?.rating === 0) {
+            testLogger.log(
+              `${row.accountid}: not billed, and correctly so - no ACTIVE price unit (service ` +
+              `suspended) and no price offer rates while inactive, so there is no charge.`,
+            );
+          } else {
+            unexplained.push(`${row.accountid}${reason ? ` (${reason})` : ' (no jobs_error row)'}`);
+          }
         }
       }
 
