@@ -37,7 +37,8 @@
  * State left behind: the account ends ACTIVE and in credit. That is the correct
  * end state of a reconnection and is not restored — the runbook does the same
  * ("Account D is left ACTIVE and topped up by Run B; that is fine"). Each run
- * therefore consumes one suspended account; there were 70 available.
+ * seeds and consumes ONE fresh account of its own (since 2026-10-05; it used to borrow
+ * from the tenant's pool - see ensureSuspendedCandidate).
  *
  * Requires: VPN, DB_*, EMBRIX_USER / EMBRIX_PASSWORD, SELFCARE_BASE_URL.
  */
@@ -56,6 +57,8 @@ import { SelfcareTopupPage } from '../../../../pages/selfcare/selfcare-topup.pag
 import { PlaceToPayCheckoutPage } from '../../../../pages/selfcare/placetopay-checkout.page';
 import { embrixCredentials } from '../../../../helpers/credentials.helper';
 import { blockedIf } from '../../../../helpers/blocked.helper';
+import { PrepaidSeedHelper } from '../../../../helpers/prepaid-seed.helper';
+import { uniqueRunSuffix, assertQaMeter } from '../../../../fixtures/create-prepaid-account.helper';
 
 
 /**
@@ -103,48 +106,6 @@ test.afterAll(async () => {
     await db?.disconnect();
   }
 });
-
-/**
- * A SUSPENDED prepaid account whose debt is small enough that both a partial and
- * a clearing top-up are realistic. Chosen from data rather than hardcoded so the
- * spec keeps working as accounts are consumed.
- *
- * IT MUST ALSO HAVE A METER. Reconnection raises a RESUME order, and a RESUME on
- * an account with no `service_provision` type=METER row has nothing to dispatch
- * to - it lands in PROVISIONING_ERROR, the subscription never returns to ACTIVE
- * and no RESUME_SUBSCRIPTION notification is sent. On 2026-09-24 this picked
- * AC-586414, a gateway-seeded account with no service_provision rows at all, and
- * the case read as a product failure: "debt cleared but stayed SUSPENDED". The
- * balance rule had worked perfectly; ORD-1845 RESUME sat in PROVISIONING_ERROR.
- *
- * Measured before adding it, because a filter that quietly empties the pool is
- * its own bug: of 21 SUSPENDED prepaid accounts in range on jasec-dev, 15 have a
- * meter. The 6 excluded are exactly the ones that could never have passed.
- */
-async function pickSuspendedAccount(): Promise<Candidate | null> {
-  const rows = await db.query<{ accountid: string; balance: string }>(
-    `SELECT s.accountid, bub.amount AS balance
-       FROM core_engine.subscription s
-       JOIN core_engine.account a ON a.id = s.accountid AND a.accountcategory = 'PREPAID'
-       JOIN core_engine.balance_unit bu ON bu.accountid = s.accountid
-       JOIN core_engine.balance_unit_balances bub ON bub.id = bu.id AND bub.currencyid = 'CRC'
-      WHERE s.status = 'SUSPENDED'
-        AND bub.amount BETWEEN 300 AND 5000
-        AND NOT (s.accountid = ANY($1::varchar[]))
-        AND EXISTS (SELECT 1 FROM core_engine.service_provision sp
-                     WHERE split_part(sp.ratingprovisioningid, '_', 1) = s.accountid
-                       AND sp.type = 'METER')
-      -- Monitored contact email is preferred, not required: every assertion below
-      -- reads the database, so the mailbox is not involved.
-      ORDER BY EXISTS (SELECT 1 FROM core_engine.contact ct
-                        WHERE ct.accountid = s.accountid AND ct.email = $2::varchar) DESC,
-               bub.amount
-      LIMIT 1`,
-    [PROTECTED_ACCOUNTS, process.env.NOTIFY_EMAIL_TO ?? ''],
-  );
-  if (!rows.length) return null;
-  return { accountId: rows[0].accountid, debt: Number(rows[0].balance) };
-}
 
 /**
  * Wait for the CRC balance to move away from `from`.
@@ -248,67 +209,66 @@ async function settleReconnection(
 }
 
 /**
- * Bring a suspended candidate into range instead of blocking.
+ * SEED OUR OWN SUBJECT, every run (2026-10-05).
  *
- * THE PROBLEM: this case CONSUMES its subject - it reconnects it - so the pool
- * shrinks by one every run. Measured on jasec-preprod 2026-09-17: **0**
- * candidates left, so 5.3/5.2 had stopped judging anything.
+ * It used to BORROW a suspended account from the tenant's pool, and re-range one when
+ * the pool was empty. On prod build 2 (2026-10-05) that picked ACT-100110, a used
+ * account carrying an earlier RESUME stuck in PROVISIONING_ERROR - and on such an
+ * account a clearing top-up raises NO new RESUME at all (finding F7). TC-82 then failed
+ * for a reason that is not its question. F7 is a REAL product behaviour: it is reported
+ * (pick-up list B7 / D5) and has its OWN check (billing/explore-05-stuck-resume.spec.ts),
+ * so this is not a workaround - TC-82's precondition is simply "a suspended customer in
+ * debt", and a fresh subject is the only way to guarantee it.
  *
- * WHAT IS SAFE TO SEED, AND WHAT IS NOT - the distinction matters:
- *
- *   - Staging a CRC BALANCE is a pure database write. Every seeder in this
- *     suite does it, and it dispatches NOTHING.
- *   - CREATING a suspension is NOT safe to automate. A real balance-breach
- *     suspension drives the product's suspend path, which reaches JASEC's LIVE
- *     AMI - measured 2026-09-17: 11 of 13 SUSPEND orders on dev each sent FOUR
- *     real commands. A test fixture must never do that unattended.
- *
- * So this only ever RE-RANGES an account that is ALREADY SUSPENDED. If none
- * exists at all, it returns null and the case BLOCKS with instructions - which
- * is the honest outcome, not a silent pass.
+ * Safe to automate, unlike a real breach suspension: the SUSPEND is BILLING-ONLY, which
+ * sends nothing to JASEC's AMI (asserted below - fails closed). Same shape as the
+ * credit-breach suspend (subscription + service unit SUSPENDED). The debt is then staged
+ * on our own account (a pure DB write that dispatches nothing).
  */
 const SEED_DEBT = 1500;
 
 async function ensureSuspendedCandidate(): Promise<Candidate | null> {
-  const found = await pickSuspendedAccount();
-  if (found) return found;
+  const seed = new PrepaidSeedHelper();
+  const s = uniqueRunSuffix();
+  const meter = assertQaMeter(`M-QARCN-${s}`);
+  const { accountId } = await seed.seed({ meter, customerId: `E2ERCN-${s}`, name: `E2ERCN ${s}` });
 
-  // Already SUSPENDED and PREPAID, but the debt sits outside 300-5000.
-  const outOfRange = await db.query<{ accountid: string; amount: string }>(
-    `SELECT s.accountid, bub.amount
-       FROM core_engine.subscription s
-       JOIN core_engine.account a ON a.id = s.accountid AND a.accountcategory = 'PREPAID'
-       JOIN core_engine.balance_unit bu ON bu.accountid = s.accountid
-       JOIN core_engine.balance_unit_balances bub ON bub.id = bu.id AND bub.currencyid = 'CRC'
-      WHERE s.status = 'SUSPENDED'
-        AND NOT (s.accountid = ANY($1::varchar[]))
-        AND EXISTS (SELECT 1 FROM core_engine.service_provision sp
-                     WHERE split_part(sp.ratingprovisioningid, '_', 1) = s.accountid
-                       AND sp.type = 'METER')
-      ORDER BY bub.amount DESC
-      LIMIT 1`,
-    [PROTECTED_ACCOUNTS],
+  // The NEW order completes asynchronously; suspend only once it is ACTIVE.
+  for (let i = 0; i < 20 && (await subscriptionStatus(accountId)) !== 'ACTIVE'; i++) {
+    await new Promise((r) => setTimeout(r, 3_000));
+  }
+  // Resolved while ACTIVE (the lookup only sees ACTIVE subscriptions). The debt itself is
+  // staged only AFTER the suspend: debt on an ACTIVE account could trigger a REAL balance
+  // suspension, and that one does reach the AMI.
+  const balanceUnitId = await db.getBalanceUnitIdForAccount(accountId);
+  const order = await seed.suspendAccountBillingOnly(accountId);
+  let status = '';
+  for (let i = 0; i < 20 && status !== 'SUSPENDED'; i++) {
+    await new Promise((r) => setTimeout(r, 3_000));
+    status = await subscriptionStatus(accountId);
+  }
+  if (status !== 'SUSPENDED') {
+    console.log(`
+[ts-04] seeded ${accountId} but billing-only SUSPEND ${order} left it ${status}.
+`);
+    return null;
+  }
+  const ami = await db.query<{ n: number }>(
+    `SELECT count(*)::int AS n FROM core_engine.activity WHERE accountid = $1 AND apiname ILIKE '%UTILITIES%'`,
+    [accountId],
   );
-  if (!outOfRange.length) return null;
-
-  const acct = outOfRange[0].accountid;
-  const was = outOfRange[0].amount;
-  await db.query(
-    `UPDATE core_engine.balance_unit_balances bub
-        SET amount = $2
-       FROM core_engine.balance_unit bu
-      WHERE bub.id = bu.id AND bu.accountid = $1 AND bub.currencyid = 'CRC'`,
-    [acct, SEED_DEBT],
-  );
-  // eslint-disable-next-line no-console
+  if ((ami[0]?.n ?? 0) > 0) {
+    throw new Error(`billing-only SUSPEND ${order} on ${accountId} dispatched ${ami[0].n} AMI command(s) - it must send none.`);
+  }
+  // Throws unless exactly one CRC row was updated.
+  await db.setBalanceAmount(balanceUnitId, SEED_DEBT);
   console.log(
     `
-[ts-04] pool was empty; re-ranged ALREADY-SUSPENDED ${acct} ` +
-    `debt ${was} -> ${SEED_DEBT} CRC. No suspension was created, so nothing ` +
-    `was dispatched to JASEC.
+[ts-04] seeded OWN subject ${accountId} (meter ${meter}): billing-only SUSPEND ${order}, ` +
+    `debt staged ${SEED_DEBT} CRC. Nothing was dispatched to JASEC.
 `,
   );
-  return await pickSuspendedAccount();
+  return { accountId, debt: SEED_DEBT };
 }
 
 test.describe('TS-04 — reconnection after top-up', () => {
@@ -342,10 +302,8 @@ test.describe('TS-04 — reconnection after top-up', () => {
     // block periodically and re-seed by suspending one.
     if (blockedIf(
       !candidate,
-      'no SUSPENDED prepaid account exists on this tenant at all, so there is ' +
-      'nothing to re-range. Creating a suspension is deliberately NOT automated: ' +
-      'it drives the product suspend path, which reaches JASEC LIVE AMI. ' +
-      'Suspend one by hand, or run this after a balance-breach case has.',
+      'could not seed a suspended subject (the seeded account never reached ' +
+      'SUSPENDED after its billing-only SUSPEND order) - see the [ts-04] line above.',
     )) return;
     if (!candidate) return;
 
@@ -577,7 +535,7 @@ test.describe('TS-04 — reconnection after top-up', () => {
         const why =
           `${accountId} stayed ${status}: the RESUME order was raised, but JASEC's AMI ` +
           `answered "El Medidor No existe" for this meter (activity ${refusal}, raised by ` +
-          `THIS run), so provisioning could not complete. Environment limit on dev, not a ` +
+          `THIS run), so provisioning could not complete. Environment limit on ${process.env.TEST_ENV ?? 'this tenant'} (QA meters are not in its AMI), not a ` +
           `product defect - the balance rule worked and the reconnection WAS triggered.`;
         console.log(`
 [TS-04] BLOCKED, not failed: ${why}
