@@ -470,6 +470,13 @@ export default defineConfig({
       name: 'jasec-billing-trueup',
       testMatch: ['**/regression/jasec/billing/ts-10-*.spec.ts'],
     },
+    // ── JASEC billing: several credit-limit breaches in ONE BILL_CHECK run must not
+    // freeze it (preprod 2026-10-03). MUTATING, moves the CCP clock, dev only.
+    // Gated inside the spec behind JASEC_BREACH_RUN=true.
+    {
+      name: 'jasec-billing-breach',
+      testMatch: ['**/regression/jasec/billing/ts-11-*.spec.ts'],
+    },
     {
       // Seeding only (gated JASEC_SEED_RUN): zero-usage invoices over GraphQL.
       name: 'jasec-seed',

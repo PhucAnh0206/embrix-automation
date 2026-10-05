@@ -51,6 +51,8 @@ export interface SeedPrepaidOptions {
   name: string;
   /** `YYYY-MM-DD`. Must be >= the CCP clock. Defaults to the live CCP date. */
   effectiveDate?: string;
+  /** Billing day of month, 1-28. Defaults to 1 (the crowded day on dev - pick another to bill only your own accounts). */
+  billingDom?: number;
   /** Defaults to `Prepaid Energy Profile`. Pass the no-window profile to test suspension by day. */
   creditProfileName?: string;
   bundleId?: string;
@@ -149,7 +151,7 @@ export class PrepaidSeedHelper {
       contacts:[{roles:[BILLING], firstName:"QA", lastName:"${o.customerId}", email:"${email}"}],
       addresses:[{roles:[BILLING], street:"Avenida 2 Occidental", city:"Cartago",
                   state:"Cartago", country:"CRI", postalCode:"30101"}],
-      billingProfiles:[{billingDom:1, billingFrequency: MONTHLY, invoiceType: SUMMARY,
+      billingProfiles:[{billingDom:${o.billingDom ?? 1}, billingFrequency: MONTHLY, invoiceType: SUMMARY,
                         invoiceDelivery: EMAIL, paymentProfileId:"PRIMARY"}],
       paymentProfiles:[{paymentMethod: CHECK, paymentTerm:"NET_30"}]
     }){ id } }`);
