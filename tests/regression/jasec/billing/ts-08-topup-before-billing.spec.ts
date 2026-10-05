@@ -88,7 +88,7 @@ test.describe('B4 precondition — a real top-up inside the billed cycle', () =>
   test.skip(!RUN, 'JASEC_TOPUP_RUN is not true — this precondition is opt-in.');
 
   test(
-    'saves a card and tops up the account that is about to be billed @jasec @billing @topup-precondition',
+    'tops up (direct PlaceToPay payment, no saved card) the account that is about to be billed @jasec @billing @topup-precondition',
     async ({
       selfcareLoginPage,
       selfcareAccountSearchPage,
