@@ -3,6 +3,11 @@ import { BasePage } from '../../base.page';
 import { SHORT_WAIT, MEDIUM_WAIT, LONG_WAIT, EXTRA_LONG_WAIT } from '../../../helpers/timeouts.helper';
 import { ToastComponent } from '../../components/toast.component';
 
+/** Display labels a LOCKED select may show for a stored value (see assertLockedSelect). */
+const LOCKED_DISPLAY_LABELS: Record<string, string[]> = {
+  PREPAID: ['PREPAID', 'Prepago'],
+};
+
 /**
  * Payload for the JASEC prepaid residential account creation form.
  *
@@ -283,10 +288,14 @@ export class CreateAccountPage extends BasePage {
      * would just re-check the same captured value. Settling is the precondition;
      * once settled, a wrong value is still a hard failure.
      */
+    // The locked field shows a DISPLAY label: since 2026-10-05 (team release "Category is locked to
+    // Prepago") Account Category reads "Prepago" for PREPAID. Accept exactly the known labels - any other
+    // value is still a hard failure. The stored value is proven by the DB read-back in TC-01.
+    const accepted = LOCKED_DISPLAY_LABELS[expected] ?? [expected];
     const deadline = Date.now() + MEDIUM_WAIT;
     let state = await read();
     const first = state;
-    while ((!state.disabled || state.shown !== expected) && Date.now() < deadline) {
+    while ((!state.disabled || !accepted.includes(state.shown)) && Date.now() < deadline) {
       await this.page.waitForTimeout(250);
       state = await read();
     }
@@ -308,9 +317,9 @@ export class CreateAccountPage extends BasePage {
         `that has been reverted this page object must go back to selecting it.`,
       );
     }
-    if (state.shown !== expected) {
+    if (!accepted.includes(state.shown)) {
       throw new Error(
-        `Create Account: "${shownLabel}" is locked to "${state.shown}", expected "${expected}". ` +
+        `Create Account: "${shownLabel}" is locked to "${state.shown}", expected ${accepted.map(a => `"${a}"`).join(' or ')}. ` +
         `The account this form would create no longer matches the reference shape.`,
       );
     }

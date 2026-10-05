@@ -128,13 +128,22 @@ test.describe('Account ID with hidden or special characters @acct-id-validation'
 
   // The UI is how it actually happened (pasted from a spreadsheet). TAB is the incident;
   // a browser strips a newline from a single-line input, which this records either way.
-  for (const label of ['trailing TAB', 'trailing newline']) {
+  // Since the 2026-10-05 release the UI claims "letters, numbers, - and _ only, max 50": every special
+  // input is tried, plus the length edge, plus a CONTROL that must be stored exactly as typed (proves the
+  // validation is not simply refusing everything).
+  const UI_EXTRA: Array<{ label: string; make: (base: string) => string; control?: boolean }> = [
+    { label: 'over 50 characters', make: b => `${b}_${'X'.repeat(60)}`.slice(0, 51) },
+    { label: 'control: 50 chars of letters, digits, - and _', make: b => `${b}_${'a1-_'.repeat(15)}`.slice(0, 50), control: true },
+  ];
+  for (const input of [...INPUTS, ...UI_EXTRA]) {
+    const label = input.label;
+    const isControl = (input as { control?: boolean }).control === true;
     test(`Core UI (Create Account): ${label} is refused or cleaned @acct-id-validation`, async ({
       page, searchAccountsPage, createAccountPage,
     }) => {
       test.setTimeout(300_000);
       const suffix = uniqueRunSuffix();
-      const asked = INPUTS.find(i => i.label === label)!.make(`QAID-${suffix}`);
+      const asked = input.make(`QAID-${suffix}`);
       const customerId = `${row.accountInfo.customerId}-${suffix}`;
 
       await page.navigateToHome();
@@ -159,16 +168,23 @@ test.describe('Account ID with hidden or special characters @acct-id-validation'
       await db.connect();
       try {
         const stored = await storedIdFor(db, customerId);
+        if (isControl) {
+          expect(stored, `UI control: a valid id (${JSON.stringify(asked)}) must be stored exactly as typed` +
+            (refusal ? ` - it was refused: ${refusal}` : '')).toBe(asked);
+          console.log(`  PASS  UI ${label}: stored as typed`);
+          return;
+        }
         if (stored === null) {
           console.log(`  PASS  UI ${label}: refused${refusal ? ` - ${refusal}` : ''}`);
           return;
         }
-        if (!BAD.test(stored)) {
-          console.log(`  PASS  UI ${label}: stored cleaned as ${JSON.stringify(stored)}`);
+        if (!BAD.test(stored) && stored.length <= 50) {
+          console.log(`  PASS  UI ${label}: stored cleaned as ${JSON.stringify(stored)} (${stored.length} chars)`);
           return;
         }
         recordCreated([{ label, storedId: stored, path: 'ui' }]);
         await assertUnreachableByDailyJobs(db, stored);
+        expect.soft(stored.length, `UI ${label}: stored ${stored.length} characters - the limit is 50`).toBeLessThanOrEqual(50);
         expect(stored, `UI ${label}: accepted and stored as ${JSON.stringify(stored)} - the same shape that ` +
           `stopped the preprod billing run`).not.toMatch(BAD);
       } finally {
