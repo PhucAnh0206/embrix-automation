@@ -90,27 +90,21 @@ export const TENANTS: Record<string, Tenant> = {
     // Checked the same day on prod: provisioningEnabled=false (no AMI
     // dispatch), pacEnabled=false (no Hacienda), batchFinancialExtract=true (no
     // live ledger post), PlaceToPay = checkout-test. Re-check before each run.
-    suites: ['jasec-billing-read$', 'jasec-accounting$', 'jasec-billing-ui$',
-             'jasec-regression$', 'jasec-top-up$',
-             // Seeding zero-usage invoices, approved by Anh 2026-09-30.
-             'jasec-seed$',
-             // Read-only / refused-by-design only (2026-09-30). In jasec-provisioning,
-             // run inbound-contract, outbound-contract, order-integrity: dispatch and
-             // auto-suspend-resume refuse this tenant at load, and stay that way.
-             'jasec-provisioning$', 'jasec-notification-content$',
-             // 2026-09-30, ready for the re-test once the S3 / Vault fixes land. Each seeds
-             // its own data. NOT added: jasec-billing-explore (dev account/order fixtures),
-             // jasec-accounting-run (team decision), jasec-provisioning-ui (live dispatch).
-             'jasec-notification$', 'jasec-notification-live$', 'jasec-notification-reconnect$',
-             'jasec-notification-tiers$', 'jasec-usage-run$', 'jasec-usage-ui$',
-             'jasec-billing-trueup$',
-             // Block A live flow, 2026-10-01: QA meters + our own JASEC callbacks; gated per case
-             // and self-BLOCKED while provisioningEnabled is false.
-             'jasec-provisioning-ui$',
-             // 2026-10-01, approved by Anh: prod build 1 runs batchFinancialExtract=true (FILE
-             // mode: CSV only, nothing posted to JASEC). The spec refuses gateway mode itself.
-             'jasec-accounting-run$'],
-    note: 'JASEC production test build - read-only projects plus account creation and top-up.',
+    // TIED TO THE BUILD (2026-10-05, Anh: "prod build 2 we can freely test anything; when the
+    // final prod version comes out, we cannot test"). The allow-list used to be a fixed list of
+    // exact names, NOT tied to a build - whatever was opened for a test build would have stayed
+    // open on the customer build. Now it reads JASEC_PROD_BUILD from the local .env.prod:
+    //   test-build-*  -> every jasec-* suite, like dev (each spec keeps its own gates/guards)
+    //   anything else, or unset -> NOTHING runs (fail closed). The final customer build is
+    //   check-only: PRODUCTION-SETUP-CHECKLIST 9b, read-only queries, no tests, no data.
+    // A getter, not a value: this module is imported before dotenv.config() runs.
+    // Outside-Embrix effects are still guarded per spec (AMI dispatch self-BLOCKs while
+    // provisioningEnabled=false, accounting-run refuses gateway mode, PlaceToPay = checkout-test).
+    get suites() {
+      const build = (process.env.JASEC_PROD_BUILD ?? '').trim().toLowerCase();
+      return build.startsWith('test-build') ? ['jasec-'] : [];
+    },
+    note: 'JASEC production: all jasec-* suites while JASEC_PROD_BUILD=test-build-*; nothing otherwise (final build is check-only).',
   },
 
   'coopeg-sandbox': {
