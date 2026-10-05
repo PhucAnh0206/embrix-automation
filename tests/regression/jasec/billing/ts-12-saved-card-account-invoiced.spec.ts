@@ -104,6 +104,19 @@ test('a customer who saved a card and topped up with it is still invoiced @tc-14
     }
     if (blockedIf(!billDate, `${accountId} has no PENDING bill unit - nothing to bill`)) return;
 
+    // The billing jobs bill EVERY account due on this date, not only ours. Never bill someone else's
+    // account (preprod is shared; run-suite runs this unattended) - BLOCKED instead. Pick another BDOM.
+    const others = await db.query<{ n: number }>(
+      `SELECT count(DISTINCT bp.accountid)::int n FROM core_engine.billing_profile bp
+         JOIN core_engine.bill_unit bu ON bu.id = bp.nextbillunitid AND bu.status = 'PENDING'
+        WHERE bp.accountid <> $1 AND bp.nextaccountingdate = $2::date - core_engine.get_future_cycle_date(bp.accountid)`,
+      [accountId, billDate]);
+    if (blockedIf((others[0]?.n ?? 0) > 0,
+      `${others[0].n} other account(s) are also due on ${billDate} - refusing to bill them; set JASEC_SAVEDCARD_BDOM to a free day`)) return;
+    const slot = await db.query<{ n: number }>(
+      `SELECT count(*)::int n FROM core_engine.job_schedule WHERE scheduledate::date = $1::date AND schedulefrequency = 'SCHEDULED'`, [billDate]);
+    if (blockedIf((slot[0]?.n ?? 0) > 0, `${billDate} already has a SCHEDULED job schedule - set JASEC_SAVEDCARD_BDOM to another day`)) return;
+
     // 4. The tenant's OWN DAILY billing jobs, in its order.
     const daily = await db.query<{ jobname: string }>(
       `SELECT jobname FROM (SELECT DISTINCT ON (jobname) jobname, index FROM core_config.config_job_list
