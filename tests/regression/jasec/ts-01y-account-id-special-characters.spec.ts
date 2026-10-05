@@ -7,8 +7,11 @@
  * stopped for ALL 276 accounts. Huy asked for automation covering ids with special characters
  * at the end (newline, tab, ...). Team ticket: harden validation on the account ID field.
  *
- * PASS = the id is refused, or stored cleaned (no whitespace and none of | ' " \).
- * FAIL = stored as typed. Expected to FAIL until the validation fix lands.
+ * PASS = the id is refused, or stored cleaned (no whitespace and none of | ' " \, max 50); a valid control id is
+ * stored exactly as typed. FAIL = stored as typed. UI fix landed 2026-10-05 (dev: 10/10 PASS).
+ *
+ * UI ONLY, by decision (Anh, 2026-10-05): real users create accounts in the Core UI, so the createAccount API
+ * is deliberately NOT validated and not tested here. (It still accepts these ids - known and accepted.)
  *
  * SAFETY - read before changing anything:
  *   An accepted bad id breaks the daily billing run for the WHOLE tenant until someone fixes it
@@ -29,9 +32,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { test, expect } from '../../../fixtures/jasec-fixtures';
 import { uniqueRunSuffix, type PrepaidAccountWithOrderRow } from '../../../fixtures/create-prepaid-account.helper';
-import { PrepaidSeedHelper, GraphQlBusinessError } from '../../../helpers/prepaid-seed.helper';
 import { DbHelper, hasDbConfig } from '../../../helpers/db.helper';
-import { TestLogger } from '../../../helpers/test-logger';
 import { blockedIf } from '../../../helpers/blocked.helper';
 
 const DEV_ONLY = process.env.TEST_ENV === 'jasec-dev';
@@ -85,45 +86,6 @@ test.describe('Account ID with hidden or special characters @acct-id-validation'
   test.beforeEach(() => {
     blockedIf(!DEV_ONLY, `runs on jasec-dev ONLY - an accepted bad id breaks billing for the whole tenant (TEST_ENV=${process.env.TEST_ENV})`);
     blockedIf(!hasDbConfig(), 'needs DB access to read what was stored');
-  });
-
-  test('API (createAccount): every special character is refused or cleaned @acct-id-validation', async () => {
-    test.setTimeout(300_000);
-    const logger = new TestLogger('acct-id-validation-api');
-    const seed = new PrepaidSeedHelper(logger);
-    const db = new DbHelper();
-    await db.connect();
-    const accepted: Array<{ label: string; storedId: string; path: string }> = [];
-    try {
-      for (const input of INPUTS) {
-        const suffix = uniqueRunSuffix();
-        const asked = input.make(`QAID-${suffix}`);
-        const customerId = `E2EQAID-${suffix}`;
-        let refusal = '';
-        try {
-          await seed.createAccountOnly({ id: asked, customerId, name: `E2EQAID ${suffix}` });
-        } catch (e) {
-          if (!(e instanceof GraphQlBusinessError)) throw e; // transport/auth failure is not a verdict
-          refusal = String((e as Error).message).slice(0, 160);
-        }
-        const stored = await storedIdFor(db, customerId);
-        if (stored === null) {
-          console.log(`  PASS  ${input.label.padEnd(17)} refused${refusal ? `: ${refusal}` : ''}`);
-          continue;
-        }
-        if (!BAD.test(stored)) {
-          console.log(`  PASS  ${input.label.padEnd(17)} stored cleaned as ${JSON.stringify(stored)}`);
-          continue;
-        }
-        accepted.push({ label: input.label, storedId: stored, path: 'api' });
-        await assertUnreachableByDailyJobs(db, stored);
-        console.log(`  FAIL  ${input.label.padEnd(17)} stored as typed: ${JSON.stringify(stored)}`);
-        expect.soft(stored, `${input.label}: accepted and stored as ${JSON.stringify(stored)}`).not.toMatch(BAD);
-      }
-    } finally {
-      recordCreated(accepted);
-      await db.disconnect();
-    }
   });
 
   // The UI is how it actually happened (pasted from a spreadsheet). TAB is the incident;
