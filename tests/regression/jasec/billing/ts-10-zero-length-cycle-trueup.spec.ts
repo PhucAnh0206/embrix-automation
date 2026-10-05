@@ -185,7 +185,11 @@ test.describe('JASEC billing — 0-30 kWh true-up and cycle length (MUTATING)', 
     }
   });
 
-  test('B — a zero-length cycle produces no true-up at all', async () => {
+  // TC-59. RECORDS the behaviour, does not judge it: whether a same-day cycle should bill the
+  // fixed charge is an OPEN business decision (OPEN-BUSINESS-QUESTIONS item 2, Huy). Asserting
+  // either answer would pin an undecided rule - a PASS would bless it, and a fix would read as a
+  // regression. Once the team decides, assert THAT answer here. (Relabelled 2026-10-05.)
+  test('B — a zero-length cycle: behaviour recorded, decision pending (open question 2)', async () => {
     blockedIf(!RUN_ENABLED, 'JASEC_TRUEUP_RUN is not "true".');
     // A PASS here records today's behaviour; it is not a verdict on whether it is right.
     test.info().annotations.push({
@@ -225,23 +229,26 @@ test.describe('JASEC billing — 0-30 kWh true-up and cycle length (MUTATING)', 
         `total ${bill!.billTotal}, ${lines.length} true-up line(s)`,
       );
 
-      /**
-       * DOCUMENTS THE BEHAVIOUR, does not bless it. Huy's note: "worth a ticket
-       * if you think a same-day cycle should still bill the fixed charge."
-       *
-       * Asserted as-is so the suite NOTICES if it ever changes — if a zero-length
-       * cycle starts producing a true-up, that is a deliberate fix and this test
-       * should be updated to demand it, not quietly pass.
-       */
+      // Only a PARTIAL true-up (1-3 of the 4 lines) is a defect under EITHER answer.
       expect(
-        lines.length,
-        `a zero-length cycle currently produces NO true-up. If this now returns 4 lines ` +
-        `the behaviour has been changed deliberately — update this test to require it.`,
-      ).toBe(0);
+        [0, 4],
+        `a zero-length cycle produced ${lines.length} true-up line(s) - neither "no charge" (0) nor the full ` +
+        `fixed charge (4 lines, ${FIXED_CHARGE}). A partial true-up is wrong whatever the team decides.`,
+      ).toContain(lines.length);
 
+      const recorded = lines.length === 0
+        ? `no fixed charge - bill ${bill!.billTotal}, 0 true-up lines`
+        : `the full fixed charge - 4 true-up lines (${FIXED_CHARGE}) - CHANGED since 2026-10-05, check it was intended`;
+      test.info().annotations.push({
+        type: 'decision-pending',
+        description: `Behaviour recorded: a same-day cycle bills ${recorded}. Not a verdict - open question 2.`,
+      });
       console.log(
-        `\n  CONFIRMED — a same-day cycle bills ${bill!.billTotal} with no true-up.\n` +
-        `  Open question for the team: should it still bill the ${FIXED_CHARGE} fixed charge?\n`,
+        `
+  RECORDED, decision pending — a same-day cycle bills ${recorded}.
+` +
+        `  Open question 2 for the team: should it bill the ${FIXED_CHARGE} fixed charge?
+`,
       );
     } finally {
       await db.disconnect();
