@@ -22,7 +22,7 @@
  *   3. the invoices the LATEST billing run produced are settled              (prospective - the fresh evidence)
  *      Reads artifacts/billing-run-invoices.json, written by ts-06 (TC-139). BLOCKED if there is none for
  *      this tenant. In run-suite this runs AFTER the billing runs, so it judges that run's invoices.
- *      Checked in the DATABASE and on the CORE UI, as an agent would see it:
+ *      Checked on the CORE UI first, as an agent sees it, then in the DATABASE (the record behind the screen):
  *        - Bills > Open/Closed Bills: Invoice Status CLOSED, Due 0
  *        - Account Statement: a SETTLEMENT row for the invoice, Total = -invoice total, Closing Balance 0
  *
@@ -126,21 +126,6 @@ test.describe('TC-142 prepaid invoice settled, never in collections @tc-142 @pre
       .toBe(run!.invoices.length);
 
     for (const inv of rows.filter(r => r.total > 0)) {
-      await test.step(`database: ${inv.id} (${inv.accountid}) is settled and its statement closes at 0`, async () => {
-        const settle = await db.query<{ amount: number; closing: number }>(
-          `SELECT amount::float8 amount, closingbalance::float8 closing FROM core_engine.account_statement
-            WHERE accountid = $1 AND invoiceid = $2 AND linetype = 'SETTLEMENT'`, [inv.accountid, inv.id]);
-        console.log(`    DB  ${inv.id}  ${inv.status}  total ${inv.total} due ${inv.due} | SETTLEMENT ` +
-          (settle.map(x => `${x.amount} -> closing ${x.closing}`).join(', ') || 'NONE'));
-        expect.soft(inv.status, `${inv.id}: invoice status`).not.toMatch(/^(ACTIVE|COLLECTION)$/);
-        expect.soft(inv.due, `${inv.id}: amount due`).toBe(0);
-        expect.soft(settle.length, `${inv.id}: exactly one SETTLEMENT line on the account statement`).toBe(1);
-        if (settle.length) {
-          expect.soft(settle[0].amount, `${inv.id}: SETTLEMENT amount = minus the invoice total`).toBeCloseTo(-inv.total, 2);
-          expect.soft(settle[0].closing, `${inv.id}: statement closing balance after the settlement`).toBeCloseTo(0, 2);
-        }
-      });
-
       await test.step(`Core UI: ${inv.accountid} Bills and Account Statement show ${inv.id} settled`, async () => {
         await page.navigateToHome();
         await customerManagementPage.navigateViaNav();
@@ -164,6 +149,21 @@ test.describe('TC-142 prepaid invoice settled, never in collections @tc-142 @pre
         if (s1) {
           expect.soft(uiNum(s1['Total']), `Core UI Account Statement: SETTLEMENT total for ${inv.id}`).toBeCloseTo(-inv.total, 2);
           expect.soft(uiNum(s1['Closing Balance']), `Core UI Account Statement: closing balance after ${inv.id}`).toBeCloseTo(0, 2);
+        }
+      });
+
+      await test.step(`database: ${inv.id} (${inv.accountid}) is settled and its statement closes at 0`, async () => {
+        const settle = await db.query<{ amount: number; closing: number }>(
+          `SELECT amount::float8 amount, closingbalance::float8 closing FROM core_engine.account_statement
+            WHERE accountid = $1 AND invoiceid = $2 AND linetype = 'SETTLEMENT'`, [inv.accountid, inv.id]);
+        console.log(`    DB  ${inv.id}  ${inv.status}  total ${inv.total} due ${inv.due} | SETTLEMENT ` +
+          (settle.map(x => `${x.amount} -> closing ${x.closing}`).join(', ') || 'NONE'));
+        expect.soft(inv.status, `${inv.id}: invoice status`).not.toMatch(/^(ACTIVE|COLLECTION)$/);
+        expect.soft(inv.due, `${inv.id}: amount due`).toBe(0);
+        expect.soft(settle.length, `${inv.id}: exactly one SETTLEMENT line on the account statement`).toBe(1);
+        if (settle.length) {
+          expect.soft(settle[0].amount, `${inv.id}: SETTLEMENT amount = minus the invoice total`).toBeCloseTo(-inv.total, 2);
+          expect.soft(settle[0].closing, `${inv.id}: statement closing balance after the settlement`).toBeCloseTo(0, 2);
         }
       });
     }

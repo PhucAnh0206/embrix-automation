@@ -16,7 +16,7 @@
  *
  * IRREVERSIBLE. It moves the tenant CCP clock, spends a `job_schedule` slot, and
  * actually bills real accounts on the tenant, which advances their cycle. Gated
- * behind JASEC_BILL_UI_RUN=true and it refuses to start without an explicit date.
+ * behind JASEC_BILL_RUN=true and it refuses to start without an explicit date.
  *
  * THREE RULES THAT DECIDE WHETHER THIS DOES ANYTHING AT ALL:
  *
@@ -43,7 +43,7 @@
  *
  * USAGE
  *
- *   $env:JASEC_BILL_UI_RUN='true'; $env:JASEC_BILL_UI_DATE='2026-10-18'; npx playwright test --project=jasec-billing-ui --reporter=line
+ *   $env:JASEC_BILL_RUN='true'; $env:JASEC_BILL_DATE='2026-10-18'; npx playwright test --project=jasec-billing-run --reporter=line
  *
  * Add --headed to watch it happen. To find a safe date first — one with few
  * eligible accounts and a free slot — run the query in `pickDateHint` below.
@@ -304,13 +304,13 @@ const JOB_CHILDREN_SQL = `
 const pickDateHint = true;
 
 test.describe('Billing via the Core UI Daily Schedule', () => {
-  const date = (process.env.JASEC_BILL_UI_DATE ?? '').trim();
-  const enabled = process.env.JASEC_BILL_UI_RUN === 'true';
-  const maxAccounts = Number(process.env.JASEC_BILL_UI_MAX_ACCOUNTS ?? '5');
+  const date = (process.env.JASEC_BILL_DATE ?? '').trim();
+  const enabled = process.env.JASEC_BILL_RUN === 'true';
+  const maxAccounts = Number(process.env.JASEC_BILL_MAX_ACCOUNTS ?? '5');
 
   test.skip(
     !enabled,
-    'Set JASEC_BILL_UI_RUN=true to run. This moves the CCP clock, spends a job_schedule slot and bills real accounts.',
+    'Set JASEC_BILL_RUN=true to run. This moves the CCP clock, spends a job_schedule slot and bills real accounts.',
   );
 
   test('a schedule created and processed in the UI produces an invoice', async ({
@@ -328,7 +328,7 @@ test.describe('Billing via the Core UI Daily Schedule', () => {
 
     expect(
       /^\d{4}-\d{2}-\d{2}$/.test(date),
-      'Set JASEC_BILL_UI_DATE to the target schedule date, formatted YYYY-MM-DD. ' +
+      'Set JASEC_BILL_DATE to the target schedule date, formatted YYYY-MM-DD. ' +
       'It must equal some account\'s nextaccountingdate + get_future_cycle_date, ' +
       'or the run bills nobody. See the header comment.',
     ).toBe(true);
@@ -377,7 +377,7 @@ test.describe('Billing via the Core UI Daily Schedule', () => {
         eligible.length,
         `${eligible.length} accounts would be billed on ${date}, over the limit of ` +
         `${maxAccounts}. Billing is irreversible per account. Raise ` +
-        `JASEC_BILL_UI_MAX_ACCOUNTS deliberately if that is really what you want.`,
+        `JASEC_BILL_MAX_ACCOUNTS deliberately if that is really what you want.`,
       ).toBeLessThanOrEqual(maxAccounts);
 
       // ── 2. Before state, per account ──

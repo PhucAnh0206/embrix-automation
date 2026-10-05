@@ -144,7 +144,20 @@ test('a customer who saved a card and topped up with it is still invoiced @tc-14
     console.log(`  ${scheduleId}: ${states.map(x => `${x.type}=${x.status}`).join(' ')}`);
     expect(states.every(x => FINAL.includes(x.status)), `${scheduleId} did not finish within 8 minutes`).toBe(true);
 
-    // 6. The outcome: an invoice for this account.
+    // 6. The outcome, first on the Core UI screen an agent uses: the account's Bills grid lists an invoice.
+    const uiBills = await test.step(`Core UI: ${accountId} Bills lists an invoice`, async () => {
+      await page.navigateToHome();
+      await customerManagementPage.navigateViaNav();
+      await customerManagementPage.searchByAccountId(accountId);
+      await customerManagementPage.clickFirstRowLink('ACCT No');
+      await billsPage.navigateToBills();
+      const rows = (await billsPage.openClosedBillRows()).filter(r => r['Invoice Id']);
+      console.log(`  Core UI Bills: ${rows.map(r => `${r['Invoice Id']} ${r['Invoice Status']} due ${r['Due']}`).join(', ') || 'no invoice listed'}`);
+      expect.soft(rows.length, `Core UI Bills for ${accountId} lists no invoice for the billed cycle`).toBeGreaterThan(0);
+      return rows;
+    });
+
+    // 7. Then the record behind the screen.
     const inv = await db.query<{ id: string; total: string }>(
       `SELECT id, coalesce(total, 0)::text total FROM core_engine.invoice_unit WHERE accountid = $1`, [accountId]);
     const errs = await db.query<{ type: string; reason: string }>(
@@ -159,18 +172,8 @@ test('a customer who saved a card and topped up with it is still invoiced @tc-14
       (method === 'CREDIT_CARD' && !jobNames.some(j => /_CC$/.test(j))
         ? 'Known: JEPYP-326 - saving a card makes the account CREDIT_CARD and DAILY has no BILL_CC/INVOICE_CC.'
         : 'Not the known JEPYP-326 shape - investigate.')).toBeGreaterThan(0);
-    // 7. The same outcome on the Core UI screen an agent uses: the account's Bills grid lists the invoice.
-    await test.step(`Core UI: ${accountId} Bills lists the invoice`, async () => {
-      await page.navigateToHome();
-      await customerManagementPage.navigateViaNav();
-      await customerManagementPage.searchByAccountId(accountId);
-      await customerManagementPage.clickFirstRowLink('ACCT No');
-      await billsPage.navigateToBills();
-      const listed = (await billsPage.openClosedBillRows()).filter(r => inv.some(i => i.id === r['Invoice Id']));
-      console.log(`  Core UI Bills: ${listed.map(r => `${r['Invoice Id']} ${r['Invoice Status']} due ${r['Due']}`).join(', ') || 'invoice NOT listed'}`);
-      expect(listed.length, `Core UI Bills for ${accountId} does not list invoice(s) ${inv.map(i => i.id).join(', ')}`)
-        .toBeGreaterThan(0);
-    });
+    expect.soft(uiBills.map(r => r['Invoice Id']).sort(), `Core UI Bills and the database list different invoices for ${accountId}`)
+      .toEqual(inv.map(i => i.id).sort());
     console.log(`  PASS - ${mode}: ${accountId} invoiced`);
   } finally {
     await seed.setCcpDate(startClock).catch(e => console.log(`  WARNING: clock not restored to ${startClock}: ${e}`));

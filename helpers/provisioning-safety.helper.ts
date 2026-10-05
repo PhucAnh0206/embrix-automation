@@ -5,7 +5,7 @@ import { DbHelper } from './db.helper';
  * The one definition of "safe to send to JASEC's AMI" for the provisioning specs.
  *
  * It used to live in five specs as five copies, and they had drifted: the
- * DO_NOT_TOUCH lists differed (ui-reprocess lacked ORD-1059), and two copies
+ * DO_NOT_TOUCH lists differed (reprocess-failed-step lacked ORD-1059), and two copies
  * counted a reply as ACCEPTED on `CodRespuesta>00<` alone while the newer ones
  * also matched "Operación Registrada". A guard that disagrees with itself is only
  * as strong as its weakest copy.

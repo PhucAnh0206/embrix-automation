@@ -38,8 +38,8 @@
  * GATED: dispatches to JASEC's live AMI (one command - a reprocessed order gets
  * a single attempt, no retries, because retriedcount is not reset).
  *
- *   JASEC_UI_REPROCESS_RUN=true
- *   JASEC_UI_REPROCESS_ORDER=ORD-nnnn
+ *   JASEC_REPROCESS_RUN=true
+ *   JASEC_REPROCESS_ORDER=ORD-nnnn
  *
  * Verified by hand on ORD-1058 on 2026-09-07: 4 commands before, 5 after,
  * A-104194 accion D medidor 324451.
@@ -50,8 +50,8 @@ import { DbHelper } from '../../../../helpers/db.helper';
 import { blockedIf } from '../../../../helpers/blocked.helper';
 import { ACCEPTED_REPLY_SQL, DO_NOT_TOUCH_ORDERS } from '../../../../helpers/provisioning-safety.helper';
 
-const RUN = process.env.JASEC_UI_REPROCESS_RUN === 'true';
-const ORDER = process.env.JASEC_UI_REPROCESS_ORDER ?? '';
+const RUN = process.env.JASEC_REPROCESS_RUN === 'true';
+const ORDER = process.env.JASEC_REPROCESS_ORDER ?? '';
 
 /** Staged for a JASEC session - reprocessing one would consume it. Shared list. */
 const DO_NOT_TOUCH = DO_NOT_TOUCH_ORDERS;
@@ -77,8 +77,8 @@ test.afterAll(async () => {
 
 test.describe('JEPYP-27 - manual reprocess through the UI', () => {
   test('Submit order on a failed order re-dispatches to the AMI', async ({ page }) => {
-    test.skip(!RUN, 'GATED: dispatches to the live AMI. Set JASEC_UI_REPROCESS_RUN=true.');
-    test.skip(!ORDER, 'BLOCKED: set JASEC_UI_REPROCESS_ORDER to an order in PROVISIONING_ERROR.');
+    test.skip(!RUN, 'GATED: dispatches to the live AMI. Set JASEC_REPROCESS_RUN=true.');
+    test.skip(!ORDER, 'BLOCKED: set JASEC_REPROCESS_ORDER to an order in PROVISIONING_ERROR.');
     test.setTimeout(600_000);
     blockedIf(!dbUp, `cannot reach the JASEC database. ${dbError}`);
 
@@ -93,7 +93,7 @@ test.describe('JEPYP-27 - manual reprocess through the UI', () => {
                           JOIN core_engine.service_provision sp ON sp.id=su.id AND sp.type='METER'
                          WHERE su.accountid=o.accountid LIMIT 1),'') AS meter
          FROM core_oms."order" o WHERE o.id = $1`, [ORDER]);
-    // The order named in JASEC_UI_REPROCESS_ORDER is test data: if it is not in
+    // The order named in JASEC_REPROCESS_ORDER is test data: if it is not in
     // the state this case needs, the case is BLOCKED, not failed.
     blockedIf(pre.length !== 1, `${ORDER} does not exist on this tenant.`);
     const { status, svcline, seq, meter } = pre[0];

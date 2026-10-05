@@ -39,7 +39,7 @@
  * browser. Gated behind JASEC_USAGE_UI_RUN=true.
  *
  *     $env:JASEC_USAGE_UI_RUN='true'
- *     npx playwright test --project=jasec-usage-ui --headed
+ *     npx playwright test --project=jasec-usage-screens --headed
  *
  * Owner: Anh Tran (QC).
  */

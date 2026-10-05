@@ -67,11 +67,11 @@ const DEV_CASES: UiInvoiceCase[] = [
   { invoiceId: '002797', account: 'ACT-100858', note: '25 kWh, 30 kWh minimum, no tax', lo: 0, hi: 30 },
 ];
 const CASES: UiInvoiceCase[] =
-  process.env.JASEC_UI_INVOICE
+  process.env.JASEC_DOC_INVOICE
     ? [{
-        invoiceId: process.env.JASEC_UI_INVOICE,
-        account: process.env.JASEC_UI_ACCOUNT ?? '',
-        note: 'supplied via JASEC_UI_INVOICE',
+        invoiceId: process.env.JASEC_DOC_INVOICE,
+        account: process.env.JASEC_DOC_ACCOUNT ?? '',
+        note: 'supplied via JASEC_DOC_INVOICE',
         lo: 0, hi: Number.MAX_SAFE_INTEGER,
       }]
     : TENANT === 'jasec-dev'
@@ -92,7 +92,7 @@ const gql = new BillingGqlHelper();
 
 for (const c of CASES) {
   test.describe(`Monthly invoice ${c.invoiceId || `${c.lo}-${c.hi} kWh`} in Core UI — ${c.note}`, () => {
-    test(`invoice ${c.invoiceId || `${c.lo}-${c.hi} kWh`} renders correctly for an agent @jasec @billing @ui-invoice @tc-136`, async ({
+    test(`invoice ${c.invoiceId || `${c.lo}-${c.hi} kWh`} renders correctly for an agent @jasec @billing @invoice-document @tc-136`, async ({
       page, invoiceDetailPage,
     }) => {
       test.setTimeout(240_000);
@@ -121,8 +121,8 @@ for (const c of CASES) {
           + `on this tenant in the ${c.lo}-${c.hi} kWh band. `
           + `These two invoices were billed on dev on 2026-09-11 (ACT-100857 BDOM 18, `
           + `ACT-100858 BDOM 19). On a rebuilt tenant, re-seed with `
-          + `run-tarif-e2e.ps1 + run-billing-cycle-e2e.ps1 and pass JASEC_UI_INVOICE / `
-          + `JASEC_UI_ACCOUNT, or point this spec at any prepaid invoice.`;
+          + `run-tarif-e2e.ps1 + run-billing-cycle-e2e.ps1 and pass JASEC_DOC_INVOICE / `
+          + `JASEC_DOC_ACCOUNT, or point this spec at any prepaid invoice.`;
         console.log(`\n[ui-invoice] ${why}\n`);
         test.skip(true, why);
         return;

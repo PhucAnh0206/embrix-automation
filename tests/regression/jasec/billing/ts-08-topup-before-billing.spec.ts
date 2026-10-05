@@ -36,7 +36,7 @@
  * just seeded. Run by hand as:
  *
  *     $env:JASEC_TOPUP_RUN='true'; $env:JASEC_TOPUP_ACCOUNT='ACT-100826'
- *     npx playwright test --project=jasec-billing-ui `
+ *     npx playwright test --project=jasec-billing-run `
  *       tests/regression/jasec/billing/ts-08-topup-before-billing.spec.ts
  *
  * ORDERING IS THE CALLER'S JOB. Playwright orders files alphabetically, so

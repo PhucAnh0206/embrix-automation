@@ -14,7 +14,7 @@ import { SHORT_WAIT, MEDIUM_WAIT, LONG_WAIT } from '../../../helpers/timeouts.he
  * CREATE sends createOrder with `subscriptions: [...]` and NO `services` - which
  * is why an order made here carries no core_oms.order_services row, unlike the
  * API-built orders the older specs use. That difference is the subject of
- * ui-suspend-resume.spec.ts. On success the app redirects to
+ * suspend-resume-orders.spec.ts. On success the app redirects to
  * /orders/<id>/detail, which is where "Submit order" lives.
  *
  * WHY AN ACCOUNT CAN BE MISSING FROM STEP 1. The search only lists accounts that

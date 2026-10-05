@@ -314,32 +314,32 @@ export default defineConfig({
     // PROVISIONING_INITIATED, which only exists once JASEC accept a dispatched
     // command on a meter they recognise, and dispatching consumes the single
     // meter they have released.
-    // ui-*.spec.ts is excluded here and runs in jasec-provisioning-ui below,
+    // suspend-resume-orders and reprocess-failed-step are excluded here and run in jasec-provisioning-orders below,
     // because it needs a browser and a logged-in session and these do not.
     {
       name: 'jasec-provisioning',
       testMatch: ['**/regression/jasec/provisioning/*.spec.ts'],
-      testIgnore: ['**/regression/jasec/provisioning/ui-*.spec.ts'],
+      testIgnore: ['**/regression/jasec/provisioning/suspend-resume-orders.spec.ts', '**/regression/jasec/provisioning/reprocess-failed-step.spec.ts'],
     },
 
     // ── JASEC provisioning through the Core UI.
     //
-    // ui-reprocess: the "Submit order" button on the order detail page, which is
+    // reprocess-failed-step: the "Submit order" button on the order detail page, which is
     // the manual reprocess the ticket asks for ("the UI need to be able to
     // reprocess manually"). The UI path is a strict superset of the API one -
     // button, mutation, OMS queue, sequence re-run, dispatch - so this is the
     // only test for that requirement rather than one of a pair.
     //
-    // ui-suspend-resume: SUSPEND and RESUME raised from the Suspend Order /
+    // suspend-resume-orders: SUSPEND and RESUME raised from the Suspend Order /
     // Resume Order screens - the order shape production creates (no service
-    // line) - plus an API-built control. Gated behind JASEC_UI_SUSPEND_RUN;
-    // run one tag at a time (@ui-journey, @ui-resume-billingonly, @ui-resume-existing, @api-control).
+    // line) - plus an API-built control. Gated behind JASEC_SUSPEND_ORDERS_RUN;
+    // run one tag at a time (@order-journey, @resume-billing-only-suspend, @resume-existing-suspension, @api-control).
     //
     // Needs a browser, a session and therefore the VPN. Gated on top of that
-    // behind JASEC_UI_REPROCESS_RUN because it dispatches to JASEC's live AMI.
+    // behind JASEC_REPROCESS_RUN because it dispatches to JASEC's live AMI.
     {
-      name: 'jasec-provisioning-ui',
-      testMatch: ['**/regression/jasec/provisioning/ui-*.spec.ts'],
+      name: 'jasec-provisioning-orders',
+      testMatch: ['**/regression/jasec/provisioning/suspend-resume-orders.spec.ts', '**/regression/jasec/provisioning/reprocess-failed-step.spec.ts'],
       dependencies: ['setup'],
       use: {
         ...devices['Desktop Chrome'],
@@ -354,11 +354,11 @@ export default defineConfig({
     //
     // IRREVERSIBLE: moves the tenant CCP clock, spends a job_schedule slot, and
     // bills real accounts (advancing their cycle). Gated behind
-    // JASEC_BILL_UI_RUN=true inside the spec and refuses to start without an
-    // explicit JASEC_BILL_UI_DATE, so a broad run can never trigger it.
+    // JASEC_BILL_RUN=true inside the spec and refuses to start without an
+    // explicit JASEC_BILL_DATE, so a broad run can never trigger it.
     // Needs a browser and the DB, therefore the VPN.
     {
-      name: 'jasec-billing-ui',
+      name: 'jasec-billing-run',
       testMatch: [
         '**/regression/jasec/billing/ts-06-*.spec.ts',
         '**/regression/jasec/billing/ts-07-*.spec.ts',
@@ -528,7 +528,7 @@ export default defineConfig({
     // separate project rather than another testMatch on that one. Gated inside
     // the spec behind JASEC_USAGE_UI_RUN=true.
     {
-      name: 'jasec-usage-ui',
+      name: 'jasec-usage-screens',
       testMatch: ['**/regression/jasec/usage/ts-07-*.spec.ts'],
       dependencies: ['setup'],
       use: {

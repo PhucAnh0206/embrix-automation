@@ -44,9 +44,9 @@
  *
  * GATED (reaches JASEC's live AMI):
  *
- *   JASEC_UI_SUSPEND_RUN=true
- *   npx playwright test --project=jasec-provisioning-ui ui-suspend-resume --grep "@ui-journey"
- *   npx playwright test --project=jasec-provisioning-ui ui-suspend-resume --grep "@api-control"
+ *   JASEC_SUSPEND_ORDERS_RUN=true
+ *   npx playwright test --project=jasec-provisioning-orders suspend-resume-orders --grep "@order-journey"
+ *   npx playwright test --project=jasec-provisioning-orders suspend-resume-orders --grep "@api-control"
  *
  * dev only. Preprod has no provisioningEnabled, so nothing dispatches there and
  * the test reports BLOCKED.
@@ -64,7 +64,7 @@ import { blockedIf } from '../../../../helpers/blocked.helper';
 import { assertSafeToDispatch as assertMeterSafe } from '../../../../helpers/provisioning-safety.helper';
 import { SuspendResumeOrderPage } from '../../../../pages/customer-hub/order-management/suspend-resume-order.page';
 
-const RUN = process.env.JASEC_UI_SUSPEND_RUN === 'true';
+const RUN = process.env.JASEC_SUSPEND_ORDERS_RUN === 'true';
 
 const TENANT = (process.env.TEST_ENV ?? 'jasec-dev').trim();
 // Runs on jasec-dev, jasec-preprod and jasec (prod) - this spec raises SUSPEND/RESUME orders that dispatch to the AMI. It used to THROW on any other
@@ -97,10 +97,10 @@ const REASON = 'NOT_HAPPY';
  * rows are all COMPLETED, and a screen order has none. Every stuck order had the
  * flag true; every completed one had it empty.
  *
- * JASEC_UI_PARTIAL=off unticks it before CREATE - the isolation run for that
+ * JASEC_SUSPEND_PARTIAL=off unticks it before CREATE - the isolation run for that
  * reading, and the workaround a user could apply today.
  */
-const UNTICK_PARTIAL = (process.env.JASEC_UI_PARTIAL ?? '').toLowerCase() === 'off';
+const UNTICK_PARTIAL = (process.env.JASEC_SUSPEND_PARTIAL ?? '').toLowerCase() === 'off';
 
 /** Apply the switch, then read the flag back - a click is not proof it stuck. */
 async function applyPartialSwitch(ui: SuspendResumeOrderPage, db: DbHelper, order: string) {
@@ -332,11 +332,11 @@ async function resumeJourney(
 // ── A: the UI journey ────────────────────────────────────────────────────
 
 test.describe('JEPYP-27 - suspend and resume through the Core UI screens', () => {
-  test('UI journey: Suspend Order -> callback -> Resume Order -> callback @ui-journey',
+  test('Suspend Order -> callback -> Resume Order -> callback @order-journey',
     async ({ page, request }, testInfo) => {
-      test.skip(!RUN, 'GATED: dispatches to the live AMI. Set JASEC_UI_SUSPEND_RUN=true.');
+      test.skip(!RUN, 'GATED: dispatches to the live AMI. Set JASEC_SUSPEND_ORDERS_RUN=true.');
       test.setTimeout(900_000);
-      const logger = new TestLogger('ui-suspend-resume');
+      const logger = new TestLogger('suspend-resume-orders');
       const db = new DbHelper(logger);
       try { await db.connect(); } catch (e) {
         blockedIf(true, `database unreachable (VPN?): ${(e as Error).message}`);
@@ -418,11 +418,11 @@ test.describe('JEPYP-27 - suspend and resume through the Core UI screens', () =>
   // itself unproven on dev (no Billing Only SUSPEND existed before 2026-09-28),
   // so each part of it is asserted and a setup that does not hold is BLOCKED.
 
-  test('UI resume: Billing Only suspend, then Resume Order -> callback @ui-resume-billingonly',
+  test('Billing Only suspend, then Resume Order -> callback @resume-billing-only-suspend',
     async ({ page, request }, testInfo) => {
-      test.skip(!RUN, 'GATED: dispatches to the live AMI. Set JASEC_UI_SUSPEND_RUN=true.');
+      test.skip(!RUN, 'GATED: dispatches to the live AMI. Set JASEC_SUSPEND_ORDERS_RUN=true.');
       test.setTimeout(900_000);
-      const logger = new TestLogger('ui-suspend-resume-resume');
+      const logger = new TestLogger('suspend-resume-orders-resume');
       const db = new DbHelper(logger);
       try { await db.connect(); } catch (e) {
         blockedIf(true, `database unreachable (VPN?): ${(e as Error).message}`);
@@ -478,13 +478,13 @@ test.describe('JEPYP-27 - suspend and resume through the Core UI screens', () =>
 
   // ── A2: the resume half alone, on an account a previous run left suspended ──
 
-  test('UI resume only, on an already-suspended QA account @ui-resume-existing',
+  test('Resume Order on an already-suspended QA account @resume-existing-suspension',
     async ({ page, request }, testInfo) => {
-      test.skip(!RUN, 'GATED: dispatches to the live AMI. Set JASEC_UI_SUSPEND_RUN=true.');
-      const accountId = process.env.JASEC_UI_RESUME_ACCOUNT ?? '';
-      blockedIf(!accountId, 'set JASEC_UI_RESUME_ACCOUNT to a SUSPENDED account a previous @ui-journey run seeded.');
+      test.skip(!RUN, 'GATED: dispatches to the live AMI. Set JASEC_SUSPEND_ORDERS_RUN=true.');
+      const accountId = process.env.JASEC_RESUME_ACCOUNT ?? '';
+      blockedIf(!accountId, 'set JASEC_RESUME_ACCOUNT to a SUSPENDED account a previous @order-journey run seeded.');
       test.setTimeout(600_000);
-      const logger = new TestLogger('ui-suspend-resume-resume-only');
+      const logger = new TestLogger('suspend-resume-orders-resume-only');
       const db = new DbHelper(logger);
       try { await db.connect(); } catch (e) {
         blockedIf(true, `database unreachable (VPN?): ${(e as Error).message}`);
@@ -512,10 +512,10 @@ test.describe('JEPYP-27 - suspend and resume through the Core UI screens', () =>
 
   test('Control: the same SUSPEND built through the API (with a service line) @api-control',
     async ({ request }) => {
-      test.skip(!RUN, 'GATED: dispatches to the live AMI. Set JASEC_UI_SUSPEND_RUN=true.');
+      test.skip(!RUN, 'GATED: dispatches to the live AMI. Set JASEC_SUSPEND_ORDERS_RUN=true.');
       test.setTimeout(600_000);
       blockedIf(!PASS, 'EMBRIX_PASSWORD is not set - the control signs in to create its order.');
-      const logger = new TestLogger('ui-suspend-resume-control');
+      const logger = new TestLogger('suspend-resume-orders-control');
       const db = new DbHelper(logger);
       try { await db.connect(); } catch (e) {
         blockedIf(true, `database unreachable (VPN?): ${(e as Error).message}`);
