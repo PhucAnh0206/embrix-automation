@@ -32,6 +32,9 @@ export interface PrepaidAccountPayload {
     legalEntity?: string;
     /** name="sellingCompany", label "Punto de Venta". Pre-filled "0900". */
     sellingCompany?: string;
+    /** name="id", label "Account Id". Normally left blank (system assigns ACT-n). Set only
+     *  by the account-ID validation case - the value is filled EXACTLY, control chars included. */
+    accountId?: string;
   };
   contact: {
     firstName: string;
@@ -476,6 +479,10 @@ export class CreateAccountPage extends BasePage {
       await this.fillInputByName('sellingCompany', info.sellingCompany);
     }
 
+    if (info.accountId !== undefined) {
+      await this.fillInputByName('id', info.accountId);          // "Account Id"
+    }
+
     // ── Still present, still named the same, just relabelled ──
     await this.fillInputByName('customerId', info.customerId);   // "Número de Identificación"
     if (info.clientId) {
@@ -522,6 +529,11 @@ export class CreateAccountPage extends BasePage {
   }
 
   // ── Submit ──────────────────────────────────────────────────────────
+
+  /** Whether the form shows an "Account Id" input (name="id"). */
+  async hasAccountIdField(): Promise<boolean> {
+    return this.inputByName('id').isVisible().catch(() => false);
+  }
 
   async submitCreateAccount(): Promise<string> {
     await this.createAccountButton.scrollIntoViewIfNeeded().catch(() => { });

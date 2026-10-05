@@ -44,6 +44,9 @@ export interface SeedPrepaidOptions {
   meter: string;
   /** Customer id. Also unique across history. */
   customerId: string;
+  /** Account id to request. Normally omitted (system assigns ACT-n). JSON-escaped when sent,
+   *  so control characters arrive exactly as given - used by the account-ID validation case. */
+  id?: string;
   /** Display name for the account. Tag it so it can be found and cleaned up. */
   name: string;
   /** `YYYY-MM-DD`. Must be >= the CCP clock. Defaults to the live CCP date. */
@@ -142,7 +145,7 @@ export class PrepaidSeedHelper {
     const d = await this.post(`mutation { createAccount(input:{
       currency:"CRC", type: RESIDENTIAL, accountCategory: ${o.category ?? 'PREPAID'},
       customerSegment: B2C, salesChannel: NONE, marketSegment: NONE, subType: NONE,
-      name:"${o.name}", customerId:"${o.customerId}",${o.clientId ? ` clientId:"${o.clientId}",` : ''}
+      name:"${o.name}", customerId:"${o.customerId}",${o.id !== undefined ? ` id:${JSON.stringify(o.id)},` : ''}${o.clientId ? ` clientId:"${o.clientId}",` : ''}
       contacts:[{roles:[BILLING], firstName:"QA", lastName:"${o.customerId}", email:"${email}"}],
       addresses:[{roles:[BILLING], street:"Avenida 2 Occidental", city:"Cartago",
                   state:"Cartago", country:"CRI", postalCode:"30101"}],
