@@ -19,7 +19,7 @@
  *   FAIL    the run hangs, or any seeded account has no result - which is what the freeze looked like.
  *   BLOCKED fewer than 5 accounts actually breached, so the run did not exercise the problem.
  *
- * MUTATING, dev only: seeds accounts, moves the tenant CCP clock forward (restored afterwards), spends a
+ * MUTATING - dev, preprod, prod build 2; NEVER the final customer build: seeds accounts, moves the tenant CCP clock forward (restored afterwards), spends a
  * SCHEDULED job slot on the bill date.
  *
  *   $env:JASEC_BREACH_RUN='true'; npx playwright test --project=jasec-billing-breach --reporter=line
@@ -34,14 +34,16 @@ import { uniqueRunSuffix, assertQaMeter } from '../../../../fixtures/create-prep
 import { blockedIf } from '../../../../helpers/blocked.helper';
 
 const RUN = String(process.env.JASEC_BREACH_RUN ?? '').trim().toLowerCase() === 'true';
-const DEV_ONLY = process.env.TEST_ENV === 'jasec-dev';
+// dev, preprod and prod build 2 (Anh, 2026-10-05: fixes land on preprod first; prod build 2 has no UAT on it).
+// NEVER the final customer build - that build is check-only (production checklist 9b), no tests, no data.
+const ALLOWED_ENV = ['jasec-dev', 'jasec-preprod', 'jasec'].includes(process.env.TEST_ENV ?? '');
 const N = Number(process.env.JASEC_BREACH_N ?? 8);
 const BDOM = Number(process.env.JASEC_BREACH_BDOM ?? 20);
 const MIN_BREACHES = 5; // the old pool size - fewer simultaneous breaches could never have frozen it
 
 test('several credit-limit breaches in one BILL_CHECK run do not freeze it', async ({ request }) => {
   if (blockedIf(!RUN, 'JASEC_BREACH_RUN is not "true" - this seeds accounts and moves the CCP clock')) return;
-  if (blockedIf(!DEV_ONLY, `dev only (TEST_ENV=${process.env.TEST_ENV})`)) return;
+  if (blockedIf(!ALLOWED_ENV, `dev / preprod / prod build 2 only (TEST_ENV=${process.env.TEST_ENV})`)) return;
   if (blockedIf(!hasDbConfig(), 'needs DB access to read the run result')) return;
   test.setTimeout(1_200_000);
 
