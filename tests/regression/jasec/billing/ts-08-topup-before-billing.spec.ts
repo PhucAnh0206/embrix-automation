@@ -132,8 +132,9 @@ test.describe('B4 precondition — a real top-up inside the billed cycle', () =>
       // it reached UAT unreported. What happened then:
       //
       //   Saving a card sets payment_profile.paymentmethod to CREDIT_CARD.
-      //   The UI DAILY billing template carries BILL_CHECK and no BILL_CC, so a
-      //   CREDIT_CARD account is silently SKIPPED by the billing chain — rule 2
+      //   On a tenant whose DAILY template has no BILL_CC (dev, prod as of 2026-10-05;
+      //   preprod has it since the JEPYP-326 fix) a CREDIT_CARD account is silently
+      //   SKIPPED by the billing chain — rule 2
       //   in run-billing-cycle-e2e.ps1. Measured 2026-09-08: ACT-100832 and
       //   ACT-100833 both flipped to CREDIT_CARD after the card save, and step 5
       //   then aborted with "No CHECK account has a required billing date of
@@ -178,8 +179,8 @@ test.describe('B4 precondition — a real top-up inside the billed cycle', () =>
       testLogger.log(`[B4] payment method after top-up: ${method}`);
       expect(
         method,
-        `${accountId}: payment method is now ${method}, not CHECK. The UI DAILY ` +
-        `billing template carries BILL_CHECK and no BILL_CC, so this account will ` +
+        `${accountId}: payment method is now ${method}, not CHECK. Where the DAILY ` +
+        `template has no BILL_CC (dev, prod - JEPYP-326) this account will ` +
         `be SILENTLY SKIPPED when the cycle is billed and the top-up summary will ` +
         `never be exercised. Something in the top-up path wrote a payment profile — ` +
         `saving a card does exactly that, which is why this spec pays PlaceToPay ` +

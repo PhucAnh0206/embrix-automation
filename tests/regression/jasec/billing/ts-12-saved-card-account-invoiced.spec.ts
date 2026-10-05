@@ -4,6 +4,8 @@
  * Why: JEPYP-326 (Wanda, 2026-10-02). Saving a card switches the payment method CHECK -> CREDIT_CARD,
  * and the JASEC DAILY job schedule has BILL_CHECK / INVOICE_CHECK but no BILL_CC / INVOICE_CC, so the
  * account is silently never billed again. Preprod had 61 such accounts (fixed by hand 2026-10-03).
+ * FIXED ON PREPROD 2026-10-05: DAILY gained BILL_CC + INVOICE_CC - the method still flips, but the
+ * account is invoiced (TC-141 PASS there). Dev and prod: not yet.
  * dev 2026-10-05: of 545 accounts that topped up by card, the 257 with a STORED card are all
  * CREDIT_CARD, the 288 without are all CHECK.
  *
@@ -17,8 +19,8 @@
  * control does not pass, the harness is wrong and the main verdict means nothing.
  *
  * MUTATING: seeds an account, pays with the PlaceToPay TEST card, moves the CCP clock to the bill date
- * (restored afterwards) and bills on a SCHEDULED slot. dev / prod build 2; preprod only in an agreed
- * window; never on the final customer build.
+ * (restored afterwards) and bills on a SCHEDULED slot. dev, preprod (own data only - never touch others'
+ * accounts; Anh 2026-10-05) and prod build 2; never on the final customer build.
  *
  *   $env:JASEC_SAVEDCARD_RUN='true'; npx playwright test --project=jasec-billing-savedcard --reporter=line
  *   optional: JASEC_SAVEDCARD_CONTROL=true, JASEC_SAVEDCARD_BDOM (default 22; each run needs a free bill date)

@@ -64,14 +64,14 @@ import { blockedIf } from '../../../../helpers/blocked.helper';
  *   BILL_CHECK        paymentmethod  = 'CHECK'
  *   BILL_NON_PAYING   paymentmethod  = 'NON_PAYING'
  *
- * The UI's DAILY template contains BILL_CHECK and no BILL_CC, so it bills CHECK
- * accounts only. Without this filter the spec would announce a CREDIT_CARD
+ * The billed payment methods are READ from the tenant's DAILY template
+ * (dailyBilledMethods, since 2026-10-05): dev has BILL_CHECK only; preprod also has
+ * BILL_CC + INVOICE_CC (the JEPYP-326 fix). Without this filter the spec would announce a CREDIT_CARD
  * account as "will be billed", the chain would correctly skip it, and the run
  * would fail with "no eligible account gained an invoice" — a false failure
  * against a healthy screen. JASEC is genuinely mixed: on 2026-08-29 dev held 631
  * CHECK and 283 CREDIT_CARD prepaid accounts, preprod 84 and 38.
  *
- * If a tenant's DAILY template ever gains BILL_CC, widen this to match.
  */
 /**
  * Payment methods the tenant's DAILY template actually bills, read from its own config
