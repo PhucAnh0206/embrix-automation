@@ -427,6 +427,7 @@ export default defineConfig({
         '**/regression/jasec/billing/ts-04-*.spec.ts',
         '**/regression/jasec/billing/ts-05-*.spec.ts',
         '**/regression/jasec/billing/ts-09-*.spec.ts',
+        '**/regression/jasec/billing/ts-13-*.spec.ts',
       ],
     },
 

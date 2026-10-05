@@ -266,12 +266,17 @@ const TAX_THRESHOLDS_SQL = `
  * invoice for this reason is an expected outcome, not a test failure.
  */
 const BILL_REFUSAL_SQL = `
-  SELECT accountid, reason
-    FROM core_engine.jobs_error
-   WHERE type = 'BILL_CHECK'
-     AND accountid = $1
-   ORDER BY index DESC
-   LIMIT 1`;
+  SELECT l.type, e.reason
+    FROM core_engine.jobs_error e
+    JOIN core_engine.job_schedule_list l ON l.jobid = e.id
+    JOIN core_engine.job_schedule j      ON j.id = l.id
+   WHERE j.scheduledate = $1::date
+     AND l.type IN ('BILL_CHECK', 'INVOICE_CHECK')
+     AND e.accountid = $2
+   ORDER BY e.index DESC`;
+// SCOPED TO THIS RUN'S DATE (2026-10-05). It used to take the account's latest BILL_CHECK
+// error EVER, so an old refusal from an earlier run could "explain" today's missing invoice.
+// INVOICE_CHECK errors are read too ("Bill total and invoice total not matched", tracker item 9).
 
 const JOB_CHILDREN_SQL = `
   SELECT l.type, l.status
@@ -563,12 +568,16 @@ test.describe('Billing via the Core UI Daily Schedule', () => {
       );
       const unexplained: string[] = [];
       for (const row of notBilled) {
-        const why = await db.query(BILL_REFUSAL_SQL, [row.accountid]);
-        const reason = why[0]?.reason as string | undefined;
-        if (reason && /credit limit/i.test(reason)) {
+        const why = await db.query(BILL_REFUSAL_SQL, [date, row.accountid]);
+        const refusal = why.find((w: any) => w.type === 'BILL_CHECK' && /credit limit/i.test(w.reason ?? ''));
+        const reason = (refusal?.reason ?? why.map((w: any) => `${w.type}: ${w.reason}`).join(' | ')) || undefined;
+        if (refusal) {
+          // A refused bill is rolled back (bill unit stays PENDING, total 0), so the charge it
+          // tried is not stored - the balance is logged as the evidence to compare by eye.
           testLogger.log(
-            `${row.accountid}: not billed, and correctly so - ${reason}. Under Option A ` +
-            `a charge above the balance is refused rather than billed.`,
+            `${row.accountid}: not billed, and correctly so - ${refusal.reason}. Under Option A ` +
+            `a charge above the balance is refused rather than billed. Balance before the run: ` +
+            `${balanceBefore.get(row.accountid) ?? 'unknown'} (negative = credit).`,
           );
         } else {
           // A SUSPENDED service has INACTIVE price units, and with ratewheninactive=false
@@ -600,6 +609,23 @@ test.describe('Billing via the Core UI Daily Schedule', () => {
         `${unexplained.join('; ')}. A credit-limit refusal would be expected; ` +
         `silence is not.`,
       ).toBe(0);
+
+      // A credit-limit refusal on an account that WAS invoiced in the same run contradicts
+      // itself: the run says it could not charge, then billed anyway. Adrian's report,
+      // 2026-10-03 (tracker item 9): "Credit Limit 0 ... exceeded by 80.10" on ALP-MIN-TRUEUP
+      // although the bill held the top-up, and "the error does not stop invoicing". Soft, so
+      // the reconciliation below still runs.
+      const contradictions: string[] = [];
+      for (const row of gained) {
+        const why = await db.query(BILL_REFUSAL_SQL, [date, row.accountid]);
+        const bad = why.find((w: any) => w.type === 'BILL_CHECK' && /credit limit/i.test(w.reason ?? ''));
+        if (bad) contradictions.push(`${row.accountid} (${bad.reason}; balance before ${balanceBefore.get(row.accountid) ?? 'unknown'})`);
+      }
+      expect.soft(
+        contradictions,
+        `Invoiced AND refused for credit limit in the same run - a false credit-limit error ` +
+        `(tracker item 9a): ${contradictions.join('; ')}`,
+      ).toEqual([]);
 
       expect(
         gained.length + notBilled.length,
