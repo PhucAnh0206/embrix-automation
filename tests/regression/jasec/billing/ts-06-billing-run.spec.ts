@@ -73,6 +73,19 @@ import { blockedIf } from '../../../../helpers/blocked.helper';
  *
  * If a tenant's DAILY template ever gains BILL_CC, widen this to match.
  */
+/**
+ * Payment methods the tenant's DAILY template actually bills, read from its own config
+ * (BILL_CHECK -> CHECK, BILL_CC -> CREDIT_CARD, BILL_NON_PAYING -> NON_PAYING). It was
+ * hard-coded to CHECK, which built JEPYP-326 into the expectation: a CREDIT_CARD account
+ * never billed was never counted as a miss, and a fix adding BILL_CC would be misjudged.
+ */
+async function dailyBilledMethods(db: DbHelper): Promise<string[]> {
+  const r = await db.query<{ jobname: string }>(
+    `SELECT DISTINCT jobname FROM core_config.config_job_list WHERE id LIKE '%-JOB-DAILY' AND jobname LIKE 'BILL%'`);
+  const map: Record<string, string> = { BILL_CHECK: 'CHECK', BILL_CC: 'CREDIT_CARD', BILL_NON_PAYING: 'NON_PAYING' };
+  return [...new Set(r.map(x => map[x.jobname]).filter(Boolean))];
+}
+
 const ELIGIBLE_SQL = `
   SELECT a.id AS accountid, bp.billingdom
     FROM core_engine.account a
@@ -82,7 +95,7 @@ const ELIGIBLE_SQL = `
     JOIN core_engine.subscription s     ON s.accountid = a.id AND s.status = 'ACTIVE'
    WHERE a.accountcategory = 'PREPAID'
      AND a.status = 'ACTIVE'
-     AND pp.paymentmethod = 'CHECK'
+     AND pp.paymentmethod = ANY($2)
      AND bp.nextaccountingdate + core_engine.get_future_cycle_date(a.id) = $1::date
    GROUP BY a.id, bp.billingdom
    ORDER BY a.id`;
@@ -98,7 +111,7 @@ const EXCLUDED_BY_PAYMENT_METHOD_SQL = `
     JOIN core_engine.subscription s     ON s.accountid = a.id AND s.status = 'ACTIVE'
    WHERE a.accountcategory = 'PREPAID'
      AND a.status = 'ACTIVE'
-     AND pp.paymentmethod <> 'CHECK'
+     AND pp.paymentmethod <> ALL($2)
      AND bp.nextaccountingdate + core_engine.get_future_cycle_date(a.id) = $1::date
    GROUP BY pp.paymentmethod
    ORDER BY pp.paymentmethod`;
@@ -314,7 +327,9 @@ test.describe('Billing via the Core UI Daily Schedule', () => {
 
     try {
       // ── 1. Who will this bill, and is that an acceptable blast radius? ──
-      const eligible = await db.query(ELIGIBLE_SQL, [date]);
+      const methods = await dailyBilledMethods(db);
+      testLogger.log(`DAILY template bills payment method(s): ${methods.join(', ') || 'NONE'}`);
+      const eligible = await db.query(ELIGIBLE_SQL, [date, methods]);
       // Cap the list. A bulk date resolves to ~200 accounts and printing them all
       // buries the count, which is the number that actually matters here.
       const shown = eligible
@@ -322,24 +337,24 @@ test.describe('Billing via the Core UI Daily Schedule', () => {
         .map((r: any) => `${r.accountid}(BDOM ${r.billingdom})`)
         .join(', ');
       testLogger.log(
-        `${date}: ${eligible.length} CHECK account(s) will be billed — ` +
+        `${date}: ${eligible.length} ${methods.join('/')} account(s) will be billed — ` +
         `${shown || 'NONE'}${eligible.length > 10 ? ` ... +${eligible.length - 10} more` : ''}`,
       );
 
       // Say what the chain will skip, so a low count is never a mystery.
-      const excluded = await db.query(EXCLUDED_BY_PAYMENT_METHOD_SQL, [date]);
+      const excluded = await db.query(EXCLUDED_BY_PAYMENT_METHOD_SQL, [date, methods]);
       if (excluded.length) {
         testLogger.log(
-          `${date}: NOT billed by this chain (no BILL_CC in the DAILY template) — ` +
+          `${date}: NOT billed by this chain (no DAILY billing job for these payment methods - JEPYP-326) — ` +
           excluded.map((r: any) => `${r.paymentmethod}=${r.n}`).join(', '),
         );
       }
 
       expect(
         eligible.length,
-        `No CHECK account has a required billing date of ${date}, so this run would ` +
+        `No ${methods.join('/')} account has a required billing date of ${date}, so this run would ` +
         `complete having billed nobody and prove nothing. Pick a date equal to ` +
-        `some account's nextaccountingdate + offset. Note the chain bills CHECK ` +
+        `some account's nextaccountingdate + offset. Note the chain bills ${methods.join('/')} ` +
         `accounts only` +
         (excluded.length
           ? `, and ${excluded.map((r: any) => `${r.n} ${r.paymentmethod}`).join(' + ')} ` +

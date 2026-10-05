@@ -122,10 +122,14 @@ test.describe('B4 precondition — a real top-up inside the billed cycle', () =>
         accountId!,
       );
 
-      // ── Top up by paying PlaceToPay DIRECTLY — do NOT save a card ──────
+      // ── Top up by paying PlaceToPay DIRECTLY — no saved card ──────────
       //
-      // DO NOT "improve" this by saving a card and using Pay Now. That was the
-      // first version and it broke the run it exists to enable:
+      // This case is about the top-up showing on the invoice, so it uses the
+      // plain customer path. The saved-card path is NOT dropped: it is its own
+      // case (billing/ts-12-saved-card-account-invoiced.spec.ts), because saving
+      // a card is a known product defect, JEPYP-326 - recorded 2026-10-05. We
+      // first met it here on 2026-09-08 and only worked around it, which is why
+      // it reached UAT unreported. What happened then:
       //
       //   Saving a card sets payment_profile.paymentmethod to CREDIT_CARD.
       //   The UI DAILY billing template carries BILL_CHECK and no BILL_CC, so a
