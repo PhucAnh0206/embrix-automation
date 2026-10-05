@@ -1,5 +1,5 @@
 /**
- * A customer who saved a card in Self Care and topped up with it is still invoiced.
+ * TC-141 (EPDP-442) - A customer who saved a card in Self Care and topped up with it is still invoiced.
  *
  * Why: JEPYP-326 (Wanda, 2026-10-02). Saving a card switches the payment method CHECK -> CREDIT_CARD,
  * and the JASEC DAILY job schedule has BILL_CHECK / INVOICE_CHECK but no BILL_CC / INVOICE_CC, so the
@@ -36,7 +36,7 @@ const BDOM = Number(process.env.JASEC_SAVEDCARD_BDOM ?? 22);
 const TOP_UP = 5000;
 const FINAL = ['COMPLETED', 'ERROR'];
 
-test('a customer who saved a card and topped up with it is still invoiced @saved-card-invoiced', async ({
+test('a customer who saved a card and topped up with it is still invoiced @tc-141 @saved-card-invoiced', async ({
   request, testLogger, selfcareLoginPage, selfcareAccountSearchPage, selfcareActivityPage,
   selfcareTopupPage, placeToPayCheckoutPage,
 }) => {
