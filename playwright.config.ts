@@ -435,9 +435,16 @@ export default defineConfig({
     // test judges the invoices the latest TC-139 run recorded (artifacts/billing-run-invoices.json).
     // In jasec-billing-read it would run BEFORE them and judge a stale run.
     //   npx playwright test --project=jasec-billing-settlement
+    // Tests 1-2 read the database only; test 3 also opens Core UI (Bills, Account Statement), so it
+    // needs the browser and the logged-in session.
     {
       name: 'jasec-billing-settlement',
       testMatch: ['**/regression/jasec/billing/ts-13-*.spec.ts'],
+      dependencies: ['setup'],
+      use: {
+        ...devices['Desktop Chrome'],
+        storageState: 'playwright/.auth/user.json',
+      },
     },
 
     // ── JASEC ACCOUNTING: the EBS / ERP extract (point 10 of the E2E guide).

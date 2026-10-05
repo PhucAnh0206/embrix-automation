@@ -40,7 +40,7 @@ const FINAL = ['COMPLETED', 'ERROR'];
 
 test('a customer who saved a card and topped up with it is still invoiced @tc-141 @saved-card-invoiced', async ({
   request, testLogger, selfcareLoginPage, selfcareAccountSearchPage, selfcareActivityPage,
-  selfcareTopupPage, placeToPayCheckoutPage,
+  selfcareTopupPage, placeToPayCheckoutPage, page, customerManagementPage, billsPage,
 }) => {
   if (blockedIf(!RUN, 'JASEC_SAVEDCARD_RUN is not "true" - this pays, moves the CCP clock and bills')) return;
   if (blockedIf(!hasDbConfig(), 'needs DB access to read the payment method and the invoice')) return;
@@ -159,6 +159,18 @@ test('a customer who saved a card and topped up with it is still invoiced @tc-14
       (method === 'CREDIT_CARD' && !jobNames.some(j => /_CC$/.test(j))
         ? 'Known: JEPYP-326 - saving a card makes the account CREDIT_CARD and DAILY has no BILL_CC/INVOICE_CC.'
         : 'Not the known JEPYP-326 shape - investigate.')).toBeGreaterThan(0);
+    // 7. The same outcome on the Core UI screen an agent uses: the account's Bills grid lists the invoice.
+    await test.step(`Core UI: ${accountId} Bills lists the invoice`, async () => {
+      await page.navigateToHome();
+      await customerManagementPage.navigateViaNav();
+      await customerManagementPage.searchByAccountId(accountId);
+      await customerManagementPage.clickFirstRowLink('ACCT No');
+      await billsPage.navigateToBills();
+      const listed = (await billsPage.openClosedBillRows()).filter(r => inv.some(i => i.id === r['Invoice Id']));
+      console.log(`  Core UI Bills: ${listed.map(r => `${r['Invoice Id']} ${r['Invoice Status']} due ${r['Due']}`).join(', ') || 'invoice NOT listed'}`);
+      expect(listed.length, `Core UI Bills for ${accountId} does not list invoice(s) ${inv.map(i => i.id).join(', ')}`)
+        .toBeGreaterThan(0);
+    });
     console.log(`  PASS - ${mode}: ${accountId} invoiced`);
   } finally {
     await seed.setCcpDate(startClock).catch(e => console.log(`  WARNING: clock not restored to ${startClock}: ${e}`));

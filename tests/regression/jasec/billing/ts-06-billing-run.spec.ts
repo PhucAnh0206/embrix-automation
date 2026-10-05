@@ -34,9 +34,10 @@
  *
  *  3. Job order is BILL_CHECK then INVOICE_CHECK. The UI's DAILY template
  *     already sequences the whole chain, so unlike the GraphQL path we do not
- *     choose the jobs — which also means COLLECTION_ACTIONS and
- *     CANCEL_SUBSCRIPTION run. On prepaid JASEC there is no collections flow, so
- *     a non-billing job in that chain reporting ERROR is not this test failing.
+ *     choose the jobs — CANCEL_SUBSCRIPTION, CRDR_NOTES, CREDIT_LIMIT_ACTIONS and
+ *     EBS_EXTRACT run too (the collection jobs were removed from DAILY on
+ *     2026-10-05: prepaid has no collections flow). A non-billing job in that
+ *     chain reporting ERROR is not this test failing.
  *     We assert on BILL_CHECK / INVOICE_CHECK and on the invoice, never on the
  *     schedule's overall status.
  *

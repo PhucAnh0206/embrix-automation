@@ -1,7 +1,7 @@
 import { Page, Locator } from '@playwright/test';
 import { BasePage } from '../../../../base.page';
 import { test, expect } from '../../../../../fixtures/page-factory';
-import { SHORT_WAIT, EXTRA_LONG_WAIT } from '../../../../../helpers/timeouts.helper';
+import { SHORT_WAIT, LONG_WAIT, EXTRA_LONG_WAIT } from '../../../../../helpers/timeouts.helper';
 import { AccountDetailsSidebar } from '../account-details-sidebar';
 import { TableComponent } from '../../../../components/table.component';
 import { ToastComponent } from '../../../../components/toast.component';
@@ -322,6 +322,43 @@ export class BillsPage extends BasePage {
   async navigateToAccountStatement(): Promise<string> {
     await this.sidebar.navigateToSubScreen('Billing Data', 'Account Statement');
     return this.page.url();
+  }
+
+  /**
+   * Rows of the Bills screen's "Open/Closed Bills" grid, as header -> cell text
+   * (columns seen 2026-10-05: Invoice Id, Invoice Status, Due, Invoice Total, ...).
+   * The heading reads "Open/Closed Bills" - matched case-insensitively, because the
+   * older `table` locator above spells it "bills".
+   */
+  async openClosedBillRows(): Promise<Record<string, string>[]> {
+    const table = this.page.locator('h5', { hasText: /open\/closed bills/i }).locator('xpath=following::table[1]');
+    return this.readGridRows(table);
+  }
+
+  /**
+   * Rows of the Account Statement grid (call after navigateToAccountStatement), as
+   * header -> cell text. Columns seen 2026-10-05: Document Type (INVOICE / SETTLEMENT /
+   * PAYMENT ...), Invoice Id, Total, Status, Opening Balance, Closing Balance, ...
+   */
+  async accountStatementRows(): Promise<Record<string, string>[]> {
+    return this.readGridRows(this.page.locator('table').first());
+  }
+
+  /** Header -> cell text per body row. Drops the "No records found" placeholder row. */
+  private async readGridRows(table: Locator): Promise<Record<string, string>[]> {
+    await table.locator('tbody tr').first().waitFor({ state: 'attached', timeout: LONG_WAIT });
+    await this.page.waitForLoadingToDisappear();
+    return table.evaluate((t: HTMLTableElement) => {
+      const headers = Array.from(t.querySelectorAll('thead th')).map(h => (h.textContent ?? '').trim());
+      return Array.from(t.querySelectorAll('tbody tr'))
+        .map(r => {
+          const cells = Array.from(r.querySelectorAll('td')).map(c => (c.textContent ?? '').trim());
+          const row: Record<string, string> = {};
+          headers.forEach((h, i) => { row[h] = cells[i] ?? ''; });
+          return row;
+        })
+        .filter(row => !Object.values(row).some(v => /no records found/i.test(v)));
+    });
   }
 
 
