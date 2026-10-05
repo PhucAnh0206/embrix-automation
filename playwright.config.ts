@@ -477,6 +477,18 @@ export default defineConfig({
       name: 'jasec-billing-breach',
       testMatch: ['**/regression/jasec/billing/ts-11-*.spec.ts'],
     },
+    // ── JASEC billing: a customer who saved a card and topped up with it is still
+    // invoiced (JEPYP-326). MUTATING: pays with the PlaceToPay test card, moves the
+    // CCP clock, bills. Gated inside the spec behind JASEC_SAVEDCARD_RUN=true.
+    {
+      name: 'jasec-billing-savedcard',
+      testMatch: ['**/regression/jasec/billing/ts-12-*.spec.ts'],
+      dependencies: ['setup'],
+      use: {
+        ...devices['Desktop Chrome'],
+        storageState: 'playwright/.auth/user.json',
+      },
+    },
     {
       // Seeding only (gated JASEC_SEED_RUN): zero-usage invoices over GraphQL.
       name: 'jasec-seed',
