@@ -51,6 +51,11 @@
 import { test, expect } from '../../../../fixtures/page-factory';
 import { DbHelper } from '../../../../helpers/db.helper';
 import { blockedIf } from '../../../../helpers/blocked.helper';
+import * as fs from 'fs';
+import * as path from 'path';
+
+/** The invoices this run produced, for TC-142 (billing/ts-13) to judge. Same path there. */
+const BILLING_RUN_FILE = path.resolve(__dirname, '../../../../artifacts/billing-run-invoices.json');
 
 /**
  * Accounts a schedule on `date` will actually bill. Conditions mirror
@@ -560,6 +565,19 @@ test.describe('Billing via the Core UI Daily Schedule', () => {
       const gained = eligible.filter(
         (row: any) => (after.get(row.accountid) ?? 0) > (before.get(row.accountid) ?? 0),
       );
+
+      // Record the invoices this run produced, BEFORE any assertion below can stop the test:
+      // TC-142 (billing/ts-13) judges whether they were settled from the balance. Kept out of
+      // this case on purpose - an unsettled invoice is TC-142's failure, not TC-139's.
+      const produced: { accountId: string; invoiceId: string }[] = [];
+      for (const row of gained) {
+        const inv = (await db.query(NEWEST_INVOICE_SQL, [row.accountid]))[0];
+        if (inv) produced.push({ accountId: row.accountid, invoiceId: inv.id });
+      }
+      fs.mkdirSync(path.dirname(BILLING_RUN_FILE), { recursive: true });
+      fs.writeFileSync(BILLING_RUN_FILE, JSON.stringify(
+        { tenant: process.env.TEST_ENV, date, recordedAt: new Date().toISOString(), invoices: produced }, null, 2));
+      testLogger.log(`recorded ${produced.length} invoice(s) for TC-142: ${produced.map(p => p.invoiceId).join(', ') || 'none'}`);
 
       // Separate "refused for insufficient credit" (expected) from "silently not
       // billed" (a real problem) before deciding this run failed.

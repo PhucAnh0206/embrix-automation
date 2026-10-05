@@ -430,15 +430,13 @@ export default defineConfig({
       ],
     },
 
-    // ── JASEC billing checks NOT YET NUMBERED (read-only). Kept OUT of jasec-billing-read
-    // on purpose (2026-10-05): that project IS the official Block I read-only run, and an
-    // unnumbered check failing inside it (ts-13 collections: 257 prepaid accounts on dev)
-    // would show as a Block I red that belongs to no TC. Runs on request only:
-    //   npx playwright test --project=jasec-billing-checks
-    // When the team decides tracker item 9b and Anh numbers ts-13, move it into the
-    // official run (see notes/team/PICK-UP-WHEN-IT-LANDS.md A1).
+    // ── JASEC TC-142 (read-only): a prepaid invoice is settled from the balance and never goes
+    // to collections (Luis, 2026-10-05). Its OWN project, run AFTER the billing runs: its third
+    // test judges the invoices the latest TC-139 run recorded (artifacts/billing-run-invoices.json).
+    // In jasec-billing-read it would run BEFORE them and judge a stale run.
+    //   npx playwright test --project=jasec-billing-settlement
     {
-      name: 'jasec-billing-checks',
+      name: 'jasec-billing-settlement',
       testMatch: ['**/regression/jasec/billing/ts-13-*.spec.ts'],
     },
 
