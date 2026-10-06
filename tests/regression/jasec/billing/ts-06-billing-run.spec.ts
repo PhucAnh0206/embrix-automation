@@ -52,6 +52,7 @@
 import { test, expect } from '../../../../fixtures/page-factory';
 import { DbHelper } from '../../../../helpers/db.helper';
 import { blockedIf } from '../../../../helpers/blocked.helper';
+import { AgentScreens, uiAmount } from '../../../../helpers/agent-screens.helper';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -315,6 +316,7 @@ test.describe('Billing via the Core UI Daily Schedule', () => {
 
   test('a schedule created and processed in the UI produces an invoice', async ({
     page,
+    billsPage,
     dailySchedulePage,
     jobScheduleDbHelper,
     serverHelper,
@@ -901,6 +903,29 @@ test.describe('Billing via the Core UI Daily Schedule', () => {
                 `${acct}: the ENERGIA lines bill ${energiaKwh} kWh but ${rule}.`,
               )
               .toBe(true);
+          }
+
+          // (h) What the agent sees (2026-10-06): account > Billing Data > Bills lists this invoice with
+          //     the same Bill Total, and the Account Statement carries its INVOICE line for the same amount.
+          //     A correct invoice the agent sees wrongly is still a wrong answer on the phone.
+          const ui = new AgentScreens(page);
+          await ui.openAccount(acct);
+          await billsPage.navigateToBills();
+          const bill = (await billsPage.openClosedBillRows()).find((r: any) => r['Invoice Id'] === inv.id);
+          testLogger.log(`${acct}: Core UI Bills ${bill ? `${inv.id} Bill Total "${bill['Bill Total']}"` : `${inv.id} NOT LISTED`}`);
+          expect.soft(bill, `${acct}: Core UI Bills does not list invoice ${inv.id}`).toBeTruthy();
+          if (bill) {
+            expect.soft(uiAmount(bill['Bill Total']), `${acct}: Core UI Bills - Bill Total of ${inv.id}`)
+              .toBeCloseTo(Number(inv.total), 2);
+          }
+          await billsPage.navigateToAccountStatement();
+          const stLine = (await billsPage.accountStatementRows())
+            .find(r => r['Document Type'] === 'INVOICE' && r['Invoice Id'] === inv.id);
+          testLogger.log(`${acct}: Core UI Account Statement ${stLine ? `INVOICE ${inv.id} Total "${stLine['Total']}"` : `no INVOICE row for ${inv.id}`}`);
+          expect.soft(stLine, `${acct}: Core UI Account Statement has no INVOICE line for ${inv.id}`).toBeTruthy();
+          if (stLine) {
+            expect.soft(uiAmount(stLine['Total']), `${acct}: Core UI Account Statement - INVOICE ${inv.id} Total`)
+              .toBeCloseTo(Number(inv.total), 2);
           }
         });
       }
