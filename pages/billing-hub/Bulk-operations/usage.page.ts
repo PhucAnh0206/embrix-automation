@@ -133,6 +133,26 @@ export class UsagePage extends BasePage {
     }
   }
 
+  /**
+   * Suspended/Failed Batches: search one batch (the MDR file name) over a wide File Date window and
+   * return its top-level row, or null when the screen does not list it. The window is wide on purpose:
+   * File Date is the load time, which on a CCP tenant is not the reading's date.
+   */
+  async findSuspendedBatch(fileName: string): Promise<Locator | null> {
+    await this.page.locator('input[name="startDate"]').fill('2020-01-01');
+    await this.page.locator('input[name="endDate"]').fill('2030-12-31');
+    await this.page.locator('input[name="batchId"]').fill(fileName);
+    await this.clickSearchButton();
+    const row = this.page.locator('table').first().locator('tbody > tr').filter({ hasText: fileName }).first();
+    return (await row.waitFor({ state: 'visible', timeout: SHORT_WAIT }).then(() => true, () => false)) ? row : null;
+  }
+
+  /** Click Reprocess on the batch row and wait for the screen's success toast (the replay itself runs in the background). */
+  async reprocessSuspendedBatch(row: Locator, screenshotHelper?: ScreenshotHelper): Promise<void> {
+    await row.getByRole('button', { name: 'Reprocess', exact: true }).first().click();
+    await this.createUsageReprocessSuccessfully(screenshotHelper);
+  }
+
   async clickProcessAllButton(): Promise<void> {
     await this.page.waitForLoadState('networkidle')
     await this.processAllButton.click();

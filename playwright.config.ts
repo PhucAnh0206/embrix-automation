@@ -521,11 +521,17 @@ export default defineConfig({
     // ── JASEC USAGE: the credit breach, the parked reading and its replay.
     // MUTATING — seeds an account, drops real MDR files through the loader and
     // moves balances. Gated inside the spec behind JASEC_USAGE_RUN=true. Needs
-    // SSH to the control server and the DB, therefore the VPN. No browser.
+    // SSH to the control server and the DB, therefore the VPN. Since 2026-10-06 the
+    // replay is done on the Core UI Suspended/Failed Batches screen, so it needs a session.
     // ts-06+ is the mutating band here too; keep read-only usage specs at ts-01..05.
     {
       name: 'jasec-usage-run',
       testMatch: ['**/regression/jasec/usage/ts-06-*.spec.ts'],
+      dependencies: ['setup'],
+      use: {
+        ...devices['Desktop Chrome'],
+        storageState: 'playwright/.auth/user.json',
+      },
     },
 
     // ── JASEC USAGE, through the UI: rated usage must reach the two Core UI

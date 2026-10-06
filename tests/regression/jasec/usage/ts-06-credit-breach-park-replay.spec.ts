@@ -11,12 +11,19 @@
  *
  *   seed a contract -> top up -> rate a small reading -> send a reading the
  *   balance cannot fund -> assert it parked and charged nothing -> top up ->
- *   processUsageRecords(reProcessRecs) -> assert it rated for exactly the tariff
+ *   the operator replays it from the Core UI -> assert it rated for exactly the tariff
+ *
+ * THE REPLAY IS DONE ON SCREEN since 2026-10-06, as an operator does it: Billing Hub >
+ * Usage > Suspended/Failed Batches > search the MDR file > Reprocess (was the
+ * processUsageRecords API). The screen shows the parked batch before, and must not
+ * list it after. The top-ups stay on the API (decision 2026-10-06). The database
+ * stays the backing record: the parked row leaves the in-flight table and the
+ * processed row carries the consumption.
  *
  * ── MUTATING ───────────────────────────────────────────────────────────────
  * Seeds an account, drops real MDR files through the loader, and moves balances.
  * Gated behind JASEC_USAGE_RUN=true. Needs SSH to the control server AND the DB,
- * therefore the VPN. No browser.
+ * therefore the VPN. Test A also needs a browser (Core UI session).
  *
  *     $env:JASEC_USAGE_RUN='true'
  *     npx playwright test --project=jasec-usage-run
@@ -31,7 +38,7 @@
  * Owner: Anh Tran (QC).
  */
 
-import { test, expect } from '@playwright/test';
+import { test, expect } from '../../../../fixtures/page-factory';
 import { DbHelper } from '../../../../helpers/db.helper';
 import { MdrRemoteHelper } from '../../../../helpers/mdr-remote.helper';
 import { PrepaidSeedHelper } from '../../../../helpers/prepaid-seed.helper';
@@ -171,7 +178,9 @@ test.describe('JASEC usage — credit breach, park and replay (MUTATING)', {
 }, () => {
   test.setTimeout(20 * 60 * 1000);
 
-  test('a reading the balance cannot fund is parked, charges nothing, and replays losslessly', async () => {
+  test('a reading the balance cannot fund is parked, charges nothing, and replays losslessly', async ({
+    page, usagePage, customerManagementPage, billsPage,
+  }) => {
     blockedIf(
       !RUN_ENABLED,
       'JASEC_USAGE_RUN is not "true". This spec seeds an account, drops real MDR ' +
@@ -341,20 +350,21 @@ test.describe('JASEC usage — credit breach, park and replay (MUTATING)', {
       ).not.toBeNull();
       console.log(`  notified: ${(notified ?? []).map((n: any) => `${n.id}/${n.status}`).join(', ')}`);
 
-      // ── step 7: recover ─────────────────────────────────────────────
+      // ── step 7: recover — top up (API), then the operator replays the batch ON SCREEN ──
       await seed.topUp(accountId, RECOVERY_TOPUP);
       const beforeReplay = await balance();
       console.log(`  after recovery top-up: balance ${beforeReplay}`);
 
-      const perfBatchId = PrepaidSeedHelper.perfBatchIdFor(mdrFile!);
-      const result = await seed.reprocessUsage(perfBatchId);
-      console.log(
-        `  replay: ${result.ratingResult} total=${result.totalRecCount} ok=${result.successRecCount} ` +
-        `failed=${result.failureRecCount} suspended=${result.suspendedRecCount}`,
-      );
-
-      expect(result.successRecCount, `replaying ${perfBatchId} rated nothing`).toBeGreaterThan(0);
-      expect(result.suspendedRecCount, 'nothing may remain suspended after a funded replay').toBe(0);
+      const batchFilter = page.locator('input[name="batchId"]');
+      await test.step(`Core UI: ${mdrFile} is listed on Suspended/Failed Batches, and the operator reprocesses it`, async () => {
+        await page.navigateToHome();
+        await usagePage.navigateViaNav();
+        const row = await usagePage.findSuspendedBatch(mdrFile!);
+        console.log(`  Suspended/Failed Batches (filter "${await batchFilter.inputValue()}"): ` +
+          `${row ? (await row.innerText()).replace(/\s+/g, ' ').slice(0, 140) : 'NOT LISTED'}`);
+        expect(row, `the parked batch ${mdrFile} is not on the Suspended/Failed Batches screen - an operator cannot see or replay it`).not.toBeNull();
+        await usagePage.reprocessSuspendedBatch(row!);
+      });
 
       // ── step 8: nothing was lost ────────────────────────────────────
       const afterReplay = await waitFor('the replay to settle on the balance', async () => {
@@ -393,6 +403,44 @@ test.describe('JASEC usage — credit breach, park and replay (MUTATING)', {
         `not the reading (${BREACH_READING})`,
       ).toBe(BREACH_READING - FIRST_READING);
       expect(replayed[0].accountid, 'a processed row resolves its account').toBe(accountId);
+
+      // ── step 9: on screen after the replay ─────────────────────────
+      await test.step(`Core UI: ${mdrFile} has left Suspended/Failed Batches`, async () => {
+        await page.navigateToHome();
+        await usagePage.navigateViaNav();
+        const row = await usagePage.findSuspendedBatch(mdrFile!);
+        const filter = await batchFilter.inputValue();
+        console.log(`  Suspended/Failed Batches after replay (filter "${filter}"): ${row ? 'STILL LISTED' : 'not listed'}`);
+        // Prove the filter applied before trusting an empty result (the same search found it in step 7).
+        expect(filter, 'the batch filter did not apply').toBe(mdrFile);
+        expect.soft(row, `${mdrFile} is still listed as suspended/failed after a successful replay`).toBeNull();
+      });
+
+      await test.step(`Core UI: Rated Usage of ${accountId} shows the replayed reading`, async () => {
+        const txns = await db.query<{ id: string; netamount: number; startdate: string }>(
+          `SELECT t.id, t.netamount::float8 AS netamount, to_char(t.startdate, 'YYYY-MM-DD HH24:MI:SS') AS startdate
+             FROM core_engine.transaction_unit t
+            WHERE t.accountid = $1 AND t.type = 'USAGE'
+              AND t.usageid IN (SELECT usageid FROM core_usage.file_detail_record_processed WHERE id = $2)`,
+          [accountId, mdrFile],
+        );
+        console.log(`  replayed transactions: ${txns.map(t => `${t.id} ${t.netamount}`).join(', ') || 'NONE'}`);
+        expect(txns.length, `the replay of ${mdrFile} wrote no USAGE transactions for ${accountId}`).toBeGreaterThan(0);
+        // Window from the transaction's own date (the CCP clock is months from real time).
+        const at = new Date(`${txns[0].startdate.replace(' ', 'T')}Z`).getTime();
+        const stamp = (ms: number) => new Date(ms).toISOString().slice(0, 19).replace('T', ' ');
+        await page.navigateToHome();
+        await customerManagementPage.navigateViaNav();
+        await customerManagementPage.searchByAccountId(accountId);
+        await customerManagementPage.clickFirstRowLink('ACCT No');
+        await billsPage.navigateToRatedUsage();
+        await billsPage.searchByDate(stamp(at - 2 * 86_400_000), stamp(at + 2 * 86_400_000));
+        await billsPage.clickSearchButton();
+        const rows = await billsPage.getUsageGridRows();
+        const shown = txns.filter(t => rows.some(r => r.join(' | ').includes(t.id)));
+        console.log(`  Rated Usage: ${rows.length} row(s); replayed transactions on screen ${shown.length}/${txns.length}`);
+        expect.soft(shown.length, `Rated Usage does not show the replayed transactions of ${mdrFile}`).toBe(txns.length);
+      });
 
       console.log(`\n  PASS — ${accountId}: breach parked, charged nothing, replayed for ${charged} CRC\n`);
     } finally {
