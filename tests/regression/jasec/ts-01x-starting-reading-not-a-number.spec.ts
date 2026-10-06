@@ -15,6 +15,10 @@
  * The account is created over GraphQL - account creation is not under test here;
  * the ORDER screen is, so the order goes through the Core UI like a CSR would.
  *
+ * What the CSR then SEES is checked too (since 2026-10-06): the order detail Status must equal the
+ * database, and Services > In-complete Orders must list the order exactly when it did not complete -
+ * a broken order the agent cannot see is the worse half of F5.
+ *
  *   npx playwright test --project=jasec-regression --grep '@tc-61x'
  */
 
@@ -23,6 +27,7 @@ import { uniqueRunSuffix, assertQaMeter } from '../../../fixtures/create-prepaid
 import { PrepaidSeedHelper } from '../../../helpers/prepaid-seed.helper';
 import { DbHelper, hasDbConfig } from '../../../helpers/db.helper';
 import { blockedIf } from '../../../helpers/blocked.helper';
+import { AgentScreens } from '../../../helpers/agent-screens.helper';
 
 const BUNDLE = 'B-100000-E';
 // BILLING_ERROR is NOT terminal here: ORD-2076 (dev, 2026-10-02) showed it with an
@@ -97,6 +102,17 @@ test.describe('TC61X - starting reading that is not a number @tc-61x', () => {
         const sp = await db.query<{ v: string | null }>(
           `SELECT flexattr16 AS v FROM core_engine.service_provision WHERE provisioningid = $1 AND type = 'METER'`, [meter]);
         console.log(`  ${orderId}: ${status}; meter row ${sp.length ? `present (stored "${sp[0].v}")` : 'ABSENT'}`);
+
+        // The CSR's view of the outcome, before the verdict: the screens must agree with the database.
+        const ui = new AgentScreens(page);
+        const shown = await ui.order(orderId, ['Status']);
+        expect.soft(shown['Status'], `Core UI order detail ${orderId}: Status must equal the database (${status})`).toBe(status);
+        const sv = await ui.services(accountId);
+        const listed = sv.incomplete.some(r => r.includes(orderId));
+        expect.soft(listed, status === 'COMPLETED'
+          ? `${orderId} COMPLETED but is still listed under Services > In-complete Orders`
+          : `${orderId} ended ${status || '(no terminal status)'} but Services > In-complete Orders does not show it - the CSR cannot see the broken order`)
+          .toBe(status !== 'COMPLETED');
 
         const known = /invalid input syntax for type numeric/i.test(reason)
           ? ' Known (F5): the value was accepted, then the ::NUMERIC cast failed at provisioning.' : '';
