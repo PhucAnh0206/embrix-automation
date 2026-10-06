@@ -16,10 +16,12 @@
  * SAFETY - read before changing anything:
  *   An accepted bad id breaks the daily billing run for the WHOLE tenant until someone fixes it
  *   in the database. So this spec:
- *     - runs on jasec-dev ONLY (refuses any other TEST_ENV),
+ *     - runs on jasec-dev, jasec-preprod and the prod TEST builds (`jasec`, allowed only while the
+ *       JASEC_PROD_BUILD marker says test-build-*). Was dev-only until 2026-10-06: written before the
+ *       validation fix, when every run created bad ids. Now they are refused; the safeguards below remain,
  *     - creates accounts WITHOUT an order. All 10 jobs in dev's DAILY schedule select accounts
  *       through a bill unit, invoice, price unit, subscription or accounting batch
- *       (checked against insert_jobs on dev, 2026-10-05), so an order-less account is never
+ *       (checked against insert_jobs on dev 2026-10-05; preprod + prod DAILY lists identical 2026-10-06), so an order-less account is never
  *       picked up. FINANCE_SYNC_ACCOUNT would pick it up, but it is not in the DAILY schedule.
  *     - asserts each created account has none of those rows, and FAILS loudly if it does,
  *     - never runs billing to "prove" the impact,
@@ -35,7 +37,7 @@ import { uniqueRunSuffix, type PrepaidAccountWithOrderRow } from '../../../fixtu
 import { DbHelper, hasDbConfig } from '../../../helpers/db.helper';
 import { blockedIf } from '../../../helpers/blocked.helper';
 
-const DEV_ONLY = process.env.TEST_ENV === 'jasec-dev';
+const ALLOWED = ['jasec-dev', 'jasec-preprod', 'jasec'].includes(process.env.TEST_ENV ?? '');
 const BAD = /[\s|'"\\]/;
 const row: PrepaidAccountWithOrderRow = JSON.parse(
   fs.readFileSync(path.join(process.cwd(), 'test-data', 'jasec-prepaid-accounts.data.json'), 'utf-8'))[0];
@@ -84,7 +86,7 @@ async function storedIdFor(db: DbHelper, customerId: string): Promise<string | n
 
 test.describe('Account ID with hidden or special characters @acct-id-validation', () => {
   test.beforeEach(() => {
-    blockedIf(!DEV_ONLY, `runs on jasec-dev ONLY - an accepted bad id breaks billing for the whole tenant (TEST_ENV=${process.env.TEST_ENV})`);
+    blockedIf(!ALLOWED, `runs on jasec-dev / jasec-preprod / jasec (prod test builds) only (TEST_ENV=${process.env.TEST_ENV})`);
     blockedIf(!hasDbConfig(), 'needs DB access to read what was stored');
   });
 
