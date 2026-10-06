@@ -104,9 +104,18 @@ async function resolveTwoCycleAccount(g: BillingGqlHelper): Promise<string> {
   return backDatedFallback;
 }
 
-/** Same predicate the chain case asserts: ids must descend when read newest-first. */
-function ledgerBackDated(lines: Array<{ lineReferenceId?: unknown }>): boolean {
-  const ids = lines.map((l) => idNum(l.lineReferenceId));
+/**
+ * The ids the order rule applies to: INVOICE lines only. Invoice numbers are issued in creation order; a
+ * SETTLEMENT line (prepaid settlement, 2026-10-05) carries the id of the invoice it SETTLES, and an invoice
+ * billed before the fix is settled later - on prod ACT-100071 invoice 000055 was settled together with
+ * 000062 a cycle later, so its settlement sits above 000062's invoice line and read as "back-dated".
+ */
+const orderedIds = (lines: Array<{ lineReferenceId?: unknown; lineType?: unknown }>) =>
+  lines.filter((l) => String(l.lineType ?? '').toUpperCase() !== 'SETTLEMENT').map((l) => idNum(l.lineReferenceId));
+
+/** Same predicate the chain case asserts: invoice ids must descend when read newest-first. */
+function ledgerBackDated(lines: Array<{ lineReferenceId?: unknown; lineType?: unknown }>): boolean {
+  const ids = orderedIds(lines);
   return ids.some((v, i) => i + 1 < ids.length && v < ids[i + 1]);
 }
 
@@ -206,7 +215,7 @@ test.describe('Prepaid account across two consecutive billed cycles', () => {
      * prefers accounts without back-dated rows, so this only fires when none was
      * found.
      */
-    const ids = statement.map((l) => idNum(l.lineReferenceId));
+    const ids = orderedIds(statement);
     const outOfOrder = ids.filter((v, i) => i + 1 < ids.length && v < ids[i + 1]);
     if (blockedIf(!ACCOUNT_SUPPLIED && outOfOrder.length > 0,
       `resolved account ${ACCOUNT} has back-dated ledger rows (${JSON.stringify(ids)}), `
