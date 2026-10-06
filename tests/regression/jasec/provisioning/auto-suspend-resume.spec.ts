@@ -49,6 +49,7 @@
 import { test, expect } from '../../../../fixtures/page-factory';
 import type { APIRequestContext, TestInfo, Page } from '@playwright/test';
 import { SuspendResumeOrderPage } from '../../../../pages/customer-hub/order-management/suspend-resume-order.page';
+import { AgentScreens } from '../../../../helpers/agent-screens.helper';
 import { DbHelper } from '../../../../helpers/db.helper';
 import { PrepaidSeedHelper } from '../../../../helpers/prepaid-seed.helper';
 import { MdrRemoteHelper } from '../../../../helpers/mdr-remote.helper';
@@ -695,7 +696,7 @@ test.describe('JEPYP-27 - automatic suspend and resume (credit breach / top-up)'
    * pick it up.
    */
   test('the stock profile defers a breach inside the no-cut window and suspends outside it @auto-window',
-    async ({}, testInfo) => {
+    async ({ page }, testInfo) => {
       test.skip(!RUN, 'GATED: seeds, drops MDR files and may dispatch to the live AMI. Set JASEC_AUTO_PROV_RUN=true.');
       test.setTimeout(900_000);
       const logger = new TestLogger('auto-suspend-resume-window');
@@ -722,8 +723,26 @@ test.describe('JEPYP-27 - automatic suspend and resume (credit breach / top-up)'
         await note(testInfo, 'account for the morning-after (TC41) check', `${s.accountId} meter ${s.meter}`);
 
         if (!deferred) {
+          let suspendOrder = '';
           await test.step('outside the window: the breach suspends', async () => {
-            await breach(db, mdr, s, testInfo);
+            suspendOrder = await breach(db, mdr, s, testInfo);
+          });
+          // TC-126 on the agent's screens (2026-10-06): the SUSPEND the breach raised is visible, and it
+          // was raised by the system (User Id CreditLimitBreach), not by an agent.
+          await test.step('Core UI: the agent sees the SUSPEND the breach raised', async () => {
+            const ui = new AgentScreens(page);
+            const sv = await ui.services(s.accountId);
+            const o = await autoOrder(db, s.accountId, 'SUSPEND', 'CreditLimitBreach');
+            const shownRow = sv.incomplete.find(r => r.includes(suspendOrder));
+            if (o?.status === 'COMPLETED') {
+              expect.soft(shownRow, `${suspendOrder} is COMPLETED but still under In-complete Orders`).toBeUndefined();
+            } else {
+              expect.soft(shownRow, `Services > In-complete Orders does not show the SUSPEND ${suspendOrder} (${o?.status})`).toBeTruthy();
+            }
+            const od = await ui.order(suspendOrder);
+            expect.soft(od['Type'], `order detail ${suspendOrder}: Type`).toBe('SUSPEND');
+            expect.soft(od['Status'], `order detail ${suspendOrder}: Status must equal the database`).toBe(o?.status ?? '');
+            expect.soft(od['User Id'], `order detail ${suspendOrder}: raised by the system on a breach`).toBe('CreditLimitBreach');
           });
           return;
         }
@@ -748,6 +767,13 @@ test.describe('JEPYP-27 - automatic suspend and resume (credit breach / top-up)'
             `SELECT type, status FROM core_engine.email_notification WHERE accountid = $1 ORDER BY createddate, id`,
             [s.accountId]);
           await note(testInfo, 'notifications after a deferred breach', n.map(x => `${x.type}/${x.status}`).join(', ') || 'none');
+
+          // TC-126 on the agent's screen (2026-10-06): inside the window the agent must see the account
+          // ACTIVE with no SUSPEND waiting - the customer keeps power overnight.
+          const sv = await new AgentScreens(page).services(s.accountId);
+          expect(sv.sub, 'Core UI Services: the subscription must show ACTIVE inside the window').toBe('ACTIVE');
+          expect(sv.incomplete.filter(r => /\bSUSPEND\b/.test(r)), 'Core UI In-complete Orders: no SUSPEND inside the window')
+            .toEqual([]);
           console.log(`\n  Re-check ${s.accountId} after ${win.end} CR on a weekday: per TC41 it should then be ` +
             `suspended; per our Option A notes it may not be.\n`);
         });
