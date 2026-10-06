@@ -319,7 +319,7 @@ export default defineConfig({
     {
       name: 'jasec-provisioning',
       testMatch: ['**/regression/jasec/provisioning/*.spec.ts'],
-      testIgnore: ['**/regression/jasec/provisioning/suspend-resume-orders.spec.ts', '**/regression/jasec/provisioning/reprocess-failed-step.spec.ts'],
+      testIgnore: ['**/regression/jasec/provisioning/suspend-resume-orders.spec.ts', '**/regression/jasec/provisioning/reprocess-failed-step.spec.ts', '**/regression/jasec/provisioning/auto-suspend-resume.spec.ts'],
     },
 
     // ── JASEC provisioning through the Core UI.
@@ -330,6 +330,9 @@ export default defineConfig({
     // button, mutation, OMS queue, sequence re-run, dispatch - so this is the
     // only test for that requirement rather than one of a pair.
     //
+    // auto-suspend-resume: the AUTOMATIC suspend/resume (breach / top-up), checked on the
+    // Services, order detail and Customer Activity screens as well as in the database.
+    //
     // suspend-resume-orders: SUSPEND and RESUME raised from the Suspend Order /
     // Resume Order screens - the order shape production creates (no service
     // line) - plus an API-built control. Gated behind JASEC_SUSPEND_ORDERS_RUN;
@@ -339,7 +342,7 @@ export default defineConfig({
     // behind JASEC_REPROCESS_RUN because it dispatches to JASEC's live AMI.
     {
       name: 'jasec-provisioning-orders',
-      testMatch: ['**/regression/jasec/provisioning/suspend-resume-orders.spec.ts', '**/regression/jasec/provisioning/reprocess-failed-step.spec.ts'],
+      testMatch: ['**/regression/jasec/provisioning/suspend-resume-orders.spec.ts', '**/regression/jasec/provisioning/reprocess-failed-step.spec.ts', '**/regression/jasec/provisioning/auto-suspend-resume.spec.ts'],
       dependencies: ['setup'],
       use: {
         ...devices['Desktop Chrome'],

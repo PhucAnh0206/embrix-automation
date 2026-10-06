@@ -143,6 +143,26 @@ export class SelfcareMakePaymentPage extends BasePage {
     return out;
   }
 
+  /**
+   * The invoices Self Care offers to pay, read so that an empty list can be trusted: reload (the grid
+   * fetches only after one), wait for the searchInvoiceUnits fetch itself, then for the grid to SETTLE -
+   * a data row or the "No record has found" state - before reading. `asked`/`settled` false = nothing
+   * may be concluded from `listed`.
+   */
+  async listInvoicesToPay(activityPage?: SelfcareActivityPage): Promise<{
+    asked: boolean; settled: boolean;
+    listed: { invoiceId: string; invoiceDate: string; dueDate: string; amount: string; due: string }[];
+  }> {
+    const fetched = this.page.waitForResponse(r => /searchInvoiceUnits/.test(r.request().postData() ?? ''), { timeout: LONG_WAIT })
+      .then(() => true, () => false);
+    await this.reloadToPopulateGrid(activityPage);
+    const asked = await fetched;
+    if (!asked) return { asked, settled: false, listed: [] };
+    const settled = await this.dataRows.first().or(this.page.getByText(/No\s*record\s*has\s*found/i).first())
+      .waitFor({ state: 'visible', timeout: LONG_WAIT }).then(() => true, () => false);
+    return { asked, settled, listed: settled ? await this.getListedInvoices() : [] };
+  }
+
   /** Assert the grid is showing its empty state. */
   async assertNoInvoicesListed(): Promise<void> {
     await expect(

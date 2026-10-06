@@ -9,7 +9,9 @@
  * failed RESUME), JASEC_UIC_AUTOSUSP (automatic breach SUSPEND), JASEC_UIC_PARKED (a parked reading),
  * JASEC_UIC_ORDER (an automatic SUSPEND order id).
  */
-import { test } from '../../../../fixtures/jasec-fixtures';
+import { test, expect } from '../../../../fixtures/jasec-fixtures';
+import { DbHelper } from '../../../../helpers/db.helper';
+import { TestLogger } from '../../../../helpers/test-logger';
 import * as fs from 'fs';
 import * as path from 'path';
 import { attachToAccountInSelfCare } from '../../../../fixtures/create-prepaid-account.helper';
@@ -62,6 +64,9 @@ async function openAccount(page: any, customerManagementPage: any, accountId: st
   await customerManagementPage.searchByAccountId(accountId);
   await customerManagementPage.clickFirstRowLink('ACCT No');
 }
+
+// Probes never move the tenant clock (the JASEC fixtures would otherwise rewind it to the baseline).
+test.use({ ccpBaseline: null });
 
 test.describe('UI candidate screens (read-only) @ui-candidates', () => {
   test.describe.configure({ mode: 'default' });
@@ -223,3 +228,33 @@ test.describe('UI candidate screens - pass 3 (MUTATING: Bill Pending -> GENERATE
   });
 });
 
+/**
+ * CONTROL for TC-142's customer view: the same Self Care read (listInvoicesToPay) on an account that DOES
+ * have open invoices must list them - otherwise "nothing to pay" on a settled prepaid account proves nothing.
+ * Read-only. Default account: a postpaid dev account with ACTIVE invoices (JASEC_SC_CONTROL_ACCOUNT overrides).
+ *
+ *   npx playwright test --project=jasec-billing-explore --grep "@sc-control"
+ */
+test.describe('TC-142 control - Self Care lists open invoices @sc-control', () => {
+  test('Self Care Make Payment lists the open invoices of an account that has them', async ({
+    selfcareLoginPage, selfcareAccountSearchPage, selfcareActivityPage, selfcareMakePaymentPage,
+  }) => {
+    const acct = process.env.JASEC_SC_CONTROL_ACCOUNT ?? 'ACT-100572';
+    const db = new DbHelper(new TestLogger('sc-control'));
+    await db.connect();
+    const open = await db.query<{ id: string }>(
+      `SELECT id FROM core_engine.invoice_unit WHERE accountid = $1 AND status = 'ACTIVE' AND due > 0 ORDER BY id`, [acct])
+      .finally(() => db.disconnect());
+    console.log(`  ${acct}: open invoices in the database: ${open.map(o => o.id).join(', ') || 'none'}`);
+    test.skip(open.length === 0, `BLOCKED: ${acct} has no open invoice - pick another with JASEC_SC_CONTROL_ACCOUNT`);
+    await attachToAccountInSelfCare({ selfcareLoginPage, selfcareAccountSearchPage }, acct);
+    await selfcareActivityPage.navigateToMakePayment();
+    await selfcareMakePaymentPage.assertLoaded();
+    const { asked, settled, listed } = await selfcareMakePaymentPage.listInvoicesToPay(selfcareActivityPage);
+    console.log(`  Self Care: asked=${asked} settled=${settled} listed=${listed.map(l => `${l.invoiceId} due ${l.due}`).join(', ') || 'none'}`);
+    expect(asked).toBe(true);
+    expect(settled).toBe(true);
+    expect(listed.length, 'the read found no invoice on an account that has open ones - the TC-142 check could never fail').toBeGreaterThan(0);
+    expect.soft(open.map(o => o.id).filter(id => !listed.some(l => l.invoiceId === id)), 'open invoices missing from Self Care').toEqual([]);
+  });
+});

@@ -162,15 +162,14 @@ test.describe('TC-142 prepaid invoice settled, never in collections @tc-142 @pre
         await attachToAccountInSelfCare({ selfcareLoginPage, selfcareAccountSearchPage }, inv.accountid);
         await selfcareActivityPage.navigateToMakePayment();
         await selfcareMakePaymentPage.assertLoaded();
-        // The grid fetches only after a reload (known Self Care defect, see reloadToPopulateGrid). Wait for the
-        // fetch itself: an empty grid must mean "no invoice to pay", never "the list was not asked for".
-        const fetched = page.waitForResponse(r => /searchInvoiceUnits/.test(r.request().postData() ?? ''), { timeout: 30_000 })
-          .then(() => true, () => false);
-        await selfcareMakePaymentPage.reloadToPopulateGrid(selfcareActivityPage);
-        const asked = await fetched;
-        const listed = asked ? await selfcareMakePaymentPage.getListedInvoices() : [];
-        console.log(`    SC  Make Payment: ${asked ? (listed.map(l => `${l.invoiceId} due ${l.due}`).join(', ') || 'nothing to pay') : 'invoice list NOT fetched'}`);
+        // An empty grid must mean "no invoice to pay", never "the list was not asked for" or "not rendered yet":
+        // listInvoicesToPay waits for the searchInvoiceUnits fetch and then for the grid to settle.
+        // Control (2026-10-06, dev): the same read lists the open invoices of a postpaid account.
+        const { asked, settled, listed } = await selfcareMakePaymentPage.listInvoicesToPay(selfcareActivityPage);
+        console.log(`    SC  Make Payment: ${!asked ? 'invoice list NOT fetched' : !settled ? 'grid never settled'
+          : (listed.map(l => `${l.invoiceId} due ${l.due}`).join(', ') || 'nothing to pay')}`);
         expect(asked, 'Self Care Make Payment never fetched the invoice list - an empty grid would prove nothing').toBe(true);
+        expect(settled, 'Self Care Make Payment grid never showed rows or its empty state - nothing can be concluded').toBe(true);
         expect.soft(listed.map(l => l.invoiceId),
           `Self Care offers ${inv.accountid} invoice(s) to pay although billing took the money from the balance`).toEqual([]);
       });

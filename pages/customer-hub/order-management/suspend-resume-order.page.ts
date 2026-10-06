@@ -172,20 +172,32 @@ export class SuspendResumeOrderPage extends BasePage {
    * the same walk JasecOrderManagementPage.verifyOrderCompletedWithBundle uses.
    */
   async readOrderStatus(orderId: string): Promise<string> {
+    return (await this.readOrderFields(orderId, ['Status']))['Status'];
+  }
+
+  /**
+   * Several header fields of the order detail screen at once (e.g. Type, Status, Reason, User Id),
+   * by their on-screen label, after one load. A label the screen does not show reads ''.
+   */
+  async readOrderFields(orderId: string, labels: string[]): Promise<Record<string, string>> {
     await this.openOrderDetail(orderId);
-    return this.page.evaluate(() => {
-      const groups = Array.from(document.querySelectorAll('div')).filter(d => {
-        const span = d.querySelector(':scope > span');
-        return d.className.includes('form-group') && span !== null
-          && (span.textContent || '').trim().toLowerCase() === 'status';
-      });
-      for (const g of groups) {
-        const input = g.querySelector('input') as HTMLInputElement | null;
-        if (input && input.value) return input.value.trim();
-        const sv = g.querySelector('[class*="single-value"]');
-        if (sv && sv.textContent) return sv.textContent.trim();
+    return this.page.evaluate((wanted: string[]) => {
+      const out: Record<string, string> = {};
+      for (const label of wanted) {
+        out[label] = '';
+        const groups = Array.from(document.querySelectorAll('div')).filter(d => {
+          const span = d.querySelector(':scope > span');
+          return d.className.includes('form-group') && span !== null
+            && (span.textContent || '').trim().toLowerCase() === label.toLowerCase();
+        });
+        for (const g of groups) {
+          const input = g.querySelector('input') as HTMLInputElement | null;
+          if (input && input.value) { out[label] = input.value.trim(); break; }
+          const sv = g.querySelector('[class*="single-value"]');
+          if (sv && sv.textContent) { out[label] = sv.textContent.trim(); break; }
+        }
       }
-      return '';
-    });
+      return out;
+    }, labels);
   }
 }
