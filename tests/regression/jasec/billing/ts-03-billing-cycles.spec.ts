@@ -239,9 +239,13 @@ test.describe('Prepaid account across two consecutive billed cycles', () => {
     expect(badSplit, `tax split does not sum to the amount:\n${badSplit.join('\n')}`).toEqual([]);
 
     // Every INVOICE line must resolve to a real invoice carrying the same total.
+    // Match the INVOICE line itself: since prepaid settlement (2026-10-05) each invoice also has a
+    // SETTLEMENT line carrying the same invoice id and minus the total, and it sits NEWER in the ledger,
+    // so a lookup by id alone found the settlement and read -1943.4 against 1943.4 (preprod 2026-10-06).
     const unresolved: string[] = [];
     for (const c of cycles) {
-      const line = statement.find((l) => String(l.invoiceId ?? l.lineReferenceId) === String(c.inv.id));
+      const line = statement.find((l) => String(l.lineType ?? '').toUpperCase() === 'INVOICE'
+        && String(l.invoiceId ?? l.lineReferenceId) === String(c.inv.id));
       if (!line) { unresolved.push(`${c.inv.id}: no ledger line`); continue; }
       if (!near(num(line.amount), num(c.inv.total)))
         unresolved.push(`${c.inv.id}: ledger ${line.amount} != invoice total ${c.inv.total}`);

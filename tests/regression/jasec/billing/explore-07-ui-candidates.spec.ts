@@ -12,6 +12,7 @@
 import { test, expect } from '../../../../fixtures/jasec-fixtures';
 import { DbHelper } from '../../../../helpers/db.helper';
 import { TestLogger } from '../../../../helpers/test-logger';
+import { AgentScreens, openAgentTab } from '../../../../helpers/agent-screens.helper';
 import * as fs from 'fs';
 import * as path from 'path';
 import { attachToAccountInSelfCare } from '../../../../fixtures/create-prepaid-account.helper';
@@ -256,5 +257,35 @@ test.describe('TC-142 control - Self Care lists open invoices @sc-control', () =
     expect(settled).toBe(true);
     expect(listed.length, 'the read found no invoice on an account that has open ones - the TC-142 check could never fail').toBeGreaterThan(0);
     expect.soft(open.map(o => o.id).filter(id => !listed.some(l => l.invoiceId === id)), 'open invoices missing from Self Care').toEqual([]);
+  });
+});
+
+/**
+ * CONTROL for helpers/agent-screens.helper.ts: on one of OUR accounts, the Services and Balances reads must
+ * equal the database - in the test's own page AND in a second agent tab (the path Self Care specs use).
+ * Read-only.   npx playwright test --project=jasec-billing-explore --grep "@agent-screens"
+ */
+test.describe('agent screens helper - control @agent-screens', () => {
+  test('Services and Balances read what the database holds', async ({ page }) => {
+    const acct = process.env.JASEC_AGENT_ACCOUNT;
+    test.skip(!acct, 'BLOCKED: set JASEC_AGENT_ACCOUNT to one of our accounts');
+    const db = new DbHelper(new TestLogger('agent-screens'));
+    await db.connect();
+    let truth: { sub: string; bal: number | null }[];
+    try {
+      const sub = await db.query<{ sub: string }>(
+        `SELECT status AS sub FROM core_engine.subscription WHERE accountid = $1 ORDER BY id LIMIT 1`, [acct]);
+      const raw = await db.getCrcBalanceAnyState(acct!);
+      truth = [{ sub: sub[0]?.sub, bal: raw === null ? null : Math.round(Number(raw) * 100) / 100 }];
+    } finally { await db.disconnect(); }
+    console.log(`  DB ${acct}: subscription ${truth[0]?.sub}, CRC ${truth[0]?.bal}`);
+    for (const [label, p] of [['own page', page], ['agent tab', await openAgentTab(page.context())]] as const) {
+      const ui = new AgentScreens(p);
+      const sv = await ui.services(acct!);
+      const bal = await ui.crcBalance(acct!);
+      console.log(`  ${label}: subscription ${sv.sub}, CRC ${bal}`);
+      expect(sv.sub, `${label}: Services status`).toBe(truth[0].sub);
+      expect(bal, `${label}: Balances CRC`).toBe(truth[0].bal);
+    }
   });
 });

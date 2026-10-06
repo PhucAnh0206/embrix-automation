@@ -1,0 +1,93 @@
+import type { BrowserContext, Page } from '@playwright/test';
+import { CustomerManagementPage } from '../pages/customer-hub/customer-management/customer-management.page';
+import { ServicesPage } from '../pages/customer-hub/customer-management/account-details/subscription-data/services.page';
+import { BillsPage } from '../pages/customer-hub/customer-management/account-details/billing-data/bills.page';
+import { SuspendResumeOrderPage } from '../pages/customer-hub/order-management/suspend-resume-order.page';
+import { SHORT_WAIT } from './timeouts.helper';
+
+/**
+ * What an AGENT sees in Core UI for one account - the screens verified in the 2026-10-06 UI audit
+ * (notes/guides/UI-CANDIDATES_2026-10-06.md): Services (V1), Balances (V2), order detail (V11).
+ *
+ * Every read opens the account the way an agent does (Customer Management > search > ACCT No) and then
+ * PROVES the right account is open (the URL carries its id) before reading anything - a read of the wrong
+ * account must fail, never pass.
+ */
+
+/** "-3,056.6" -> -3056.6; '' or unparseable -> null. */
+export function uiAmount(s: string | undefined | null): number | null {
+  const t = String(s ?? '').replace(/[,\s ₡]/g, '');
+  return /^-?\d+(\.\d+)?$/.test(t) ? Number(t) : null;
+}
+
+/**
+ * A Core UI tab next to the test's own page, for specs whose page is busy in Self Care. Same browser
+ * context, so it shares the Core UI session the setup project stored. Carries the two helpers the page
+ * objects expect on `page` (same code as fixtures/page-factory).
+ */
+export async function openAgentTab(context: BrowserContext): Promise<Page> {
+  const tab = await context.newPage() as any;
+  tab.navigateToHome = async () => {
+    await tab.goto(process.env.EMBRIX_BASE_URL ?? '/');
+    await tab.waitForLoadState('networkidle');
+    await tab.locator('.animate__animated.animate__zoomIn').waitFor({ state: 'hidden', timeout: SHORT_WAIT }).catch(() => { });
+  };
+  tab.waitForLoadingToDisappear = async () => {
+    const loader = tab.locator('.animate__animated.animate__zoomIn');
+    await loader.waitFor({ state: 'visible', timeout: SHORT_WAIT }).catch(() => { });
+    await loader.waitFor({ state: 'hidden', timeout: SHORT_WAIT }).catch(() => { });
+  };
+  return tab as Page;
+}
+
+export class AgentScreens {
+  constructor(private readonly page: Page) {}
+
+  /** Customer Management > search > open. Throws if the opened account is not `accountId`. */
+  async openAccount(accountId: string): Promise<void> {
+    const cm = new CustomerManagementPage(this.page);
+    await (this.page as any).navigateToHome();
+    await cm.navigateViaNav();
+    await cm.searchByAccountId(accountId);
+    await cm.clickFirstRowLink('ACCT No');
+    if (!this.page.url().includes(`/customers/${accountId}/`)) {
+      throw new Error(`Core UI opened ${this.page.url()} instead of account ${accountId}`);
+    }
+  }
+
+  /** Subscription Data > Services: subscription status + reason, and the In-complete Orders rows. */
+  async services(accountId: string): Promise<{ sub: string; reason: string; incomplete: string[] }> {
+    await this.openAccount(accountId);
+    const sp = new ServicesPage(this.page);
+    await sp.navigateViaSideMenu();
+    const sub = await sp.getSubscriptionFirstRowCellValue('Status');
+    const reason = await sp.getSubscriptionFirstRowCellValue('Reason');
+    const incomplete = (await this.page.locator('//h5[contains(text(), "In-complete Orders")]/following::table[1]//tbody/tr').allInnerTexts())
+      .map(t => t.replace(/\s+/g, ' ').trim()).filter(t => t && !/no record/i.test(t));
+    console.log(`  UI Services ${accountId}: subscription ${sub} (${reason}); in-complete orders: ${incomplete.join(' | ') || 'none'}`);
+    return { sub, reason, incomplete };
+  }
+
+  /**
+   * Billing Data > Balances: the CRC amount as the agent sees it. JASEC sign: NEGATIVE = credit.
+   * null when the screen shows no CRC row.
+   */
+  async crcBalance(accountId: string): Promise<number | null> {
+    await this.openAccount(accountId);
+    await new BillsPage(this.page).navigateToBalance();
+    // The balances grid is the one headed "Currency Id" (Grants and Accumulators sit below it).
+    const table = this.page.locator('table').filter({ has: this.page.locator('thead th, thead td', { hasText: 'Currency Id' }) }).first();
+    const row = table.locator('tbody tr').filter({ hasText: 'CRC' }).first();
+    const ok = await row.waitFor({ state: 'visible', timeout: 30_000 }).then(() => true, () => false);
+    const amount = ok ? uiAmount(await row.locator('td').nth(1).innerText()) : null;
+    console.log(`  UI Balances ${accountId}: CRC ${amount ?? 'NOT SHOWN'}`);
+    return amount;
+  }
+
+  /** Order detail header fields (Type, Status, Reason, User Id ...). */
+  async order(orderId: string, labels = ['Type', 'Status', 'Reason', 'User Id']): Promise<Record<string, string>> {
+    const f = await new SuspendResumeOrderPage(this.page).readOrderFields(orderId, labels);
+    console.log(`  UI order ${orderId}: ${Object.entries(f).map(([k, v]) => `${k}=${v || '-'}`).join(', ')}`);
+    return f;
+  }
+}

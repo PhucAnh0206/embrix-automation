@@ -433,6 +433,19 @@ export default defineConfig({
       ],
     },
 
+    // ── JASEC TC-143 on screen (read-only): the Account Statement screen shows the same ledger chain
+    // ts-03 proves in the data. Browser + session, so not in jasec-billing-read ("no browser").
+    //   $env:JASEC_TWO_CYCLE_ACCOUNT='<acct>'; npx playwright test --project=jasec-billing-statement
+    {
+      name: 'jasec-billing-statement',
+      testMatch: ['**/regression/jasec/billing/ts-14-*.spec.ts'],
+      dependencies: ['setup'],
+      use: {
+        ...devices['Desktop Chrome'],
+        storageState: 'playwright/.auth/user.json',
+      },
+    },
+
     // ── JASEC TC-142 (read-only): a prepaid invoice is settled from the balance and never goes
     // to collections (Luis, 2026-10-05). Its OWN project, run AFTER the billing runs: its third
     // test judges the invoices the latest TC-139 run recorded (artifacts/billing-run-invoices.json).
