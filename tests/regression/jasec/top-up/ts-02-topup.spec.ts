@@ -41,6 +41,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { test, expect } from '../../../../fixtures/jasec-fixtures';
 import { LONG_WAIT } from '../../../../helpers/timeouts.helper';
+import { AgentScreens, openAgentTab } from '../../../../helpers/agent-screens.helper';
 import { fetchAndExtractPdfText } from '../../../../helpers/pdf.helper';
 import {
   setUpAccountInSelfCare,
@@ -191,6 +192,25 @@ const groupAAccount = new SharedAccount<GroupAFixtures>({
   attach: (fixtures, accountId) => attachToAccountInSelfCare(fixtures, accountId),
 });
 
+/**
+ * The AGENT's side of a customer top-up (2026-10-06): in a second tab, Core UI > account > Balances must
+ * show the balance moved by exactly the top-up - JASEC sign, so a credit makes it MORE negative. The
+ * customer's page stays in Self Care. `before` is read from the database just before the top-up.
+ */
+async function agentSeesTopUp(
+  page: import('@playwright/test').Page, accountId: string, before: number | null, topUp: number,
+): Promise<void> {
+  expect(before, `could not read ${accountId}'s balance before the top-up`).not.toBeNull();
+  const expected = Math.round((Number(before) - topUp) * 100) / 100;
+  const tab = await openAgentTab(page.context());
+  try {
+    const shown = await new AgentScreens(tab).waitForCrcBalance(accountId, expected);
+    expect(shown, `Core UI Balances for ${accountId}: ${before} - ${topUp} top-up = ${expected}`).toBe(expected);
+  } finally {
+    await tab.close();
+  }
+}
+
 const ensureSharedAccountAndAttach = (fixtures: GroupAFixtures): Promise<string> =>
   groupAAccount.ensure(fixtures);
 
@@ -257,7 +277,7 @@ test.describe(
         searchAccountsPage, createAccountPage, orderManagementPage, screenshotHelper,
         selfcareLoginPage, selfcareAccountSearchPage,
         selfcareActivityPage, selfcareTopupPage,
-        placeToPayCheckoutPage,
+        placeToPayCheckoutPage, dbHelper,
       }) => {
         const accountId = await ensureSharedAccountAndAttach({
           page, testLogger, accountOrderApiHelper, searchAccountsPage, createAccountPage,
@@ -265,6 +285,7 @@ test.describe(
           selfcareLoginPage, selfcareAccountSearchPage,
           selfcareActivityPage, selfcareTopupPage, placeToPayCheckoutPage,
         });
+        const before = await dbHelper.getCrcBalanceAnyState(accountId);
 
         // Shared account already has a saved card — go straight to Top Up.
         await selfcareActivityPage.navigateToTopUp();
@@ -276,6 +297,7 @@ test.describe(
         await selfcareTopupPage.enterAmount(topUp);
         await selfcareTopupPage.clickPayNow();
         await selfcareTopupPage.assertPaymentSuccess();
+        await agentSeesTopUp(page, accountId, before, topUp);
 
         testLogger.log(`✓ TC 2.2 — account ${accountId} topped up ${topUp} CRC via saved card`);
       },
@@ -308,6 +330,7 @@ test.describe(
         const journalBefore = trackingOn
           ? await dbHelper.getTopUpJournalCount(accountId)
           : 0;
+        const before = await dbHelper.getCrcBalanceAnyState(accountId);
 
         await selfcareActivityPage.navigateToTopUp();
         await selfcareTopupPage.assertLoaded();
@@ -323,6 +346,7 @@ test.describe(
         // isn't visible for LONG_WAIT.
         await selfcareTopupPage.reload(selfcareActivityPage);
         await selfcareTopupPage.assertPaymentSuccess();
+        await agentSeesTopUp(page, accountId, before, topUp);
 
         if (trackingOn) {
           const written = await dbHelper.waitForTopUpJournal(accountId, journalBefore);
