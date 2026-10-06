@@ -141,7 +141,7 @@ const BILL_CHECK_JOBS_SQL = `
   SELECT id, status FROM core_engine.jobs WHERE type = 'BILL_CHECK' ORDER BY id`;
 
 const SCHEDULES_ON_DATE_SQL = `
-  SELECT js.id, js.status, js.userid, l.type, l.status AS liststatus,
+  SELECT js.id, js.status, js.schedulefrequency, js.userid, l.type, l.status AS liststatus,
          l.countsuccess, l.counterror
     FROM core_engine.job_schedule js
     LEFT JOIN core_engine.job_schedule_list l ON l.id = js.id
@@ -404,6 +404,17 @@ test.describe('Billing via the Core UI Daily Schedule', () => {
       testLogger.data('CRC balance BEFORE', Object.fromEntries(balanceBefore));
       testLogger.data('cycle kWh BEFORE', Object.fromEntries(kwhBefore));
 
+      // A SCHEDULED run on the same date (another case's, e.g. TC-141) is not ours to clear,
+      // and the Daily Schedule screen then shows THAT finished schedule after Create, so
+      // Process never enables (prod 2026-10-06, 2026-12-18 held TC-141's JS-100197). Refuse - BEFORE the clock moves,
+      // so a refusal leaves the tenant untouched.
+      const otherKind = [...new Set((await db.query(SCHEDULES_ON_DATE_SQL, [date]))
+        .filter((s: any) => s.schedulefrequency && s.schedulefrequency !== 'DAILY')
+        .map((s: any) => `${s.id} (${s.schedulefrequency}, ${s.status})`))];
+      if (blockedIf(otherKind.length > 0,
+        `${date} already holds ${otherKind.join(', ')} from another run - the Daily Schedule screen ` +
+        `would show that schedule instead of a new DAILY one. Pick a billing date with no schedule.`)) return;
+
       // ── 3. The clock. Process stays disabled unless CCP equals the date. ──
       await serverHelper.setCcpTime(date);
       const ccp = await serverHelper.getCcpTime();
@@ -479,7 +490,12 @@ test.describe('Billing via the Core UI Daily Schedule', () => {
       // friction, not what this case tests. Re-set the clock and reload ONCE, then
       // proceed; a second disabled button still fails as before.
       const processBtn = page.getByRole('button', { name: 'Process', exact: true });
-      const enabledSoon = await processBtn.isEnabled({ timeout: 5_000 }).catch(() => false);
+      // WAIT for it to enable - `isEnabled()` does not wait, it answers at once. On prod
+      // (2026-10-06) Process enabled a moment after Create, the instant check read
+      // "disabled", and the reload below threw the unsaved schedule away (no DAILY
+      // schedule in the DB, then "Process not visible"). Reload only if it is still
+      // disabled after a real wait.
+      const enabledSoon = await expect(processBtn).toBeEnabled({ timeout: 20_000 }).then(() => true, () => false);
       if (!enabledSoon) {
         testLogger.log(`Process disabled - re-setting CCP to ${date} and reloading once`);
         await serverHelper.setCcpTime(date);
