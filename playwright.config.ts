@@ -261,12 +261,6 @@ export default defineConfig({
     {
       name: 'jasec-notification-live',
       testMatch: ['**/regression/jasec/notification/ts-02-*.spec.ts'],
-      // Browser since 2026-10-06: step 5 reads the agent's Services screen for TC-81 (case 5.1).
-      dependencies: ['setup'],
-      use: {
-        ...devices['Desktop Chrome'],
-        storageState: 'playwright/.auth/user.json',
-      },
     },
 
     // ── JASEC notification reconnection: Event 6 (report cases 5.2 / 5.3).
