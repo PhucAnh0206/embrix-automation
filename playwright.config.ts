@@ -483,9 +483,15 @@ export default defineConfig({
     // its own project rather than part of the ts-06..08 billing band — a clock
     // move is a heavier conflict than billing one account, and it must never be
     // picked up by a broad run. Gated inside the spec behind JASEC_TRUEUP_RUN=true.
+    // Bills and invoices through the Core UI Bill Pending screen since 2026-10-06 - needs the browser + session.
     {
       name: 'jasec-billing-trueup',
       testMatch: ['**/regression/jasec/billing/ts-10-*.spec.ts'],
+      dependencies: ['setup'],
+      use: {
+        ...devices['Desktop Chrome'],
+        storageState: 'playwright/.auth/user.json',
+      },
     },
     // ── JASEC billing: several credit-limit breaches in ONE BILL_CHECK run must not
     // freeze it (preprod 2026-10-03). MUTATING, moves the CCP clock, dev only.

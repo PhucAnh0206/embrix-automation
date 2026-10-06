@@ -19,7 +19,7 @@
  * control does not pass, the harness is wrong and the main verdict means nothing.
  *
  * MUTATING: seeds an account, pays with the PlaceToPay TEST card, moves the CCP clock to the bill date
- * (restored afterwards) and bills on a SCHEDULED slot. dev, preprod (own data only - never touch others'
+ * (restored afterwards) and bills through the Core UI Daily Schedule screen (a DAILY slot on a free date). dev, preprod (own data only - never touch others'
  * accounts; Anh 2026-10-05) and prod build 2; never on the final customer build.
  *
  *   $env:JASEC_SAVEDCARD_RUN='true'; npx playwright test --project=jasec-billing-savedcard --reporter=line
@@ -27,7 +27,6 @@
  */
 import { test, expect } from '../../../../fixtures/jasec-fixtures';
 import { PrepaidSeedHelper } from '../../../../helpers/prepaid-seed.helper';
-import { JobScheduleHelper, type JobType } from '../../../../helpers/job-schedule.helper';
 import { DbHelper, hasDbConfig } from '../../../../helpers/db.helper';
 import { uniqueRunSuffix, assertQaMeter, attachToAccountInSelfCare } from '../../../../fixtures/create-prepaid-account.helper';
 import { blockedIf } from '../../../../helpers/blocked.helper';
@@ -40,7 +39,7 @@ const FINAL = ['COMPLETED', 'ERROR'];
 
 test('a customer who saved a card and topped up with it is still invoiced @tc-141 @saved-card-invoiced', async ({
   request, testLogger, selfcareLoginPage, selfcareAccountSearchPage, selfcareActivityPage,
-  selfcareTopupPage, placeToPayCheckoutPage, page, customerManagementPage, billsPage,
+  selfcareTopupPage, placeToPayCheckoutPage, page, customerManagementPage, billsPage, dailySchedulePage, accountInfoPage,
 }) => {
   if (blockedIf(!RUN, 'JASEC_SAVEDCARD_RUN is not "true" - this pays, moves the CCP clock and bills')) return;
   if (blockedIf(!hasDbConfig(), 'needs DB access to read the payment method and the invoice')) return;
@@ -87,9 +86,18 @@ test('a customer who saved a card and topped up with it is still invoiced @tc-14
     }
     expect(topUps, `${accountId}: the top-up never reached subscription_topup within 2 minutes`).toBeGreaterThan(0);
 
+    // The switch as the agent sees it: Core UI > the account > Account Data > Payment Profile.
+    const uiMethod = await test.step(`Core UI: ${accountId} Payment Profile after the top-up`, async () => {
+      await page.navigateToHome();
+      await customerManagementPage.navigateViaNav();
+      await customerManagementPage.searchByAccountId(accountId);
+      await customerManagementPage.clickFirstRowLink('ACCT No');
+      return accountInfoPage.readPaymentMethod();
+    });
     const method = (await db.query<{ m: string }>(
       `SELECT paymentmethod m FROM core_engine.payment_profile WHERE accountid = $1`, [accountId]))[0]?.m ?? '(none)';
-    console.log(`  payment method after the top-up: ${method}`);
+    console.log(`  payment method after the top-up: screen ${uiMethod || '(unread)'} / record ${method}`);
+    expect.soft(uiMethod, `Core UI Payment Profile shows "${uiMethod}" but the record says ${method}`).toBe(method);
 
     // 3. The bill date, once the PENDING bill unit exists.
     let billDate = '';
@@ -113,11 +121,13 @@ test('a customer who saved a card and topped up with it is still invoiced @tc-14
       [accountId, billDate]);
     if (blockedIf((others[0]?.n ?? 0) > 0,
       `${others[0].n} other account(s) are also due on ${billDate} - refusing to bill them; set JASEC_SAVEDCARD_BDOM to a free day`)) return;
+    // The Daily Schedule screen shows whatever schedule already sits on the date (prod 2026-10-06), so the
+    // date must hold none at all - of any frequency.
     const slot = await db.query<{ n: number }>(
-      `SELECT count(*)::int n FROM core_engine.job_schedule WHERE scheduledate::date = $1::date AND schedulefrequency = 'SCHEDULED'`, [billDate]);
-    if (blockedIf((slot[0]?.n ?? 0) > 0, `${billDate} already has a SCHEDULED job schedule - set JASEC_SAVEDCARD_BDOM to another day`)) return;
+      `SELECT count(*)::int n FROM core_engine.job_schedule WHERE scheduledate::date = $1::date`, [billDate]);
+    if (blockedIf((slot[0]?.n ?? 0) > 0, `${billDate} already holds a job schedule - set JASEC_SAVEDCARD_BDOM to another day`)) return;
 
-    // 4. The tenant's OWN DAILY billing jobs, in its order.
+    // 4. The tenant's OWN DAILY billing jobs (named in the failure message; the screen runs the whole DAILY template).
     const daily = await db.query<{ jobname: string }>(
       `SELECT jobname FROM (SELECT DISTINCT ON (jobname) jobname, index FROM core_config.config_job_list
                              WHERE id LIKE '%-JOB-DAILY' AND jobname ~ '^(BILL|INVOICE)' ORDER BY jobname, index) t
@@ -126,20 +136,24 @@ test('a customer who saved a card and topped up with it is still invoiced @tc-14
     if (blockedIf(!jobNames.length, 'no BILL_* / INVOICE_* jobs in the tenant DAILY template')) return;
     console.log(`  bill date ${billDate}; DAILY billing jobs: ${jobNames.join(' -> ')}`);
 
-    // 5. Bill it. processJobSchedule returns at once - wait for every job to be final before reading
-    //    results or touching the clock (restoring it mid-run voided a run on 2026-10-05).
+    // 5. Bill it the way an operator does: Operations Hub > Job Management > Daily Schedule > Create Job
+    //    Schedule > Process (the same steps as TC-139). Until 2026-10-06 this was a JobScheduleHelper API call
+    //    on a SCHEDULED slot. Process enables only while the clock equals the date - wait for it; re-set once.
     await seed.setCcpDate(billDate);
-    const jobs = new JobScheduleHelper(request, testLogger);
-    const scheduleId = await jobs.createSchedule({
-      scheduleDate: billDate, frequency: 'SCHEDULED', jobs: jobNames.map(type => ({ type: type as JobType })),
-    });
-    await jobs.processSchedule(scheduleId, 600_000).catch(e => console.log(`  process call: ${String(e).slice(0, 160)}`));
+    const uiChain = await dailySchedulePage.createAndProcess(billDate, () => seed.setCcpDate(billDate).then(() => undefined), testLogger);
+    console.log(`  Daily Schedule screen: ${Object.entries(uiChain).map(([k, v]) => `${k}=${v}`).join(' ') || '(none parsed)'}`);
+
+    // The record behind the screen: the DAILY schedule on that date, every job final.
+    const sched = await db.query<{ id: string }>(
+      `SELECT id FROM core_engine.job_schedule WHERE scheduledate::date = $1::date AND schedulefrequency = 'DAILY' ORDER BY id DESC LIMIT 1`, [billDate]);
+    const scheduleId = sched[0]?.id ?? '';
+    expect(scheduleId, `no DAILY schedule was created on ${billDate} from the screen`).not.toBe('');
     let states: Array<{ type: string; status: string }> = [];
     for (let i = 0; i < 96; i++) { // up to 8 min
-      await new Promise(res => setTimeout(res, 5_000));
       states = await db.query<{ type: string; status: string }>(
         `SELECT type, coalesce(status,'') status FROM core_engine.job_schedule_list WHERE id = $1 ORDER BY index`, [scheduleId]);
       if (states.length && states.every(x => FINAL.includes(x.status))) break;
+      await new Promise(res => setTimeout(res, 5_000));
     }
     console.log(`  ${scheduleId}: ${states.map(x => `${x.type}=${x.status}`).join(' ')}`);
     expect(states.every(x => FINAL.includes(x.status)), `${scheduleId} did not finish within 8 minutes`).toBe(true);

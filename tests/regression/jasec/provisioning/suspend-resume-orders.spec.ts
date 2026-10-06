@@ -314,6 +314,24 @@ async function resumeJourney(
     expect(cmds.some(c => /Registrada/i.test(c.answer)), 'JASEC ACCEPTED an invented meter').toBe(false);
     for (const c of cmds) expect(c.accion, `${c.id}: a RESUME must send C - D would cut the power`).toBe('C');
 
+    // TC-119 (moved here from dispatch.spec 2026-10-06): the reconnect message built under the current
+    // contract - correlation fields present and filled, no legacy field, no unfilled --token--, and JASEC answered.
+    const wire = await db.query<{ request: string; response: string }>(
+      `SELECT request::text AS request, coalesce(response::text,'') AS response FROM core_engine.activity
+        WHERE apiname ILIKE '%UTILITIES%' AND request::text LIKE $1 ORDER BY id DESC LIMIT 1`,
+      [`%<numeroOrden>${resumeOrder}</numeroOrden>%`]);
+    const req = wire[0]?.request ?? '';
+    expect(req, 'the reconnect payload must carry <numeroOrden>').toContain('<numeroOrden>');
+    expect(req, 'the reconnect payload must carry <numeroCuenta>').toContain('<numeroCuenta>');
+    expect(req, 'the legacy <numOrder> field must be gone').not.toContain('<numOrder>');
+    for (const f of ['medidor', 'accion', 'numeroOrden', 'numeroCuenta']) {
+      const v = req.match(new RegExp(`<${f}>([^<]*)<`))?.[1] ?? '';
+      expect(v, `<${f}> is empty in the reconnect payload`).not.toBe('');
+      expect(v, `<${f}> went out as a literal token`).not.toMatch(/^--.*--$/);
+    }
+    expect(wire[0]?.response ?? '', 'JASEC returned no response at all to the reconnect - a refusal is fine, silence is not')
+      .not.toBe('');
+
     const body = await postCallback(request, s, resumeOrder, 'RESUME');
     expect(body, 'RESUME callback refused').toContain('FINALIZADO');
     const acc = await waitFor(() => accountState(db, s), a => a.svc === 'ACTIVE');
@@ -332,7 +350,7 @@ async function resumeJourney(
 // ── A: the UI journey ────────────────────────────────────────────────────
 
 test.describe('JEPYP-27 - suspend and resume through the Core UI screens', () => {
-  test('Suspend Order -> callback -> Resume Order -> callback @order-journey',
+  test('Suspend Order -> callback -> Resume Order -> callback @order-journey @tc-116 @tc-119',
     async ({ page, request }, testInfo) => {
       test.skip(!RUN, 'GATED: dispatches to the live AMI. Set JASEC_SUSPEND_ORDERS_RUN=true.');
       test.setTimeout(900_000);

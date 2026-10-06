@@ -379,6 +379,26 @@ export class BillsPage extends BasePage {
     return this.page.url();
   }
 
+  /** Is "Bill Pending charges" enabled? (It is disabled while there is nothing to bill.) */
+  async isBillPendingEnabled(): Promise<boolean> {
+    await this.page.waitForLoadState('networkidle');
+    return this.page.locator('button', { hasText: 'Bill Pending charges' }).first().isEnabled().catch(() => false);
+  }
+
+  /**
+   * Bills > "Bill Pending charges" > Process: closes the account's pending cycle, exactly as an operator does
+   * (the screen equivalent of runPendingBill). Verified on prod 2026-10-06 (ACT-100128).
+   */
+  async billPendingCharges(): Promise<void> {
+    await this.page.waitForLoadState('networkidle');
+    await this.page.locator('button', { hasText: 'Bill Pending charges' }).first().click();
+    const popup = this.page.locator('[role="dialog"]').first();
+    await popup.waitFor({ state: 'visible', timeout: EXTRA_LONG_WAIT });
+    await popup.getByRole('button', { name: 'Process', exact: true }).click();
+    await this.page.waitForLoadingToDisappear();
+    await this.page.waitForLoadState('networkidle');
+  }
+
   async clickBillPendingButton(): Promise<void> {
     await this.page.waitForLoadState('networkidle')
     await this.billPendingButton.click();

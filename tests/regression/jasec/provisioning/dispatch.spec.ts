@@ -440,6 +440,9 @@ test.describe('JEPYP-27 - dispatch cases that need no JASEC input', () => {
     ).toBeGreaterThan(1);
   });
 
+  // API-SHAPED CONTROL since 2026-10-06. TC-119 is now judged on the Resume Order SCREEN journey
+  // (suspend-resume-orders @tc-119): this builds its RESUME with createOrder(services:[...]), a shape
+  // production never creates. Kept as a control for the wire format.
   test('a reconnect command is built correctly under the current contract', async ({ request }) => {
     gate();
     test.setTimeout(600_000);
@@ -520,6 +523,8 @@ test.describe('JEPYP-27 - dispatch cases that need no JASEC input', () => {
    * the service unit SUSPENDED - and the subscription still ACTIVE, because
    * suspending a service must not cancel the customer's subscription.
    */
+  // API-SHAPED CONTROL since 2026-10-06. TC-116 is now judged on the Suspend Order SCREEN journey
+  // (suspend-resume-orders @tc-116), the shape production creates (subscription-level, no service line).
   test('an accepted callback drives the full effect chain', async ({ request }) => {
     gate();
     token = await signIn(request);

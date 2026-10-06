@@ -236,4 +236,35 @@ export class DailySchedulePage extends BasePage {
         testLogger.error(`Jobs did not complete within ${maxRetries} retries.`, '');
         return false;
     }
+
+    /**
+     * The whole operator journey for one date: Daily Schedule > date > Create Job Schedule > Process > Yes,
+     * then wait for every job card. Process enables only while the CCP clock equals the date, so the caller
+     * moves the clock first; `resetClock` is called ONCE (then the page reloads) if Process stays disabled
+     * for 20 s - the API clock was seen reverting mid-run on prod. Returns the job cards as rendered.
+     * Shared by TC-141 (billing/ts-12) and TC-58 (billing/ts-10); TC-139 (ts-06) keeps its own extended copy.
+     */
+    async createAndProcess(date: string, resetClock: () => Promise<void>, testLogger: TestLogger): Promise<Record<string, string>> {
+        // Start from the Core UI home page, whatever the caller was on (a fresh test starts on about:blank).
+        await (this.page as any).navigateToHome();
+        await this.navigateViaNav();
+        await this.inputJobCalendar(date);
+        await this.clickCreateJobSchedule();
+        const processBtn = this.page.getByRole('button', { name: 'Process', exact: true });
+        const enabled = await processBtn.waitFor({ state: 'visible', timeout: 20_000 })
+            .then(async () => {
+                for (let i = 0; i < 40; i++) { if (await processBtn.isEnabled()) return true; await this.page.waitForTimeout(500); }
+                return false;
+            }, () => false);
+        if (!enabled) {
+            testLogger.log(`Process disabled - re-setting the clock to ${date} and reloading once`);
+            await resetClock();
+            await this.page.reload();
+            await this.inputJobCalendar(date);
+        }
+        await this.clickProcess();
+        await this.confirmProcess();
+        await this.waitForAllJobsCompleted(testLogger, 40);
+        return this.jobStatuses().catch(() => ({} as Record<string, string>));
+    }
 }

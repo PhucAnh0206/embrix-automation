@@ -217,6 +217,18 @@ export class AccountInfoPage extends BasePage {
     await this.sidebar.navigateToSubScreen('Account Data', 'Billing Profile');
   }
 
+  /**
+   * Account Data > Payment Profile, and the Payment Method it shows (e.g. CHECK, or CREDIT_CARD once the
+   * customer saved a card in Self Care - JEPYP-326). Returns '' when the field cannot be read.
+   */
+  async readPaymentMethod(): Promise<string> {
+    await this.sidebar.navigateToSubScreen('Account Data', 'Payment Profile');
+    await this.page.waitForLoadingToDisappear();
+    const group = this.page.locator('div.form-group.select-group', { hasText: 'Payment Method' }).first();
+    await group.waitFor({ state: 'visible', timeout: 15_000 }).catch(() => {});
+    return ((await group.locator('.custom-react-select__single-value').first().textContent().catch(() => '')) ?? '').trim();
+  }
+
 
   async changeBillingFrequency(): Promise<void> {
     const frequencyGroup = this.page.locator('div.form-group.select-group', { hasText: 'Billing Frequency' });
