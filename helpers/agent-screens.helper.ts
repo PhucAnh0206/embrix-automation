@@ -60,8 +60,9 @@ export class AgentScreens {
     await this.openAccount(accountId);
     const sp = new ServicesPage(this.page);
     await sp.navigateViaSideMenu();
-    const sub = await sp.getSubscriptionFirstRowCellValue('Status');
-    const reason = await sp.getSubscriptionFirstRowCellValue('Reason');
+    // An account whose order broke has no subscription row - read that as '' rather than throw.
+    const sub = await sp.getSubscriptionFirstRowCellValue('Status').catch(() => '');
+    const reason = await sp.getSubscriptionFirstRowCellValue('Reason').catch(() => '');
     const incomplete = (await this.page.locator('//h5[contains(text(), "In-complete Orders")]/following::table[1]//tbody/tr').allInnerTexts())
       .map(t => t.replace(/\s+/g, ' ').trim()).filter(t => t && !/no record/i.test(t));
     console.log(`  UI Services ${accountId}: subscription ${sub} (${reason}); in-complete orders: ${incomplete.join(' | ') || 'none'}`);
@@ -82,6 +83,20 @@ export class AgentScreens {
     const amount = ok ? uiAmount(await row.locator('td').nth(1).innerText()) : null;
     console.log(`  UI Balances ${accountId}: CRC ${amount ?? 'NOT SHOWN'}`);
     return amount;
+  }
+
+  /**
+   * Balances until it shows `expected` (a top-up can take a moment to post). Every try re-opens the
+   * account, so it never re-reads a stale page. Returns the last figure seen - the caller asserts.
+   */
+  async waitForCrcBalance(accountId: string, expected: number, tries = 4, gapMs = 10_000): Promise<number | null> {
+    let seen: number | null = null;
+    for (let i = 0; i < tries; i++) {
+      seen = await this.crcBalance(accountId);
+      if (seen !== null && Math.abs(seen - expected) < 0.005) return seen;
+      if (i + 1 < tries) await this.page.waitForTimeout(gapMs);
+    }
+    return seen;
   }
 
   /** Order detail header fields (Type, Status, Reason, User Id ...). */

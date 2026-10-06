@@ -40,6 +40,11 @@
  * seeds and consumes ONE fresh account of its own (since 2026-10-05; it used to borrow
  * from the tenant's pool - see ensureSuspendedCandidate).
  *
+ * THE AGENT'S SIDE (since 2026-10-06). After each top-up a second tab opens the account in Core UI the
+ * way an agent would and holds the screens to the database: Balances shows the top-up, Services shows
+ * the subscription state, and In-complete Orders shows whether a RESUME was raised. The customer's page
+ * stays in Self Care throughout.
+ *
  * Requires: VPN, DB_*, EMBRIX_USER / EMBRIX_PASSWORD, SELFCARE_BASE_URL.
  */
 
@@ -59,6 +64,8 @@ import { embrixCredentials } from '../../../../helpers/credentials.helper';
 import { blockedIf } from '../../../../helpers/blocked.helper';
 import { PrepaidSeedHelper } from '../../../../helpers/prepaid-seed.helper';
 import { uniqueRunSuffix, assertQaMeter } from '../../../../fixtures/create-prepaid-account.helper';
+import { AgentScreens, openAgentTab } from '../../../../helpers/agent-screens.helper';
+import type { Page } from '@playwright/test';
 
 
 /**
@@ -339,6 +346,11 @@ test.describe('TS-04 — reconnection after top-up', () => {
       });
     }
 
+    // The agent's Core UI tab, opened on first use (this page stays in Self Care).
+    let tab: Page | undefined;
+    const agent = async () => new AgentScreens(tab ??= await openAgentTab(page.context()));
+    const cents = (n: number | null | undefined) => n === null || n === undefined ? null : Math.round(Number(n) * 100) / 100;
+
     const login = new SelfcareLoginPage(page);
     const search = new SelfcareAccountSearchPage(page);
     const activity = new SelfcareActivityPage(page);
@@ -471,6 +483,15 @@ test.describe('TS-04 — reconnection after top-up', () => {
       expect
         .soft(balance ?? 0, 'a partial top-up should reduce the debt but not clear it')
         .toBeGreaterThan(0);
+
+      // TC-83 on the agent's screens: the top-up is visible, and nothing was reconnected.
+      const ui = await agent();
+      expect.soft(await ui.crcBalance(accountId), 'Core UI Balances must show the partial top-up (same figure as the database)')
+        .toBe(cents(balance));
+      const sv = await ui.services(accountId);
+      expect.soft(sv.sub, 'Core UI Services: the agent must see the account still SUSPENDED').toBe('SUSPENDED');
+      expect.soft(sv.incomplete.filter(r => /\bRESUME\b/.test(r)), 'Core UI In-complete Orders: a partial top-up must raise no RESUME')
+        .toEqual([]);
     });
 
     // ── 5.2 — clearing top-up must reconnect ───────────────────────────────
@@ -499,6 +520,20 @@ test.describe('TS-04 — reconnection after top-up', () => {
       );
 
       expect.soft(balance ?? 0, 'balance should now be in credit (negative)').toBeLessThan(0);
+
+      // TC-82 on the agent's screens - also BEFORE the environment skip below, because what it proves
+      // (the top-up landed, the RESUME was raised) holds even when the AMI refuses our QA meter.
+      const ui = await agent();
+      expect(await ui.crcBalance(accountId), 'Core UI Balances must show the clearing top-up (same figure as the database)')
+        .toBe(cents(balance));
+      const sv = await ui.services(accountId);
+      expect(sv.sub, `Core UI Services must show what the account is (${status})`).toBe(status);
+      if (status === 'ACTIVE') {
+        expect(sv.incomplete, 'Core UI In-complete Orders must be empty once reconnected').toEqual([]);
+      } else {
+        expect(sv.incomplete.some(r => /\bRESUME\b/.test(r)),
+          'Core UI In-complete Orders must show the RESUME the clearing top-up raised').toBe(true);
+      }
 
       /**
        * THE AMI HALF CANNOT COMPLETE ON DEV, AND THAT IS NOT A DEFECT.
