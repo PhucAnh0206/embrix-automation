@@ -30,6 +30,7 @@ import { PrepaidSeedHelper } from '../../../../helpers/prepaid-seed.helper';
 import { DbHelper, hasDbConfig } from '../../../../helpers/db.helper';
 import { uniqueRunSuffix, assertQaMeter, attachToAccountInSelfCare } from '../../../../fixtures/create-prepaid-account.helper';
 import { blockedIf } from '../../../../helpers/blocked.helper';
+import { AgentScreens } from '../../../../helpers/agent-screens.helper';
 
 const RUN = String(process.env.JASEC_SAVEDCARD_RUN ?? '').trim().toLowerCase() === 'true';
 const CONTROL = String(process.env.JASEC_SAVEDCARD_CONTROL ?? '').trim().toLowerCase() === 'true';
@@ -88,10 +89,7 @@ test('a customer who saved a card and topped up with it is still invoiced @tc-14
 
     // The switch as the agent sees it: Core UI > the account > Account Data > Payment Profile.
     const uiMethod = await test.step(`Core UI: ${accountId} Payment Profile after the top-up`, async () => {
-      await page.navigateToHome();
-      await customerManagementPage.navigateViaNav();
-      await customerManagementPage.searchByAccountId(accountId);
-      await customerManagementPage.clickFirstRowLink('ACCT No');
+      await new AgentScreens(page).openAccount(accountId);
       return accountInfoPage.readPaymentMethod();
     });
     const method = (await db.query<{ m: string }>(
@@ -160,10 +158,7 @@ test('a customer who saved a card and topped up with it is still invoiced @tc-14
 
     // 6. The outcome, first on the Core UI screen an agent uses: the account's Bills grid lists an invoice.
     const uiBills = await test.step(`Core UI: ${accountId} Bills lists an invoice`, async () => {
-      await page.navigateToHome();
-      await customerManagementPage.navigateViaNav();
-      await customerManagementPage.searchByAccountId(accountId);
-      await customerManagementPage.clickFirstRowLink('ACCT No');
+      await new AgentScreens(page).openAccount(accountId);
       await billsPage.navigateToBills();
       const rows = (await billsPage.openClosedBillRows()).filter(r => r['Invoice Id']);
       console.log(`  Core UI Bills: ${rows.map(r => `${r['Invoice Id']} ${r['Invoice Status']} due ${r['Due']}`).join(', ') || 'no invoice listed'}`);

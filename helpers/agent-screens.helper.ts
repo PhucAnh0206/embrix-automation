@@ -2,6 +2,7 @@ import type { BrowserContext, Page } from '@playwright/test';
 import { CustomerManagementPage } from '../pages/customer-hub/customer-management/customer-management.page';
 import { ServicesPage } from '../pages/customer-hub/customer-management/account-details/subscription-data/services.page';
 import { BillsPage } from '../pages/customer-hub/customer-management/account-details/billing-data/bills.page';
+import { AccountInfoPage } from '../pages/customer-hub/customer-management/account-details/account-data/account-info.page';
 import { SuspendResumeOrderPage } from '../pages/customer-hub/order-management/suspend-resume-order.page';
 import { SHORT_WAIT } from './timeouts.helper';
 
@@ -18,6 +19,11 @@ import { SHORT_WAIT } from './timeouts.helper';
 export function uiAmount(s: string | undefined | null): number | null {
   const t = String(s ?? '').replace(/[,\s ₡]/g, '');
   return /^-?\d+(\.\d+)?$/.test(t) ? Number(t) : null;
+}
+
+/** 'YYYY-MM-DD HH:mm:ss' - the format the Core UI date-range fields (Rated Usage, Usage Records) take. */
+export function screenDateTime(ms: number): string {
+  return new Date(ms).toISOString().slice(0, 19).replace('T', ' ');
 }
 
 /**
@@ -97,6 +103,27 @@ export class AgentScreens {
       if (i + 1 < tries) await this.page.waitForTimeout(gapMs);
     }
     return seen;
+  }
+
+  /**
+   * Customer Activity rows of one order's AMI dispatch attempts (CREATE_UTILITIES_ORDER_TRIGGER - one row per
+   * attempt, the same rows the database's core_engine.activity holds). Call while the account is open.
+   * The screen opens filtered to the REAL current month, but activity carries the tenant (CCP) date, so the
+   * default view is empty on a moved clock (seen on dev 2026-10-06; in production the two agree). Widen the
+   * dates and Search, as an agent would, then wait for this order's rows before reading.
+   */
+  async customerActivityDispatches(order: string): Promise<number> {
+    await new AccountInfoPage(this.page).navigateToCustomerActivity();
+    await this.page.waitForURL(/\/activities/, { timeout: 30_000 });
+    await this.page.locator('input[name="startDate"]').fill('2020-01-01');
+    await this.page.locator('input[name="endDate"]').fill('2030-12-31');
+    await this.page.getByRole('button', { name: 'Search', exact: true }).click();
+    const grid = this.page.locator('table').first().locator('tbody tr');
+    await grid.filter({ hasText: order }).first().waitFor({ state: 'visible', timeout: 30_000 }).catch(() => { });
+    const rows = await grid.allInnerTexts();
+    const n = rows.filter(r => r.includes(order) && r.includes('CREATE_UTILITIES_ORDER_TRIGGER')).length;
+    console.log(`  UI Customer Activity: ${n} dispatch row(s) for ${order} (${rows.length} rows on the page)`);
+    return n;
   }
 
   /** Order detail header fields (Type, Status, Reason, User Id ...). */

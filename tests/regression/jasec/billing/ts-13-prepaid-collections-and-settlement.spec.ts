@@ -36,7 +36,7 @@
  */
 import { test, expect } from '../../../../fixtures/jasec-fixtures';
 import { attachToAccountInSelfCare } from '../../../../fixtures/create-prepaid-account.helper';
-import { uiNum } from '../../../../pages/billing-hub/invoice-detail.page';
+import { AgentScreens, uiAmount } from '../../../../helpers/agent-screens.helper';
 import * as fs from 'fs';
 import * as path from 'path';
 import { DbHelper, hasDbConfig } from '../../../../helpers/db.helper';
@@ -133,10 +133,7 @@ test.describe('TC-142 prepaid invoice settled, never in collections @tc-142 @pre
 
     for (const inv of rows.filter(r => r.total > 0)) {
       await test.step(`Core UI: ${inv.accountid} Bills and Account Statement show ${inv.id} settled`, async () => {
-        await page.navigateToHome();
-        await customerManagementPage.navigateViaNav();
-        await customerManagementPage.searchByAccountId(inv.accountid);
-        await customerManagementPage.clickFirstRowLink('ACCT No');
+        await new AgentScreens(page).openAccount(inv.accountid);
 
         await billsPage.navigateToBills();
         const bill = (await billsPage.openClosedBillRows()).find(r => r['Invoice Id'] === inv.id);
@@ -144,7 +141,7 @@ test.describe('TC-142 prepaid invoice settled, never in collections @tc-142 @pre
         expect.soft(bill, `Core UI Bills: invoice ${inv.id} is listed under Open/Closed Bills`).toBeTruthy();
         if (bill) {
           expect.soft(bill['Invoice Status'], `Core UI Bills: ${inv.id} Invoice Status`).toBe('CLOSED');
-          expect.soft(uiNum(bill['Due']), `Core UI Bills: ${inv.id} Due`).toBe(0);
+          expect.soft(uiAmount(bill['Due']), `Core UI Bills: ${inv.id} Due`).toBe(0);
         }
 
         await billsPage.navigateToAccountStatement();
@@ -153,8 +150,8 @@ test.describe('TC-142 prepaid invoice settled, never in collections @tc-142 @pre
         console.log(`    UI  Account Statement: ${s1 ? `SETTLEMENT ${inv.id} total "${s1['Total']}", closing "${s1['Closing Balance']}"` : `no SETTLEMENT row for ${inv.id}`}`);
         expect.soft(s1, `Core UI Account Statement: a SETTLEMENT row for ${inv.id}`).toBeTruthy();
         if (s1) {
-          expect.soft(uiNum(s1['Total']), `Core UI Account Statement: SETTLEMENT total for ${inv.id}`).toBeCloseTo(-inv.total, 2);
-          expect.soft(uiNum(s1['Closing Balance']), `Core UI Account Statement: closing balance after ${inv.id}`).toBeCloseTo(0, 2);
+          expect.soft(uiAmount(s1['Total']), `Core UI Account Statement: SETTLEMENT total for ${inv.id}`).toBeCloseTo(-inv.total, 2);
+          expect.soft(uiAmount(s1['Closing Balance']), `Core UI Account Statement: closing balance after ${inv.id}`).toBeCloseTo(0, 2);
         }
       });
 

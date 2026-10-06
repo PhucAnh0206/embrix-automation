@@ -26,7 +26,7 @@ import * as path from 'path';
 import { test, expect } from '../../../../fixtures/page-factory';
 import { DbHelper, hasDbConfig } from '../../../../helpers/db.helper';
 import { TestLogger } from '../../../../helpers/test-logger';
-import { AgentScreens, uiAmount } from '../../../../helpers/agent-screens.helper';
+import { AgentScreens, uiAmount, screenDateTime } from '../../../../helpers/agent-screens.helper';
 import { blockedIf } from '../../../../helpers/blocked.helper';
 
 const HANDOFF = path.resolve(__dirname, '../../../../artifacts/block-e-results.json');
@@ -36,8 +36,6 @@ type BlockEResult = { TC: string; Verdict: string; Meter: string; Detail?: strin
 type Handoff = { tenant: string; finishedUtc: string; results: BlockEResult[] };
 type Txn = { id: string; description: string; netamount: number; startdate: string };
 
-/** 'YYYY-MM-DD HH:mm:ss' (the Rated Usage date fields), from epoch ms. */
-const stamp = (ms: number) => new Date(ms).toISOString().slice(0, 19).replace('T', ' ');
 
 function readHandoff(): Handoff | null {
   if (!fs.existsSync(HANDOFF)) return null;
@@ -55,7 +53,9 @@ test.describe('Block E charges shown to the agent on Rated Usage @tarif-on-scree
     blockedIf(!hasDbConfig(), 'needs DB access to read the stored charge lines');
     const h = readHandoff();
     blockedIf(!h, `no Block E handoff at ${HANDOFF} - run run-block-E.ps1 first`);
-    const sameTenant = h!.tenant === TENANT || `jasec-${h!.tenant}` === TENANT;
+    // run-block-E names environments dev / preprod / prod; the tenants are jasec-dev / jasec-preprod / jasec.
+    const tenantOf = (env: string) => env === 'prod' ? 'jasec' : env.startsWith('jasec') ? env : `jasec-${env}`;
+    const sameTenant = tenantOf(h!.tenant) === TENANT;
     blockedIf(!sameTenant, `the Block E handoff is for "${h!.tenant}" (finished ${h!.finishedUtc}), this run targets "${TENANT}"`);
     const passed = h!.results.filter(r => r.Verdict === 'PASS' && String(r.Meter ?? '').trim());
     blockedIf(!passed.length, `the Block E run of ${h!.finishedUtc} has no PASS scenario with a meter/account to judge`);
@@ -99,7 +99,7 @@ test.describe('Block E charges shown to the agent on Rated Usage @tarif-on-scree
           const at = new Date(`${txns[0].startdate.replace(' ', 'T')}Z`).getTime();
           await ui.openAccount(accountId);
           await billsPage.navigateToRatedUsage();
-          await billsPage.searchByDate(stamp(at - 2 * 86_400_000), stamp(at + 2 * 86_400_000));
+          await billsPage.searchByDate(screenDateTime(at - 2 * 86_400_000), screenDateTime(at + 2 * 86_400_000));
           await billsPage.clickSearchButton();
           const rows = await billsPage.getUsageGridRows();
           const problems: string[] = [];

@@ -47,8 +47,7 @@
  */
 
 import { test, expect } from '../../../../fixtures/page-factory';
-import type { APIRequestContext, TestInfo, Page } from '@playwright/test';
-import { SuspendResumeOrderPage } from '../../../../pages/customer-hub/order-management/suspend-resume-order.page';
+import type { APIRequestContext, TestInfo } from '@playwright/test';
 import { AgentScreens } from '../../../../helpers/agent-screens.helper';
 import { DbHelper } from '../../../../helpers/db.helper';
 import { PrepaidSeedHelper } from '../../../../helpers/prepaid-seed.helper';
@@ -102,52 +101,6 @@ async function poll<T>(read: () => Promise<T>, done: (v: T) => boolean, timeoutM
   let v = await read();
   while (!done(v) && Date.now() < until) { await sleep(gap); v = await read(); }
   return v;
-}
-
-// ── what the agent sees in the Core UI ───────────────────────────────────
-
-type Screens = { page: Page; customerManagementPage: any; servicesPage: any; accountInfoPage: any };
-
-/** Open the account, then its Services screen: subscription status/reason and the In-complete Orders rows. */
-async function servicesOnScreen(ui: Screens, accountId: string) {
-  await (ui.page as any).navigateToHome();
-  await ui.customerManagementPage.navigateViaNav();
-  await ui.customerManagementPage.searchByAccountId(accountId);
-  await ui.customerManagementPage.clickFirstRowLink('ACCT No');
-  await ui.servicesPage.navigateViaSideMenu();
-  const sub = await ui.servicesPage.getSubscriptionFirstRowCellValue('Status');
-  const reason = await ui.servicesPage.getSubscriptionFirstRowCellValue('Reason');
-  const incomplete = (await ui.page.locator('//h5[contains(text(), "In-complete Orders")]/following::table[1]//tbody/tr').allInnerTexts())
-    .map(t => t.replace(/\s+/g, ' ').trim()).filter(t => t && !/no record/i.test(t));
-  console.log(`  UI Services ${accountId}: subscription ${sub} (${reason}); in-complete orders: ${incomplete.join(' | ') || 'none'}`);
-  return { sub, reason, incomplete };
-}
-
-/**
- * Customer Activity rows of one order's AMI dispatch attempts (CREATE_UTILITIES_ORDER_TRIGGER - the same rows
- * commands() reads). Call while the account is open.
- * The screen opens filtered to the REAL current month, but activity carries the tenant (CCP) date - on dev
- * 2026-09-03 - so the default view is empty on a moved clock (seen 2026-10-06; in production the two agree).
- * Widen the dates and Search, as an agent would, then wait for this order's rows before reading.
- */
-async function dispatchRowsOnScreen(ui: Screens, order: string): Promise<number> {
-  await ui.accountInfoPage.navigateToCustomerActivity();
-  await ui.page.waitForURL(/\/activities/, { timeout: 30_000 });
-  await ui.page.locator('input[name="startDate"]').fill('2020-01-01');
-  await ui.page.locator('input[name="endDate"]').fill('2030-12-31');
-  await ui.page.getByRole('button', { name: 'Search', exact: true }).click();
-  const grid = ui.page.locator('table').first().locator('tbody tr');
-  await grid.filter({ hasText: order }).first().waitFor({ state: 'visible', timeout: 30_000 }).catch(() => {});
-  const rows = await grid.allInnerTexts();
-  const n = rows.filter(r => r.includes(order) && r.includes('CREATE_UTILITIES_ORDER_TRIGGER')).length;
-  console.log(`  UI Customer Activity: ${n} dispatch row(s) for ${order} (${rows.length} rows on the page)`);
-  return n;
-}
-
-async function orderOnScreen(ui: Screens, order: string) {
-  const f = await new SuspendResumeOrderPage(ui.page).readOrderFields(order, ['Type', 'Status', 'Reason', 'User Id']);
-  console.log(`  UI order ${order}: ${Object.entries(f).map(([k, v]) => `${k}=${v || '-'}`).join(', ')}`);
-  return f;
 }
 
 // ── setup ────────────────────────────────────────────────────────────────
@@ -476,7 +429,7 @@ function deferralReason(win: { start: string; end: string }): string {
  */
 async function fullJourney(
   db: DbHelper, mdr: MdrRemoteHelper, s: Seeded, request: APIRequestContext, testInfo: TestInfo,
-  logger: TestLogger, nise: boolean, ui: Screens,
+  logger: TestLogger, nise: boolean, ui: AgentScreens,
 ) {
     let suspendOrder = '';
     await test.step('breach: the reading parks and a CreditLimitBreach SUSPEND is raised', async () => {
@@ -490,12 +443,12 @@ async function fullJourney(
     });
     await test.step('Core UI: the agent sees the refused SUSPEND waiting on the account', async () => {
       const db1 = await autoOrder(db, s.accountId, 'SUSPEND', 'CreditLimitBreach');
-      const sv = await servicesOnScreen(ui, s.accountId);
+      const sv = await ui.services(s.accountId);
       const shown = sv.incomplete.find(r => r.includes(suspendOrder));
       expect.soft(shown, `Services > In-complete Orders does not list the refused SUSPEND ${suspendOrder}`).toBeTruthy();
       expect.soft(shown ?? '', `In-complete Orders shows ${suspendOrder} with a status other than the database's`).toContain(db1?.status ?? 'PROVISIONING_ERROR');
       const sent = (await commands(db, suspendOrder)).length;
-      expect.soft(await dispatchRowsOnScreen(ui, suspendOrder), `Customer Activity must show every dispatch attempt (${sent} in the database)`).toBe(sent);
+      expect.soft(await ui.customerActivityDispatches(suspendOrder), `Customer Activity must show every dispatch attempt (${sent} in the database)`).toBe(sent);
     });
     await test.step('JASEC suspend callback completes the order and suspends the account', async () => {
       await callback(request, s, suspendOrder, 'SUSPEND');
@@ -509,10 +462,10 @@ async function fullJourney(
         .toBeGreaterThan(0);
     });
     await test.step('Core UI: the agent sees the account suspended by the system', async () => {
-      const sv = await servicesOnScreen(ui, s.accountId);
+      const sv = await ui.services(s.accountId);
       expect.soft(sv.sub, 'Services screen: subscription status after the suspend callback').toBe('SUSPENDED');
       expect.soft(sv.incomplete.filter(r => r.includes(suspendOrder)), `${suspendOrder} is completed but still under In-complete Orders`).toEqual([]);
-      const od = await orderOnScreen(ui, suspendOrder);
+      const od = await ui.order(suspendOrder);
       expect.soft(od['Type'], `order detail ${suspendOrder}: Type`).toBe('SUSPEND');
       expect.soft(od['Status'], `order detail ${suspendOrder}: Status`).toBe('COMPLETED');
       expect.soft(od['User Id'], `order detail ${suspendOrder}: raised by the system on a breach, not by an agent`).toBe('CreditLimitBreach');
@@ -561,10 +514,10 @@ async function fullJourney(
         'no order may be left open at the end - an open order blocks the next manual order').toEqual([]);
     });
     await test.step('Core UI: the agent sees the account active again, nothing left open', async () => {
-      const sv = await servicesOnScreen(ui, s.accountId);
+      const sv = await ui.services(s.accountId);
       expect.soft(sv.sub, 'Services screen: subscription status after the resume callback').toBe('ACTIVE');
       expect.soft(sv.incomplete, 'Services > In-complete Orders must be empty at the end').toEqual([]);
-      const od = await orderOnScreen(ui, resumeOrder);
+      const od = await ui.order(resumeOrder);
       expect.soft(od['Type'], `order detail ${resumeOrder}: Type`).toBe('RESUME');
       expect.soft(od['Status'], `order detail ${resumeOrder}: Status`).toBe('COMPLETED');
     });
@@ -595,7 +548,7 @@ async function fullJourney(
 
 test.describe('JEPYP-27 - automatic suspend and resume (credit breach / top-up)', () => {
   test('breach -> automatic SUSPEND -> callback -> top-up -> automatic RESUME -> callback @auto-journey',
-    async ({ request, page, customerManagementPage, servicesPage, accountInfoPage }, testInfo) => {
+    async ({ request, page }, testInfo) => {
       test.skip(!RUN, 'GATED: seeds, drops MDR files and dispatches to the live AMI. Set JASEC_AUTO_PROV_RUN=true.');
       test.setTimeout(1_200_000);
       const logger = new TestLogger('auto-suspend-resume');
@@ -603,14 +556,14 @@ test.describe('JEPYP-27 - automatic suspend and resume (credit breach / top-up)'
       try { await db.connect(); } catch (e) { blockedIf(true, `database unreachable (VPN?): ${(e as Error).message}`); }
       try {
         const { s, mdr } = await fundedAccount(db, logger, 'QAAUTO');
-        await fullJourney(db, mdr, s, request, testInfo, logger, false, { page, customerManagementPage, servicesPage, accountInfoPage });
+        await fullJourney(db, mdr, s, request, testInfo, logger, false, new AgentScreens(page));
       } finally {
         await db.disconnect();
       }
     });
 
   test('an account with a NISE breaches, suspends and resumes like any other @auto-nise',
-    async ({ request, page, customerManagementPage, servicesPage, accountInfoPage }, testInfo) => {
+    async ({ request, page }, testInfo) => {
       test.skip(!RUN, 'GATED: seeds, drops MDR files and dispatches to the live AMI. Set JASEC_AUTO_PROV_RUN=true.');
       test.setTimeout(1_200_000);
       const logger = new TestLogger('auto-suspend-resume-nise');
@@ -618,14 +571,14 @@ test.describe('JEPYP-27 - automatic suspend and resume (credit breach / top-up)'
       try { await db.connect(); } catch (e) { blockedIf(true, `database unreachable (VPN?): ${(e as Error).message}`); }
       try {
         const { s, mdr } = await fundedAccount(db, logger, 'QAAUTONISE', 'QA-NISE');
-        await fullJourney(db, mdr, s, request, testInfo, logger, true, { page, customerManagementPage, servicesPage, accountInfoPage });
+        await fullJourney(db, mdr, s, request, testInfo, logger, true, new AgentScreens(page));
       } finally {
         await db.disconnect();
       }
     });
 
   test('top-up arrives before JASEC confirm the suspend (TC40) @auto-race',
-    async ({ request, page, customerManagementPage, servicesPage, accountInfoPage }, testInfo) => {
+    async ({ request, page }, testInfo) => {
       test.skip(!RUN, 'GATED: seeds, drops MDR files and dispatches to the live AMI. Set JASEC_AUTO_PROV_RUN=true.');
       test.setTimeout(1_200_000);
       const logger = new TestLogger('auto-suspend-resume-race');
@@ -671,7 +624,7 @@ test.describe('JEPYP-27 - automatic suspend and resume (credit breach / top-up)'
         });
 
         await test.step('Core UI: at the end the agent sees the account active, nothing left open', async () => {
-          const sv = await servicesOnScreen({ page, customerManagementPage, servicesPage, accountInfoPage }, s.accountId);
+          const sv = await new AgentScreens(page).services(s.accountId);
           expect.soft(sv.sub, 'Services screen: subscription status at the end').toBe('ACTIVE');
           expect.soft(sv.incomplete, 'Services > In-complete Orders must be empty at the end').toEqual([]);
         });

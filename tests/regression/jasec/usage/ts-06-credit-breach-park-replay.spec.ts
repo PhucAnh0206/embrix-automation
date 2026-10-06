@@ -46,6 +46,7 @@ import { OrderOutcomeHelper } from '../../../../helpers/order-outcome.helper';
 import { TestLogger } from '../../../../helpers/test-logger';
 import { uniqueRunSuffix, assertQaMeter } from '../../../../fixtures/create-prepaid-account.helper';
 import { blockedIf } from '../../../../helpers/blocked.helper';
+import { AgentScreens, screenDateTime } from '../../../../helpers/agent-screens.helper';
 
 const RUN_ENABLED = String(process.env.JASEC_USAGE_RUN ?? '').trim().toLowerCase() === 'true';
 
@@ -428,13 +429,9 @@ test.describe('JASEC usage — credit breach, park and replay (MUTATING)', {
         expect(txns.length, `the replay of ${mdrFile} wrote no USAGE transactions for ${accountId}`).toBeGreaterThan(0);
         // Window from the transaction's own date (the CCP clock is months from real time).
         const at = new Date(`${txns[0].startdate.replace(' ', 'T')}Z`).getTime();
-        const stamp = (ms: number) => new Date(ms).toISOString().slice(0, 19).replace('T', ' ');
-        await page.navigateToHome();
-        await customerManagementPage.navigateViaNav();
-        await customerManagementPage.searchByAccountId(accountId);
-        await customerManagementPage.clickFirstRowLink('ACCT No');
+        await new AgentScreens(page).openAccount(accountId);
         await billsPage.navigateToRatedUsage();
-        await billsPage.searchByDate(stamp(at - 2 * 86_400_000), stamp(at + 2 * 86_400_000));
+        await billsPage.searchByDate(screenDateTime(at - 2 * 86_400_000), screenDateTime(at + 2 * 86_400_000));
         await billsPage.clickSearchButton();
         const rows = await billsPage.getUsageGridRows();
         const shown = txns.filter(t => rows.some(r => r.join(' | ').includes(t.id)));

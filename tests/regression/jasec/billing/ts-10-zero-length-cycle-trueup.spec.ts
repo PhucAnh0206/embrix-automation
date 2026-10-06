@@ -44,7 +44,7 @@
  */
 
 import { test, expect } from '../../../../fixtures/page-factory';
-import { uiNum } from '../../../../pages/billing-hub/invoice-detail.page';
+import { AgentScreens, uiAmount } from '../../../../helpers/agent-screens.helper';
 import { DbHelper } from '../../../../helpers/db.helper';
 import { PrepaidSeedHelper } from '../../../../helpers/prepaid-seed.helper';
 import { OrderOutcomeHelper } from '../../../../helpers/order-outcome.helper';
@@ -78,10 +78,7 @@ async function pendingBillUnit(db: DbHelper, accountId: string): Promise<string>
 
 /** Core UI > the account > Billing Data > Bills. */
 async function openBills(page: any, customerManagementPage: any, billsPage: any, accountId: string) {
-  await page.navigateToHome();
-  await customerManagementPage.navigateViaNav();
-  await customerManagementPage.searchByAccountId(accountId);
-  await customerManagementPage.clickFirstRowLink('ACCT No');
+  await new AgentScreens(page).openAccount(accountId);
   await billsPage.navigateToBills();
 }
 
@@ -173,7 +170,7 @@ test.describe('JASEC billing — 0-30 kWh true-up and cycle length (MUTATING)', 
         `invoice "${billRow?.['Invoice Id'] ?? ''}" ${billRow?.['Invoice Status'] ?? ''}`);
       expect.soft(billRow, `Core UI Open/Closed Bills does not list bill unit ${billUnitId}`).toBeTruthy();
       if (billRow) {
-        expect.soft(uiNum(billRow['Bill Total']), `Core UI Bill Total for ${billUnitId}`).toBe(FIXED_CHARGE);
+        expect.soft(uiAmount(billRow['Bill Total']), `Core UI Bill Total for ${billUnitId}`).toBe(FIXED_CHARGE);
         expect.soft(billRow['Invoice Id'], `Core UI shows no invoice for bill unit ${billUnitId}`).toBeTruthy();
       }
 
