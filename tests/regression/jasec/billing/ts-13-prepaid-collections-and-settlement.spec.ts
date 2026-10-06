@@ -25,6 +25,8 @@
  *      Checked on the CORE UI first, as an agent sees it, then in the DATABASE (the record behind the screen):
  *        - Bills > Open/Closed Bills: Invoice Status CLOSED, Due 0
  *        - Account Statement: a SETTLEMENT row for the invoice, Total = -invoice total, Closing Balance 0
+ *      and from the CUSTOMER's side (Self Care > Make Payment: nothing to pay), and AR Center > Accounts in
+ *      Collection: the account is not listed. Both fail closed (the grid fetch and the search filter are proven).
  *
  * Old data: invoices and collection units created before a fix stay in the data until the team cleans them
  * up. Scope tests 1 and 2 with JASEC_SETTLEMENT_SINCE=YYYY-MM-DD (tenant invoice date / unit creation date
@@ -32,7 +34,8 @@
  *
  *   npx playwright test --project=jasec-billing-settlement
  */
-import { test, expect } from '../../../../fixtures/page-factory';
+import { test, expect } from '../../../../fixtures/jasec-fixtures';
+import { attachToAccountInSelfCare } from '../../../../fixtures/create-prepaid-account.helper';
 import { uiNum } from '../../../../pages/billing-hub/invoice-detail.page';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -46,6 +49,8 @@ const BILLING_RUN_FILE = path.resolve(__dirname, '../../../../artifacts/billing-
 const OPEN = `(iu.due <> 0 OR iu.status IN ('ACTIVE', 'COLLECTION'))`;
 
 test.describe('TC-142 prepaid invoice settled, never in collections @tc-142 @prepaid-collections', () => {
+  // Read-only: never move the clock (the JASEC fixtures would otherwise rewind it to the baseline).
+  test.use({ ccpBaseline: null });
   let db: DbHelper;
   test.beforeAll(async () => {
     if (!hasDbConfig()) return;
@@ -107,7 +112,8 @@ test.describe('TC-142 prepaid invoice settled, never in collections @tc-142 @pre
   });
 
   test('the invoices from the latest billing run are settled - database and Core UI @tc-142', async ({
-    page, customerManagementPage, billsPage,
+    page, customerManagementPage, billsPage, collectionPage,
+    selfcareLoginPage, selfcareAccountSearchPage, selfcareActivityPage, selfcareMakePaymentPage,
   }) => {
     if (blockedIf(!hasDbConfig(), 'needs DB access')) return;
     test.setTimeout(300_000);
@@ -150,6 +156,36 @@ test.describe('TC-142 prepaid invoice settled, never in collections @tc-142 @pre
           expect.soft(uiNum(s1['Total']), `Core UI Account Statement: SETTLEMENT total for ${inv.id}`).toBeCloseTo(-inv.total, 2);
           expect.soft(uiNum(s1['Closing Balance']), `Core UI Account Statement: closing balance after ${inv.id}`).toBeCloseTo(0, 2);
         }
+      });
+
+      await test.step(`Self Care: the customer of ${inv.accountid} has nothing to pay`, async () => {
+        await attachToAccountInSelfCare({ selfcareLoginPage, selfcareAccountSearchPage }, inv.accountid);
+        await selfcareActivityPage.navigateToMakePayment();
+        await selfcareMakePaymentPage.assertLoaded();
+        // The grid fetches only after a reload (known Self Care defect, see reloadToPopulateGrid). Wait for the
+        // fetch itself: an empty grid must mean "no invoice to pay", never "the list was not asked for".
+        const fetched = page.waitForResponse(r => /searchInvoiceUnits/.test(r.request().postData() ?? ''), { timeout: 30_000 })
+          .then(() => true, () => false);
+        await selfcareMakePaymentPage.reloadToPopulateGrid(selfcareActivityPage);
+        const asked = await fetched;
+        const listed = asked ? await selfcareMakePaymentPage.getListedInvoices() : [];
+        console.log(`    SC  Make Payment: ${asked ? (listed.map(l => `${l.invoiceId} due ${l.due}`).join(', ') || 'nothing to pay') : 'invoice list NOT fetched'}`);
+        expect(asked, 'Self Care Make Payment never fetched the invoice list - an empty grid would prove nothing').toBe(true);
+        expect.soft(listed.map(l => l.invoiceId),
+          `Self Care offers ${inv.accountid} invoice(s) to pay although billing took the money from the balance`).toEqual([]);
+      });
+
+      await test.step(`Core UI AR: ${inv.accountid} is not in collections`, async () => {
+        await page.navigateToHome();
+        await collectionPage.navigateViaNav();
+        await collectionPage.searchByAccountId(inv.accountid);
+        // Prove the filter applied before trusting an empty result.
+        const filter = await page.locator("//input[@name='accountId']").first().inputValue().catch(() => '');
+        const rows = await page.locator('table').first().locator('tbody tr').allInnerTexts();
+        const hits = rows.filter(r => r.includes(inv.accountid));
+        console.log(`    AR  Accounts in Collection (filter "${filter}"): ${hits.length ? hits.join(' | ').slice(0, 160) : 'no record'}`);
+        expect(filter, 'the Accounts in Collection search did not apply the account filter').toBe(inv.accountid);
+        expect.soft(hits.length, `${inv.accountid} is listed in Accounts in Collection`).toBe(0);
       });
 
       await test.step(`database: ${inv.id} (${inv.accountid}) is settled and its statement closes at 0`, async () => {
