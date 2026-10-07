@@ -20,6 +20,10 @@
  *                   Exploratory - asserts only the end state (account ACTIVE, no
  *                   order left open) and prints the order timeline.
  *
+ * A6 (2026-10-07). With countHeldUsageInCreditCheck=true (the engine fix for "reconnect without top-up") the
+ * journey also asserts that completing the SUSPEND raises no RESUME, and that a top-up smaller than the held
+ * reading leaves the account cut; only the covering top-up reconnects. With the switch off it records instead.
+ *
  * WHAT IS OBSERVED, NOT ASSERTED. Whether the subscription is suspended when the
  * breach happens or only when the callback arrives. The code routes a
  * provisionable breach through processSubscriptionUpdateOrder and nobody has
@@ -174,6 +178,26 @@ async function balance(db: DbHelper, accountId: string): Promise<number> {
        JOIN core_engine.balance_unit_balances bb ON bb.id = bu.id
       WHERE bu.accountid = $1 AND bb.currencyid = 'CRC'`, [accountId]);
   return Number(r[0]?.amount ?? NaN);
+}
+
+/**
+ * A6 fix (engine e5a26f9, 2026-10-07): with countHeldUsageInCreditCheck=true a reading refused for credit keeps its
+ * charge ("held") and both reconnect checks count it - completing the SUSPEND no longer reconnects, and only a top-up
+ * that covers balance + held charge does. Off, the old behaviour (A6) returns, so the expectations follow the switch.
+ */
+async function heldUsageOn(db: DbHelper): Promise<boolean> {
+  const r = await db.query<{ value: string }>(
+    `SELECT value FROM core_config.ccp_properties WHERE property = 'countHeldUsageInCreditCheck'`);
+  return String(r[0]?.value ?? '').trim().toLowerCase() === 'true';
+}
+
+/** The charge kept on the meter's latest reading refused for credit (null when none is held). */
+async function heldCharge(db: DbHelper, meter: string): Promise<number | null> {
+  const r = await db.query<{ nv: string }>(
+    `SELECT netvalue::text AS nv FROM core_usage.file_detail_record
+      WHERE provisioningid = $1 AND errorcode = 'CURRENCY_CREDIT_LIMIT_EXCEEDED' AND netvalue IS NOT NULL
+      ORDER BY enddate DESC NULLS LAST LIMIT 1`, [meter]);
+  return r[0] ? Number(r[0].nv) : null;
 }
 
 async function accountState(db: DbHelper, s: Seeded) {
@@ -469,12 +493,17 @@ async function fullJourney(
       expect.soft(od['Type'], `order detail ${suspendOrder}: Type`).toBe('SUSPEND');
       expect.soft(od['Status'], `order detail ${suspendOrder}: Status`).toBe('COMPLETED');
       expect.soft(od['User Id'], `order detail ${suspendOrder}: raised by the system on a breach, not by an agent`).toBe('CreditLimitBreach');
-      // OBSERVED, not asserted (question for the team, 2026-10-06): on dev the Services screen already listed an
-      // automatic RESUME here - raised when the suspend completed, BEFORE any top-up, while the parked reading was
-      // still unfunded. The top-up step below then found that RESUME and credited it to the top-up.
+      // A6 (found 2026-10-06, fixed 2026-10-07 behind countHeldUsageInCreditCheck): completing the SUSPEND used to
+      // raise a RESUME (TOPUP, embrxadmin) in the same second - no top-up, the held reading unpaid, the customer back
+      // on. With the switch on that is a defect; with it off it is the old behaviour, recorded rather than judged.
       const early = await autoOrder(db, s.accountId, 'RESUME');
-      if (early) {
-        await note(testInfo, 'an automatic RESUME exists BEFORE the top-up',
+      if (await heldUsageOn(db)) {
+        expect(early, `A6 - ${early?.id} (${early?.reason}, by ${early?.userid}) was raised the moment the SUSPEND ` +
+          `completed, with no top-up: the customer is reconnected while the held reading is unpaid`).toBeUndefined();
+        expect.soft(sv.incomplete.filter(r => /\bRESUME\b/.test(r)), 'Core UI In-complete Orders: no RESUME before a top-up')
+          .toEqual([]);
+      } else if (early) {
+        await note(testInfo, 'an automatic RESUME exists BEFORE the top-up (countHeldUsageInCreditCheck off)',
           `${early.id} ${early.status} reason ${early.reason} by ${early.userid}; balance ${await balance(db, s.accountId)} ` +
           `(the parked reading is still unfunded). The meter would be reconnected without a payment.`);
       }
@@ -485,6 +514,33 @@ async function fullJourney(
       expect.soft(`${r.row.status}/${r.row.errorcode}`, 'a suspended service must not rate energy')
         .toBe('SUSPENDED/NO_ACTIVE_SERVICE_FOR_THE_PROVISIONING_ID');
       expect.soft(r.after, 'a reading on a suspended service must not change the balance').toBe(r.before);
+    });
+    await test.step('a top-up smaller than the held reading does not reconnect', async () => {
+      if (!(await heldUsageOn(db))) {
+        await note(testInfo, 'partial top-up step not judged', 'countHeldUsageInCreditCheck is off - the A6 fix is not active');
+        return;
+      }
+      const held = await heldCharge(db, s.meter);
+      expect(held, 'the refused reading carries no held charge - the fix did not keep it').not.toBeNull();
+      const before = await balance(db, s.accountId);
+      const owed = before + held!;                       // JASEC sign: > 0 means balance + held is still in debt
+      expect(owed, `balance ${before} + held ${held} must still be owed before this step`).toBeGreaterThan(0);
+      const partial = Math.max(100, Math.floor(owed / 2));
+      console.log(`  held ${held}, balance ${before}: owed ${owed.toFixed(2)} -> top up ${partial} (not enough)`);
+      await new PrepaidSeedHelper(logger).topUp(s.accountId, partial);
+      await sleep(45_000);                               // give any (wrong) RESUME time to appear
+      const res = await autoOrder(db, s.accountId, 'RESUME');
+      expect(res, `${res?.id} was raised by a ${partial} top-up that does not cover the held ${held} - the customer ` +
+        `would be reconnected without paying`).toBeUndefined();
+      const acc = await accountState(db, s);
+      expect.soft(acc.sub, 'subscription after a top-up that does not cover the held reading').toBe('SUSPENDED');
+      const after = await balance(db, s.accountId);
+      expect.soft(Math.round(after * 100) / 100, `the ${partial} top-up must reach the balance`).toBe(Math.round((before - partial) * 100) / 100);
+      // What the agent sees: the top-up on Balances, the account still suspended, no RESUME waiting.
+      expect.soft(await ui.crcBalance(s.accountId), 'Core UI Balances must show the partial top-up').toBe(Math.round(after * 100) / 100);
+      const sv = await ui.services(s.accountId);
+      expect.soft(sv.sub, 'Core UI Services: still SUSPENDED after a top-up that does not cover the held reading').toBe('SUSPENDED');
+      expect.soft(sv.incomplete.filter(r => /\bRESUME\b/.test(r)), 'Core UI In-complete Orders: no RESUME').toEqual([]);
     });
     let resumeOrder = '';
     await test.step(`top-up ${RECOVERY_TOPUP} raises an automatic RESUME that sends C`, async () => {

@@ -297,17 +297,40 @@ test.describe('JASEC usage — credit breach, park and replay (MUTATING)', {
       );
 
       /**
-       * TRAP 1 — `accountid` is NULL on a parked row. The whole insert is part of
-       * the transaction the breach exception rolls back, so the row is written
-       * without its resolved account. Search by `provisioningid` (the meter) or
-       * by `usageid`, which starts with the file name. Verified across all 1,078
-       * in-flight rows on jasec-dev: 0 carry an accountid.
+       * TRAP 1 — which account a parked row names depends on countHeldUsageInCreditCheck.
+       *
+       * OFF (the original behaviour): `accountid` is NULL. The whole insert is part of the
+       * transaction the breach exception rolls back, so the row is written without its
+       * resolved account (0 of 1,078 in-flight rows on jasec-dev carried one). Search by
+       * `provisioningid` (the meter) or by `usageid`.
+       *
+       * ON (the "reconnect without top-up" fix, engine e5a26f9, 2026-10-07): the refused
+       * charge is KEPT on the row - `accountid`, `serviceunitid` and `netvalue` = the charge
+       * the balance could not cover - so the reconnect checks can count it. Written by a
+       * separate update just after the park, so wait for it rather than read once.
        */
-      expect(
-        parked.accountid,
-        'a parked row carries no accountid — if this ever becomes populated, the ' +
-        'search-by-meter guidance in the runbook can be simplified',
-      ).toBeNull();
+      const heldOn = String((await db.query<any>(
+        `SELECT value FROM core_config.ccp_properties WHERE property = 'countHeldUsageInCreditCheck'`))[0]?.value ?? '')
+        .trim().toLowerCase() === 'true';
+      if (heldOn) {
+        const kept = await waitFor('the held charge on the parked row', async () => {
+          const r = await db.query<any>(
+            `SELECT accountid, netvalue::float8 AS netvalue FROM core_usage.file_detail_record
+              WHERE provisioningid = $1 AND id = $2`, [meter, parked.id]);
+          return r[0]?.accountid && r[0]?.netvalue != null ? r[0] : null;
+        }, 60_000);
+        console.log(`  held charge kept: ${kept?.netvalue} on ${kept?.accountid}`);
+        expect(kept?.accountid, 'with countHeldUsageInCreditCheck on, the parked row must name its account').toBe(accountId);
+        expect(
+          kept?.netvalue,
+          `the held charge must be MORE than the ${-afterFirst} of credit left - that is why the reading was refused`,
+        ).toBeGreaterThan(-afterFirst);
+      } else {
+        expect(
+          parked.accountid,
+          'a parked row carries no accountid (countHeldUsageInCreditCheck off)',
+        ).toBeNull();
+      }
 
       /**
        * TRAP 2 — `quantity` on a parked row is the meter READING, not the
