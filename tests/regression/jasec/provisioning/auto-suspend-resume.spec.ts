@@ -704,6 +704,96 @@ test.describe('JEPYP-27 - automatic suspend and resume (credit breach / top-up)'
    * balance never moved, so the daily CREDIT_LIMIT_ACTIONS selection may not
    * pick it up.
    */
+  /**
+   * EXPLORATORY - NOT AN OFFICIAL CASE YET (no EPDP-348 sub-task; deliberately no TC tag).
+   *
+   * A teammate's "gap test" (2026-10-07): the A6 fix covers the two reconnect checks that fire at once (cut
+   * confirmed, top-up received). Does anything that runs LATER - the daily jobs, days after the cut - reconnect
+   * an account whose unpaid reading is held? From the code, no: the only other RESUME source is the collection
+   * reconnect, which acts on subscriptions suspended for COLLECTIONS (postpaid), and CREDIT_LIMIT_ACTIONS only
+   * suspends. This proves it by moving the clock 8+ days and running the operator's daily chain (Daily Schedule
+   * screen, every job of the DAILY template).
+   *
+   * It also RECORDS, without judging (open finding A8), whether that daily run suspends an account whose reading
+   * was held overnight inside the no-cut window and never cut: CREDIT_LIMIT_ACTIONS selects by balance only, so
+   * today it should not. Give that account in JASEC_HELD_ACTIVE_ACCOUNT (dev: ACT-101220).
+   *
+   * MUTATING: moves the tenant clock (restored), runs the DAILY chain on that date (bills whoever is due - dev).
+   *   $env:JASEC_AUTO_PROV_RUN='true'; npx playwright test --project=jasec-provisioning-orders auto-suspend-resume --grep "@auto-held-cycle"
+   */
+  test('a cut account with a held reading stays cut through a daily run days later @auto-held-cycle',
+    async ({ request, page, dailySchedulePage }, testInfo) => {
+      test.skip(!RUN, 'GATED: seeds, drops MDR files, moves the clock and runs the DAILY chain. Set JASEC_AUTO_PROV_RUN=true.');
+      test.setTimeout(2_400_000);
+      const logger = new TestLogger('auto-suspend-resume-held-cycle');
+      const db = new DbHelper(logger);
+      try { await db.connect(); } catch (e) { blockedIf(true, `database unreachable (VPN?): ${(e as Error).message}`); }
+      const seed = new PrepaidSeedHelper(logger);
+      const startClock = await seed.ccpDate();
+      try {
+        blockedIf(!(await heldUsageOn(db)), 'countHeldUsageInCreditCheck is off - the held-usage fix is not active, nothing to judge');
+        const { s, mdr } = await fundedAccount(db, logger, 'QAHELDCYC');
+        const suspendOrder = await breach(db, mdr, s, testInfo);
+        await waitForDispatch(db, suspendOrder, 'D');
+        await callback(request, s, suspendOrder, 'SUSPEND');
+        const cut = await poll(() => accountState(db, s), a => a.sub === 'SUSPENDED', 60_000, 5_000);
+        expect(cut.sub, 'the breach SUSPEND did not take').toBe('SUSPENDED');
+        const held = await heldCharge(db, s.meter);
+        expect(held, 'the refused reading carries no held charge').not.toBeNull();
+        expect(await autoOrder(db, s.accountId, 'RESUME'), 'a RESUME already exists before the daily run (A6)').toBeUndefined();
+        console.log(`  ${s.accountId} cut by ${suspendOrder}, held ${held}, balance ${await balance(db, s.accountId)}`);
+
+        const other = (process.env.JASEC_HELD_ACTIVE_ACCOUNT ?? '').trim();
+        const otherBefore = other ? (await db.query<{ status: string }>(
+          `SELECT status FROM core_engine.subscription WHERE accountid = $1 ORDER BY id LIMIT 1`, [other]))[0]?.status : undefined;
+
+        // The first date 8+ days on with no job schedule of any kind: the Daily Schedule screen would open an
+        // existing one instead (dev 2026-10-07: every day from +8 to +20 was taken).
+        let runDate = '';
+        for (let d = 8; d <= 60 && !runDate; d++) {
+          const cand = new Date(`${startClock}T00:00:00Z`); cand.setUTCDate(cand.getUTCDate() + d);
+          const iso = cand.toISOString().slice(0, 10);
+          const n = await db.query<{ n: number }>(`SELECT count(*)::int n FROM core_engine.job_schedule WHERE scheduledate::date = $1::date`, [iso]);
+          if ((n[0]?.n ?? 1) === 0) runDate = iso;
+        }
+        if (blockedIf(!runDate, `no free schedule date between ${startClock} +8 and +60 days`)) return;
+
+        await test.step(`the operator's daily chain runs on ${runDate}`, async () => {
+          await seed.setCcpDate(runDate);
+          const chain = await dailySchedulePage.createAndProcess(runDate, () => seed.setCcpDate(runDate).then(() => undefined), logger);
+          console.log(`  Daily Schedule ${runDate}: ${Object.entries(chain).map(([k, v]) => `${k}=${v}`).join(' ') || '(none parsed)'}`);
+          await note(testInfo, `daily chain on ${runDate}`, Object.entries(chain).map(([k, v]) => `${k}=${v}`).join(' '));
+          await sleep(30_000);                           // give any (wrong) RESUME time to appear
+        });
+
+        await test.step('the held reading still keeps the account cut', async () => {
+          const res = await autoOrder(db, s.accountId, 'RESUME');
+          const all = await orders(db, s.accountId);
+          expect(res, `${res?.id} (${res?.reason}, by ${res?.userid}) reconnected ${s.accountId} during the daily run - ` +
+            `no top-up, the held ${held} unpaid. Orders: ${all.map(o => `${o.id} ${o.type} ${o.status} ${o.userid}`).join(', ')}`)
+            .toBeUndefined();
+          const acc = await accountState(db, s);
+          expect(acc.sub, 'subscription after the daily run').toBe('SUSPENDED');
+          expect.soft(acc.svc, 'service unit after the daily run').toBe('SUSPENDED');
+          const sv = await new AgentScreens(page).services(s.accountId);
+          expect.soft(sv.sub, 'Core UI Services after the daily run').toBe('SUSPENDED');
+        });
+
+        if (other) {
+          await test.step(`RECORD (A8): did the daily run cut the overnight-held account ${other}?`, async () => {
+            const after = await db.query<{ status: string }>(
+              `SELECT status FROM core_engine.subscription WHERE accountid = $1 ORDER BY id LIMIT 1`, [other]);
+            const susp = await autoOrder(db, other, 'SUSPEND');
+            await note(testInfo, `A8 - overnight-held account ${other} after the daily run`,
+              `subscription ${otherBefore} -> ${after[0]?.status}; automatic SUSPEND: ${susp ? `${susp.id} ${susp.status}` : 'none'}`);
+          });
+        }
+      } finally {
+        await seed.setCcpDate(startClock).catch(e => console.log(`  WARNING: clock not restored to ${startClock}: ${e}`));
+        await db.disconnect();
+      }
+    });
+
   test('the stock profile defers a breach inside the no-cut window and suspends outside it @auto-window',
     async ({ page }, testInfo) => {
       test.skip(!RUN, 'GATED: seeds, drops MDR files and may dispatch to the live AMI. Set JASEC_AUTO_PROV_RUN=true.');
