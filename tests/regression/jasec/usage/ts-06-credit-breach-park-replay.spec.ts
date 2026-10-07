@@ -309,9 +309,7 @@ test.describe('JASEC usage — credit breach, park and replay (MUTATING)', {
        * the balance could not cover - so the reconnect checks can count it. Written by a
        * separate update just after the park, so wait for it rather than read once.
        */
-      const heldOn = String((await db.query<any>(
-        `SELECT value FROM core_config.ccp_properties WHERE property = 'countHeldUsageInCreditCheck'`))[0]?.value ?? '')
-        .trim().toLowerCase() === 'true';
+      const heldOn = await db.isHeldUsageCountedInCreditCheck();
       if (heldOn) {
         const kept = await waitFor('the held charge on the parked row', async () => {
           const r = await db.query<any>(

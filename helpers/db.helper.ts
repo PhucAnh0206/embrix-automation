@@ -213,6 +213,18 @@ export class DbHelper {
    * has to be gated on this or preprod fails for being configured the way the
    * team deliberately configured it.
    */
+  /**
+   * The "reconnect without top-up" fix (A6, engine e5a26f9, 2026-10-07) is behind this switch: on, a reading
+   * refused for credit keeps its charge ("held") and the reconnect checks count it. Specs expect the fixed
+   * behaviour when it is on and the old one when it is off.
+   */
+  async isHeldUsageCountedInCreditCheck(): Promise<boolean> {
+    const rows = await this.query<{ value: string }>(
+      `SELECT value FROM core_config.ccp_properties WHERE property = 'countHeldUsageInCreditCheck'`,
+    );
+    return (rows[0]?.value ?? '').trim().toLowerCase() === 'true';
+  }
+
   async isRevenueTrackingOn(): Promise<boolean> {
     const rows = await this.query<{ value: string }>(
       `SELECT value FROM core_config.ccp_properties WHERE property = 'revenueTracking'`,

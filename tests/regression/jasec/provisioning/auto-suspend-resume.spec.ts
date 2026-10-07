@@ -6,19 +6,23 @@
  * provisioningEnabled was absent on dev, so a breach suspended for billing only
  * and no order ever reached the AMI.
  *
- * THREE TESTS, run one tag at a time (each is several minutes):
+ * FIVE TESTS, run one tag at a time (each is several minutes):
  *
  *   @auto-journey   clean account (no NISE): breach -> CreditLimitBreach SUSPEND
  *                   -> 4 refused D commands -> callback -> top-up -> automatic
  *                   RESUME -> 4 refused C commands -> callback. Asserts both
  *                   orders COMPLETED and the account back to ACTIVE.
- *   @auto-nise      the same breach on an account shaped like the Create Account
- *                   screen makes it (NISE in clientId). FAILS while the
- *                   order_clientid_fkey defect is open: the reading FAILS instead
- *                   of parking and no SUSPEND is created.
+ *   @auto-nise      the same journey on an account shaped like the Create Account
+ *                   screen makes it (NISE in clientId); the automatic orders must
+ *                   carry no clientid (order_clientid_fkey fixed, engine 4f16ffb9f).
  *   @auto-race      TC40: the customer tops up BEFORE JASEC's suspend callback.
  *                   Exploratory - asserts only the end state (account ACTIVE, no
  *                   order left open) and prints the order timeline.
+ *   @auto-window    TC-126: the stock profile's no-cut window, judged against real
+ *                   Costa Rica time (inside: no SUSPEND; outside: SUSPEND).
+ *   @auto-held-cycle  EXPLORATORY: a cut account with a held reading stays cut through
+ *                   a daily run days later. Own gate JASEC_HELD_CYCLE_RUN (it moves the
+ *                   clock and runs the whole DAILY chain), refused on jasec-preprod.
  *
  * A6 (2026-10-07). With countHeldUsageInCreditCheck=true (the engine fix for "reconnect without top-up") the
  * journey also asserts that completing the SUSPEND raises no RESUME, and that a top-up smaller than the held
@@ -186,9 +190,7 @@ async function balance(db: DbHelper, accountId: string): Promise<number> {
  * that covers balance + held charge does. Off, the old behaviour (A6) returns, so the expectations follow the switch.
  */
 async function heldUsageOn(db: DbHelper): Promise<boolean> {
-  const r = await db.query<{ value: string }>(
-    `SELECT value FROM core_config.ccp_properties WHERE property = 'countHeldUsageInCreditCheck'`);
-  return String(r[0]?.value ?? '').trim().toLowerCase() === 'true';
+  return db.isHeldUsageCountedInCreditCheck();
 }
 
 /** The charge kept on the meter's latest reading refused for credit (null when none is held). */
@@ -723,7 +725,12 @@ test.describe('JEPYP-27 - automatic suspend and resume (credit breach / top-up)'
    */
   test('a cut account with a held reading stays cut through a daily run days later @auto-held-cycle',
     async ({ request, page, dailySchedulePage }, testInfo) => {
-      test.skip(!RUN, 'GATED: seeds, drops MDR files, moves the clock and runs the DAILY chain. Set JASEC_AUTO_PROV_RUN=true.');
+      // Its OWN gate: JASEC_AUTO_PROV_RUN alone runs every test here, and this one also moves the clock and runs
+      // the whole DAILY chain - which bills every account due that date, whoever owns it.
+      test.skip(!RUN || process.env.JASEC_HELD_CYCLE_RUN !== 'true',
+        'GATED: moves the clock and runs the DAILY chain. Set JASEC_AUTO_PROV_RUN=true AND JASEC_HELD_CYCLE_RUN=true.');
+      test.skip(TENANT === 'jasec-preprod',
+        'BLOCKED, not failed: the DAILY chain bills every account due on the run date - preprod is own-data only. Run on jasec-dev.');
       test.setTimeout(2_400_000);
       const logger = new TestLogger('auto-suspend-resume-held-cycle');
       const db = new DbHelper(logger);
