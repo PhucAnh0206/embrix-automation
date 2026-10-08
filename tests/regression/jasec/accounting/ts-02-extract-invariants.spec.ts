@@ -44,7 +44,7 @@ function requireHeaders() {
   blockedIf(headers.length === 0, 'this tenant has no accounting extracts to assert on');
 }
 
-test.describe('JASEC accounting — extract invariants', { tag: ['@jasec', '@accounting', '@tc-146'] }, () => {
+test.describe('JASEC accounting — extract invariants', { tag: ['@jasec', '@accounting', '@tc-147'] }, () => {
 
   test.beforeAll(async () => {
     gql = new AccountingGqlHelper();

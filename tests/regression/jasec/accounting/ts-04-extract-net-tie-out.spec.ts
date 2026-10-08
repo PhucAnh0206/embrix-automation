@@ -38,7 +38,7 @@ let db: DbHelper;
 let acct: AccountingDbHelper;
 
 test.describe('JASEC accounting — the extract ties out to the net invoice', {
-  tag: ['@jasec', '@accounting', '@tc-145', '@ebs-net'],
+  tag: ['@jasec', '@accounting', '@tc-146', '@ebs-net'],
 }, () => {
 
   test.beforeAll(async () => {

@@ -8,10 +8,12 @@
  *
  * FIVE TESTS, run one tag at a time (each is several minutes):
  *
- *   @auto-journey   clean account (no NISE): breach -> CreditLimitBreach SUSPEND
- *                   -> 4 refused D commands -> callback -> top-up -> automatic
- *                   RESUME -> 4 refused C commands -> callback. Asserts both
- *                   orders COMPLETED and the account back to ACTIVE.
+ *   @auto-journey   TC-127 (EPDP-515, official since 2026-10-08): a customer cut off for a
+ *                   refused reading is not reconnected until a top-up covers it. Clean
+ *                   account (no NISE): breach -> CreditLimitBreach SUSPEND -> 4 refused D
+ *                   commands -> callback -> NO RESUME (A6) -> partial top-up, still cut ->
+ *                   covering top-up -> automatic RESUME -> 4 refused C commands -> callback.
+ *                   Asserts both orders COMPLETED and the account back to ACTIVE.
  *   @auto-nise      the same journey on an account shaped like the Create Account
  *                   screen makes it (NISE in clientId); the automatic orders must
  *                   carry no clientid (order_clientid_fkey fixed, engine 4f16ffb9f).
@@ -54,7 +56,7 @@
  * GATED - reaches JASEC's live AMI and drops MDR files through the loader:
  *
  *   $env:JASEC_AUTO_PROV_RUN='true'
- *   npx playwright test --project=jasec-provisioning-orders auto-suspend-resume --grep "@auto-journey"
+ *   npx playwright test --project=jasec-provisioning-orders auto-suspend-resume --grep "@tc-127"
  *
  * Needs VPN, the DB, and SSH to the control server (MDR loader).
  * Owner: Anh Tran (QC).
@@ -610,7 +612,7 @@ async function fullJourney(
 // ── tests ────────────────────────────────────────────────────────────────
 
 test.describe('JEPYP-27 - automatic suspend and resume (credit breach / top-up)', () => {
-  test('breach -> automatic SUSPEND -> callback -> top-up -> automatic RESUME -> callback @auto-journey',
+  test('breach -> automatic SUSPEND -> callback -> top-up -> automatic RESUME -> callback @auto-journey @tc-127',
     async ({ request, page }, testInfo) => {
       test.skip(!RUN, 'GATED: seeds, drops MDR files and dispatches to the live AMI. Set JASEC_AUTO_PROV_RUN=true.');
       test.setTimeout(1_200_000);

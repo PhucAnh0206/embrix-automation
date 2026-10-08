@@ -242,7 +242,7 @@ export class DailySchedulePage extends BasePage {
      * then wait for every job card. Process enables only while the CCP clock equals the date, so the caller
      * moves the clock first; `resetClock` is called ONCE (then the page reloads) if Process stays disabled
      * for 20 s - the API clock was seen reverting mid-run on prod. Returns the job cards as rendered.
-     * Shared by TC-141 (billing/ts-12) and TC-58 (billing/ts-10); TC-139 (ts-06) keeps its own extended copy.
+     * Shared by TC-142 (billing/ts-12) and TC-58 (billing/ts-10); TC-140 (ts-06) keeps its own extended copy.
      */
     async createAndProcess(date: string, resetClock: () => Promise<void>, testLogger: TestLogger): Promise<Record<string, string>> {
         // Start from the Core UI home page, whatever the caller was on (a fresh test starts on about:blank).

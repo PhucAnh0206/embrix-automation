@@ -50,7 +50,7 @@ import { blockedIf } from '../../../../helpers/blocked.helper';
 const RUN_ENABLED = String(process.env.JASEC_EBS_RUN ?? '').trim().toLowerCase() === 'true';
 
 /**
- * A SECOND, SEPARATE gate for TC-148. JASEC_EBS_RUN alone must never be enough to
+ * A SECOND, SEPARATE gate for TC-149. JASEC_EBS_RUN alone must never be enough to
  * reach a case that posts into a customer's live accounting system.
  */
 const GATEWAY_RUN = String(process.env.JASEC_GATEWAY_RUN ?? '').trim().toLowerCase() === 'true';
@@ -61,7 +61,7 @@ let db: DbHelper;
 let acct: AccountingDbHelper;
 let gql: AccountingGqlHelper;
 
-test.describe('JASEC accounting — extract run (MUTATING)', { tag: ['@jasec', '@accounting', '@tc-145'] }, () => {
+test.describe('JASEC accounting — extract run (MUTATING)', { tag: ['@jasec', '@accounting', '@tc-146'] }, () => {
   // 200+ journal rows in a batch; the mutation does real work.
   test.setTimeout(10 * 60 * 1000);
 
@@ -106,14 +106,14 @@ test.describe('JASEC accounting — extract run (MUTATING)', { tag: ['@jasec', '
      * customer's live accounting system, and until Jeremy's change lands
      * (idOperacion taken from the batch id rather than the extract id) every send
      * creates a NEW idOperacion on their side, so a retry will not deduplicate".
-     * That run is TC-148 and is done WITH the team, never incidentally.
+     * That run is TC-149 and is done WITH the team, never incidentally.
      */
     blockedIf(
       !fileMode,
       'batchFinancialExtract is FALSE — this is GATEWAY mode, the Phase 1 delivery ' +
       'path. An extract would POST to JASEC\'s /centroContable and create a new ' +
       'idOperacion on their side that will NOT deduplicate on retry. Refusing to ' +
-      'run incidentally: that is TC-148, run jointly with the team in an agreed ' +
+      'run incidentally: that is TC-149, run jointly with the team in an agreed ' +
       'window. See BLOCK-J_accounting-extract.md.',
     );
 
@@ -395,7 +395,7 @@ test.describe('JASEC accounting — extract run (MUTATING)', { tag: ['@jasec', '
   });
 
   /**
-   * TC-148 — GATEWAY MODE. EPDP-509. The Phase 1 delivery path.
+   * TC-149 — GATEWAY MODE. EPDP-509. The Phase 1 delivery path.
    *
    * This is the only case in the suite that puts data into a CUSTOMER'S LIVE
    * ACCOUNTING SYSTEM. There is no JASEC test instance: dev, preprod and
@@ -449,7 +449,7 @@ test.describe('JASEC accounting — extract run (MUTATING)', { tag: ['@jasec', '
    *
    * Owner: Anh Tran (QC). Run jointly with the team.
    */
-  test('TC-148 — gateway delivers the batch to JASEC, and a resend deduplicates', async () => {
+  test('TC-149 — gateway delivers the batch to JASEC, and a resend deduplicates', async () => {
     blockedIf(
       !RUN_ENABLED,
       'JASEC_EBS_RUN is not "true". This consumes a day of revenue journals irreversibly.',
@@ -467,7 +467,7 @@ test.describe('JASEC accounting — extract run (MUTATING)', { tag: ['@jasec', '
     blockedIf(
       fileMode,
       'batchFinancialExtract is TRUE, so this tenant is in FILE mode and nothing would ' +
-      'be posted. TC-148 needs the team to set it false for the window and back to true ' +
+      'be posted. TC-149 needs the team to set it false for the window and back to true ' +
       'afterwards — we never flip it ourselves. See BLOCK-J_accounting-extract.md.',
     );
 

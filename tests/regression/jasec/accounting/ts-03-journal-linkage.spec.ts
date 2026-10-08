@@ -52,7 +52,7 @@ const KNOWN_BATCHES_WITHOUT_FILE: Record<string, string[]> = {
 let db: DbHelper;
 let acct: AccountingDbHelper;
 
-test.describe('JASEC accounting — journal linkage', { tag: ['@jasec', '@accounting', '@tc-147'] }, () => {
+test.describe('JASEC accounting — journal linkage', { tag: ['@jasec', '@accounting', '@tc-148'] }, () => {
 
   test.beforeAll(async () => {
     db = new DbHelper();
@@ -142,9 +142,9 @@ test.describe('JASEC accounting — journal linkage', { tag: ['@jasec', '@accoun
      * ALL rows, not MAX — with the right model there is no straggler exception.
      * Measured on jasec-dev 2026-09-29: 25 batches, 0 violations.
      *
-     * Scope vs TC-145: this checks only WHICH DATE a consumed journal was taken
+     * Scope vs TC-146: this checks only WHICH DATE a consumed journal was taken
      * for. Whether it then reached POSTED — the half-extracted top-up finding —
-     * is TC-145's assertion and the batch-status test above, not this one.
+     * is TC-146's assertion and the batch-status test above, not this one.
      *
      * DATES ARE CAST TO TEXT IN SQL. Read as a bare `date`, node-postgres hands
      * back a JS Date rendered in the local zone, which on this machine is one day
