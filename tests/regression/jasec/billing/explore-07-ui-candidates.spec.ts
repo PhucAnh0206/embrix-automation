@@ -289,3 +289,29 @@ test.describe('agent screens helper - control @agent-screens', () => {
     }
   });
 });
+
+/**
+ * READ-ONLY probe of the accounting screens (Revenue + Revenue Configuration), for the business-facing
+ * accounting walkthrough (2026-10-08). Opens each screen, dumps headings / buttons / filters / first rows.
+ *   npx playwright test --project=jasec-billing-explore --grep "@acct-screens"
+ */
+test.describe('accounting screens - read-only probe @acct-screens', () => {
+  test.setTimeout(300_000);
+  const screens: Array<[string, string]> = [
+    ['A1', '/revenue/journals'],
+    ['A2', '/revenue/erp-extracts'],
+    ['A3', '/revenue/accounting-log'],
+    ['A4', '/revenue/revenue-accounting-reconciliation'],
+    ['A5', '/revenue-configuration/erp-extract-batch'],
+    ['A6', '/revenue-configuration/gl-accounts'],
+    ['A7', '/revenue-configuration/chart-of-account'],
+  ];
+  for (const [id, route] of screens) {
+    test(`${id} ${route}`, async ({ page }) => {
+      const base = (process.env.EMBRIX_BASE_URL ?? '').replace(/\/$/, '');
+      await page.goto(`${base}${route}`);
+      await page.waitForLoadState('networkidle').catch(() => {});
+      await dump(page, id, route);
+    });
+  }
+});
