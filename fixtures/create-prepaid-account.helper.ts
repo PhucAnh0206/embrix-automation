@@ -361,7 +361,7 @@ export async function createPrepaidAccountViaGateway(
     country: 'Costa Rica',
     state: 'Cartago',
     city: 'Cartago',
-    district: 'Cartago',
+    district: 'Oriental',
     neighbourhood: 'Centro',
     street: 'Colon 111',
     postalCode: '30101',

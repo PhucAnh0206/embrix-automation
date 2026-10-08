@@ -21,7 +21,9 @@ export interface PrepaidAccountPayload {
   };
   contact: {
     firstName: string;
+    middleName?: string;      // JASEC "Primer Apellido" (JEPYP-316)
     lastName: string;
+    identityDocument?: string; // JASEC "Tipo de documento" option text
     email: string;
     useAsBilling: boolean;   // pre-checked in the form; field kept for parity
   };
@@ -30,7 +32,8 @@ export interface PrepaidAccountPayload {
     country: string;
     state: string;
     city: string;
-    postalCode: string;
+    district?: string;
+    postalCode?: string;     // optional on JASEC since JEPYP-316
     useAsBilling: boolean;   // pre-checked in the form
   };
   paymentProfile: {
@@ -256,7 +259,9 @@ export class CreateAccountPage extends BasePage {
   async fillContact(contact: PrepaidAccountPayload['contact']): Promise<void> {
     await this.expandSection('Create Contact');
     await this.fillInputByName('firstName', contact.firstName);
+    await this.fillInputByNameIfShown('middleName', contact.middleName);
     await this.fillInputByName('lastName', contact.lastName);
+    await this.selectByNameIfEditable('identityDocument', contact.identityDocument);
     await this.fillInputByName('email', contact.email);
     // "Use As Billing" is pre-checked readonly — no click needed.
   }
@@ -265,9 +270,24 @@ export class CreateAccountPage extends BasePage {
     await this.expandSection('Create Address');
     await this.fillTextareaByName('street', address.street);
     await this.typeAndSelectByLabel('Country', address.country);
-    await this.fillInputByName('state', address.state);
-    await this.fillInputByName('city', address.city);
-    await this.fillInputByName('postalCode', address.postalCode);
+    // Parent before child: a tenant with region lists (JEPYP-316) renders these as
+    // cascading dropdowns, and picking a parent clears its children.
+    await this.fillOrSelectByName('state', address.state);
+    await this.fillOrSelectByName('city', address.city);
+    await this.fillOrSelectByName('district', address.district);
+    await this.fillInputByNameIfShown('postalCode', address.postalCode);
+  }
+
+  /** Pick `value` when the named field is a dropdown, otherwise type it. Skips a hidden field. */
+  private async fillOrSelectByName(name: string, value?: string): Promise<void> {
+    if (!value) return;
+    const group = this.formGroupByName(name);
+    if (!(await this.isShown(group))) return;
+    if (await this.isShown(group.locator('.custom-react-select__control').first())) {
+      await this.selectInGroup(group, value);
+    } else {
+      await this.fillInputByName(name, value);
+    }
   }
 
   async fillPaymentProfile(profile: PrepaidAccountPayload['paymentProfile']): Promise<void> {
