@@ -163,6 +163,81 @@ export interface JournalBatchSummary {
   amount: number;
 }
 
+/**
+ * NET TIE-OUT - what the ERP is told must equal what the customer was charged.
+ *
+ * Added 2026-10-08 for the defect Anh raised with the team that day: `create_accounting_entry`
+ * books every journal as `Dr glaccount ABS(amount) / Cr gloffset ABS(amount)`, so a credit
+ * line (the -17.40 CVG ENERGIA credit, the matching negative IVA) is booked like a charge
+ * and the batch sent to Exactus = the sum of ABSOLUTE amounts, not the invoice
+ * (preprod ACT-100297 / 000225 / batch 10028: 25,123.03 sent for a 24,677.57 invoice).
+ *
+ * Both checks are judged on the EFFECT on the journal's own GL account, never on the shape
+ * of the row, so they pass whichever of the two fixes in the bug report the team picks:
+ *   - keep the sign          Dr glaccount -17.40 / Cr gloffset -17.40    effect -17.40
+ *   - swap debit and credit  Dr gloffset 17.40 / Cr glaccount 17.40      effect -17.40
+ *   - today (the defect)     Dr glaccount 17.40 / Cr gloffset 17.40      effect +17.40
+ *
+ * SCOPE: journals in an INVOICE extract only. Top-ups (PURCHASE journals in an
+ * ACCOUNT_RECEIVABLE extract) are stored negative by JASEC's inverted CRC sign, and there
+ * the absolute value IS the right booking (Dr cash / Cr prepaid liability) - judging them
+ * the same way would be a false failure (dev batch 10002).
+ *
+ * If the team fixes it some other way (e.g. a separate reversal line), re-measure before
+ * changing the expectation. To back it out: revert the commit that added this block.
+ */
+export interface EntrySignResult {
+  /** Journals in INVOICE extracts that have an accounting entry. */
+  judged: number;
+  /** Of those, how many are credit lines (amount < 0). */
+  credits: number;
+  /** Journals whose entry moves their GL account by anything other than their signed amount. */
+  broken: number;
+  sample: Array<{ journalId: string; batchId: string; accountId: string; amount: number; effect: number }>;
+}
+
+export interface BatchNetLine {
+  batchId: string;
+  glAccount: string;
+  journals: number;
+  /** Journals with a negative amount on this GL account. */
+  credits: number;
+  /** Signed sum of the journals = what the invoices charged on this account. */
+  net: number;
+  /** Sum of absolute amounts - what the defect sends. */
+  gross: number;
+  /** What the batch's detail lines do to this account (debit as glaccount - credit as gloffset). */
+  batch: number;
+}
+
+/**
+ * Batches excused from the net tie-out, keyed by tenant (row ids are per tenant). Same
+ * rule as ts-03's lists: delete an entry only when the row is fixed, never add one without
+ * a written reason and a date.
+ */
+export const KNOWN_TIE_OUT_DEBRIS: Record<string, string[]> = {
+  'jasec-dev': [
+    // Batch 10001 - the first extract ever (2026-08-26 bring-up, confirmed debris by the
+    // team 2026-09-15). Its detail lines carry GL accounts '10001'/'10002' and an offset
+    // from the pre-repair chart, so they cannot be compared with the journals at all.
+    '10001',
+  ],
+};
+
+/**
+ * Invoices excused from the BASIS check (invoice = signed sum of its journals), keyed by
+ * tenant. Not the sign defect - these invoices are simply missing journals.
+ */
+export const KNOWN_BASIS_GAPS: Record<string, string[]> = {
+  'jasec-dev': [
+    // Measured 2026-10-08. All five sit in batch 10004 (extracted 2026-09-04, clock
+    // 2028-01-09, before this suite existed): tariff-era invoices of 2028-01-09 for which
+    // only some BILLING journals were ever written (002043: 23,758.74 invoiced, one
+    // 2,077.20 journal). Never seen on a later invoice or on preprod.
+    '002024', '002043', '002050', '002063', '002075',
+  ],
+};
+
 export class AccountingDbHelper {
   constructor(private db: DbHelper) {}
 
@@ -545,6 +620,103 @@ export class AccountingDbHelper {
       withCvgCredit: rows[0]?.with_cvg_credit ?? 0,
       openCycles: rows[0]?.open_cycles ?? 0,
     };
+  }
+
+  /**
+   * Journal -> accounting entry: does each entry move the journal's GL account by the
+   * journal's SIGNED amount? See EntrySignResult for the defect and why this is judged
+   * on the effect. `batchId` narrows it to one batch (ts-06 after its own extract).
+   */
+  async entrySign(batchId?: string): Promise<EntrySignResult> {
+    const rows = await this.db.query<any>(
+      `WITH inv AS (SELECT DISTINCT batchid FROM core_revenue.ebs_header_extract WHERE type = 'INVOICE'),
+       j AS (
+         SELECT rj.id::text AS id, rj.extractbatchid AS batchid, rj.accountid,
+                round(rj.amount::numeric, 2) AS amount,
+                round(sum(CASE WHEN ae.drglaccount = rj.glaccount THEN ae.dramount::numeric ELSE 0 END
+                        - CASE WHEN ae.crglaccount = rj.glaccount THEN ae.cramount::numeric ELSE 0 END), 2) AS effect
+           FROM core_revenue.revenue_journal rj
+           JOIN core_revenue.accounting_entry ae ON ae.journalid::text = rj.id::text
+          WHERE rj.extractbatchid IN (SELECT batchid FROM inv)
+            AND ($1::text IS NULL OR rj.extractbatchid = $1::text)
+          GROUP BY rj.id, rj.extractbatchid, rj.accountid, rj.amount)
+       SELECT count(*)::int                                   AS judged,
+              count(*) FILTER (WHERE amount < 0)::int         AS credits,
+              count(*) FILTER (WHERE effect <> amount)::int   AS broken,
+              (array_agg(json_build_object('journalId', id, 'batchId', batchid, 'accountId', accountid,
+                                           'amount', amount, 'effect', effect) ORDER BY id::bigint)
+                 FILTER (WHERE effect <> amount))[1:10]       AS sample
+         FROM j`,
+      [batchId ?? null],
+    );
+    const r = rows[0] ?? {};
+    return {
+      judged: r.judged ?? 0,
+      credits: r.credits ?? 0,
+      broken: r.broken ?? 0,
+      sample: (r.sample ?? []).map((x: any) => ({ ...x, amount: Number(x.amount), effect: Number(x.effect) })),
+    };
+  }
+
+  /**
+   * Batch -> net invoice: per INVOICE batch and per GL account its journals were booked
+   * to, the batch's detail lines must move that account by the journals' SIGNED sum.
+   *
+   * Detail rows are de-duplicated on (batchid, index): a resend writes a second header and
+   * a second copy of every line under the same batchId (dev batch 10017: SENT + RESENT,
+   * every line twice). Batches with no journal stamped with them (preprod 10001..10021,
+   * whose journals went with the 09-17 rebuild) cannot be judged and are not returned.
+   */
+  async batchNetTieOut(batchId?: string): Promise<BatchNetLine[]> {
+    const rows = await this.db.query<any>(
+      `WITH inv AS (SELECT DISTINCT batchid FROM core_revenue.ebs_header_extract
+                     WHERE type = 'INVOICE' AND ($1::text IS NULL OR batchid = $1::text)),
+       d AS (SELECT DISTINCT ON (batchid, index) batchid, glaccount, gloffset,
+                    debit::numeric AS debit, credit::numeric AS credit
+               FROM core_revenue.ebs_detail_extract
+              WHERE batchid IN (SELECT batchid FROM inv)
+              ORDER BY batchid, index, id),
+       want AS (SELECT extractbatchid AS batchid, glaccount, count(*)::int AS journals,
+                       count(*) FILTER (WHERE amount::numeric < 0)::int AS credits,
+                       round(sum(amount::numeric), 2) AS net, round(sum(abs(amount::numeric)), 2) AS gross
+                  FROM core_revenue.revenue_journal
+                 WHERE extractbatchid IN (SELECT batchid FROM inv)
+                 GROUP BY 1, 2),
+       got AS (SELECT batchid, acct AS glaccount, round(sum(v), 2) AS v
+                 FROM (SELECT batchid, glaccount AS acct, debit AS v FROM d
+                       UNION ALL SELECT batchid, gloffset, -credit FROM d) x
+                GROUP BY 1, 2)
+       SELECT w.batchid, w.glaccount, w.journals, w.credits, w.net::float8 AS net, w.gross::float8 AS gross,
+              coalesce(g.v, 0)::float8 AS batch
+         FROM want w
+         LEFT JOIN got g ON g.batchid = w.batchid AND g.glaccount = w.glaccount
+        ORDER BY w.batchid, w.glaccount`,
+      [batchId ?? null],
+    );
+    return rows.map((r) => ({
+      batchId: r.batchid, glAccount: r.glaccount, journals: r.journals, credits: r.credits,
+      net: Number(r.net), gross: Number(r.gross), batch: Number(r.batch),
+    }));
+  }
+
+  /**
+   * The basis of the tie-out: each invoice equals the signed sum of its journals. If this
+   * breaks, "net" is no longer the invoice and the two checks above lose their meaning.
+   */
+  async invoiceVsJournals(): Promise<Array<{ invoiceId: string; billUnitId: string; total: number; journals: number }>> {
+    const rows = await this.db.query<any>(
+      `WITH inv AS (SELECT DISTINCT batchid FROM core_revenue.ebs_header_extract WHERE type = 'INVOICE'),
+       j AS (SELECT billunitid, round(sum(amount::numeric), 2) AS s
+               FROM core_revenue.revenue_journal
+              WHERE extractbatchid IN (SELECT batchid FROM inv)
+              GROUP BY 1)
+       SELECT iu.id AS invoiceid, iu.billunitid, round(iu.total::numeric, 2)::float8 AS total, j.s::float8 AS journals
+         FROM j JOIN core_engine.invoice_unit iu ON iu.billunitid = j.billunitid
+        ORDER BY iu.id`,
+    );
+    return rows.map((r) => ({
+      invoiceId: r.invoiceid, billUnitId: r.billunitid, total: Number(r.total), journals: Number(r.journals),
+    }));
   }
 
   /** Is revenue tracking on? Without it no journal is written and nothing can extract. */

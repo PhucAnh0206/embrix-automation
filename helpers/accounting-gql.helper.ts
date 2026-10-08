@@ -43,11 +43,14 @@ import { TestLogger } from './test-logger';
  *      `count === details.length` passes by coincidence on small batches and
  *      fails on every real one.
  *
- *   5. THE NAIVE TIE-OUT IS NOT AN INVARIANT. Detail debit total equals the sum
- *      of the source `revenue_journal.amount` on batches 10013-10015 and does NOT
- *      on 10016-10018 (batch 10018 is out by 276.66). Do not assert it. The
- *      invariants that DO hold on all 71 detail rows on dev are the ones in
- *      `extractInvariants()` below.
+ *   5. THE TIE-OUT IS AN INVARIANT - AND IT FAILS. (Corrected 2026-10-08.) This
+ *      point used to say "not an invariant, do not assert it", because detail
+ *      totals matched the journals on 10013-10015 and not on 10016-10018. Every one
+ *      of those gaps is exactly 2 x the batch's negative journal lines: the extract
+ *      books credit lines with ABS(amount) (defect raised 2026-10-08). The tie-out
+ *      is now asserted, on the signed net, in accounting/ts-04-extract-net-tie-out
+ *      and in ts-06's run. `extractInvariants()` below checks only the SHAPE of a
+ *      ledger - a ledger that drops every minus sign passes it.
  *
  *   6. RESEND KEEPS THE BATCH ID AND ADDS A HEADER. `resendEbsExtract` flips the
  *      old header to RESENT and creates a NEW one as SENT carrying the SAME

@@ -236,6 +236,31 @@ test.describe('JASEC accounting — extract run (MUTATING)', { tag: ['@jasec', '
       `batch ${batchId} is not a valid double-entry ledger`,
     ).toEqual([]);
 
+    // ── step 5b: and it sends the NET of what it consumed ─────────────────
+    /**
+     * A balanced ledger is not a correct one. Added 2026-10-08 with the defect raised
+     * that day: credit lines (-17.40 CVG, negative IVA) are booked with ABS(amount), so a
+     * batch sends the sum of absolute amounts. Judged on the effect per GL account, so
+     * either fix the bug report offers passes. See ts-04-extract-net-tie-out for the
+     * tenant-wide sweep. Soft, so the rest of the chain is still proven.
+     */
+    const sign = await acct.entrySign(batchId);
+    expect
+      .soft(sign.broken, `batch ${batchId}: ${sign.broken} of ${sign.credits} credit line(s) booked like charges ` +
+        `(${sign.sample.map((x) => `journal ${x.journalId} ${x.amount} -> ${x.effect}`).join(', ')})`)
+      .toBe(0);
+    const tie = await acct.batchNetTieOut(batchId);
+    for (const l of tie) {
+      console.log(`  ${l.glAccount}: net ${l.net.toFixed(2)}, batch ${l.batch.toFixed(2)} (${l.credits} credit line(s))`);
+    }
+    expect
+      .soft(
+        tie.filter((l) => Math.abs(l.batch - l.net) > 0.005)
+          .map((l) => `${l.glAccount}: net ${l.net.toFixed(2)}, sent ${l.batch.toFixed(2)}`),
+        `batch ${batchId} must send the net of the journals it consumed`,
+      )
+      .toEqual([]);
+
     // ── step 6: what it consumed moved to POSTED ──────────────────────────
     /**
      * The other half of the contract, and the half GraphQL cannot show. Every

@@ -487,6 +487,7 @@ export default defineConfig({
         '**/regression/jasec/accounting/ts-01-*.spec.ts',
         '**/regression/jasec/accounting/ts-02-*.spec.ts',
         '**/regression/jasec/accounting/ts-03-*.spec.ts',
+        '**/regression/jasec/accounting/ts-04-*.spec.ts',   // net tie-out, read-only (2026-10-08)
       ],
     },
 
