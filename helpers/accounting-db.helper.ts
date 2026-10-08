@@ -238,11 +238,12 @@ export const KNOWN_TIE_OUT_DEBRIS: Record<string, string[]> = {
  *   jasec-preprod: 10031 (2027-02-22 invoices, 7 credit lines, ties to the cent) - 10029 (10:07) was pre-fix.
  *   jasec-dev:     10035 (2026-10-28 invoices, 7 credit lines, ties to the cent) - 10033 (10-07) was pre-fix;
  *                  there is no 10034.
- *   jasec (prod):  not set yet - verify a post-fix batch there first.
+ *   jasec (prod):  10005 (2026-11-29 invoices, 7 credit lines, ties to the cent) - 10001..10004 were pre-fix.
  */
 export const TIE_OUT_FIX_FROM_BATCH: Record<string, number> = {
   'jasec-preprod': 10031,
   'jasec-dev': 10035,
+  'jasec': 10005,
 };
 
 export const KNOWN_BASIS_GAPS: Record<string, string[]> = {
