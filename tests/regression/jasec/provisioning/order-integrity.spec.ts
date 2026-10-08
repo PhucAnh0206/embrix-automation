@@ -142,6 +142,10 @@ test.describe('JASEC provisioning - order integrity after callbacks', () => {
     // them = one breach raised two orders (Defect 3). Pairs whose FIRST order was
     // already closed out (FAILED/CANCELLED - how the team cleaned up the pre-fix
     // pairs) are history; any other pair is a live duplicate.
+    //
+    // EXCEPT a pair whose first SUSPEND COMPLETED (the meter was already cut): that is O1 - a later top-up that
+    // did not clear the debt raised a second breach SUSPEND on the cut account (preprod ORD-555, prod ORD-323).
+    // A different finding, still open with the team, so it is labelled here and not counted as Defect 3.
     const rows = await db.query<{ accountid: string; prev: string; prevstatus: string; id: string; status: string }>(
       `SELECT accountid, prev, prevstatus, id, status FROM (
          SELECT o.accountid, o.id, o.status, o.type, o.userid,
@@ -155,10 +159,17 @@ test.describe('JASEC provisioning - order integrity after callbacks', () => {
           AND prevtype = 'SUSPEND' AND prevuser = 'CreditLimitBreach'
           AND prevstatus NOT IN ('FAILED','CANCELLED')
         ORDER BY accountid`);
+    const o1 = rows.filter(r => r.prevstatus === 'COMPLETED');
+    if (o1.length) {
+      const msg = `O1 (not Defect 3): ${o1.map(r => `${r.accountid}: ${r.prev} COMPLETED then ${r.id} (${r.status})`).join('; ')}`;
+      console.log(`  INFO: ${msg}`);
+      test.info().annotations.push({ type: 'O1', description: msg });
+    }
+    const dup = rows.filter(r => r.prevstatus !== 'COMPLETED');
     expect(
-      rows.length,
-      `${rows.length} breach(es) left two automatic SUSPENDs, neither closed out:\n  ` +
-      rows.map(r => `${r.accountid}: ${r.prev} (${r.prevstatus}) then ${r.id} (${r.status})`).join('\n  ') +
+      dup.length,
+      `${dup.length} breach(es) left two automatic SUSPENDs, neither closed out:\n  ` +
+      dup.map(r => `${r.accountid}: ${r.prev} (${r.prevstatus}) then ${r.id} (${r.status})`).join('\n  ') +
       `\nDefect 3 was fixed in engine 5be782856. A pair created BEFORE that deploy only needs closing ` +
       `(e.g. ACT-101091 ORD-1927/1928); one created after it means the fix is not live or not complete.`,
     ).toBe(0);

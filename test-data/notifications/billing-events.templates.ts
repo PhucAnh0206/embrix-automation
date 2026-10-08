@@ -1,5 +1,5 @@
 import { formatCRC, normalizeValue } from '../../helpers/email.helper';
-import { expectedMinimum } from '../../helpers/notification-bands';
+import { expectedMinimum, BREACH_MINIMUM_BASE } from '../../helpers/notification-bands';
 import { FieldCheck, NotificationContext, NotificationTemplate } from './types';
 
 /**
@@ -246,28 +246,38 @@ const saldoEqualsPostCheck = (): FieldCheck => ({
  * 1 (report case 6.3), where the body says "15 KWh" while the amount may be
  * computed on a 45 kWh basis. 2915.10 / 971.70 = 3 exactly.
  *
- * So accept the value computed from X, 3X or X/3. Insisting on the measured X
- * produced a false failure on three consecutive runs, which is worse than the
- * looser check: it buried the real findings under a known copy discrepancy.
+ * So for the Inicio de Mes events accept the value computed from X, 3X or X/3 -
+ * that basis is still open (TC-86). Insisting on the measured X produced a false
+ * failure on three consecutive runs.
+ *
+ * NOT for Events 4/5 (Saldo Agotado / Servicio Suspendido): JEPYP-319 Q3 fixed
+ * that minimum at amount owed + BREACH_MINIMUM_BASE (2,915.10). There the loose
+ * check would also accept 971.70 + owed - and the open defect (only the breaching
+ * line is counted) - so it compares against the one agreed figure. TC-85.
  */
-const minimumEqualsFormulaCheck = (event: Parameters<typeof expectedMinimum>[0]): FieldCheck => ({
-  row: 'Recarga mínima = expected minimum',
-  contextual: true,
-  expected: (c) => {
+const minimumEqualsFormulaCheck = (event: Parameters<typeof expectedMinimum>[0]): FieldCheck => {
+  const breach = event === 'CREDIT_LIMIT_BREACH' || event === 'SUSPEND_SUBSCRIPTION';
+  const bases = (c: { X?: number }) => {
+    if (breach) return [BREACH_MINIMUM_BASE];
     const x = c.X ?? 0;
-    const post = c.postBalance ?? 0;
-    return `${formatCRC(expectedMinimum(event, x, post))} (or the 3x / ÷3 kWh-basis variant)`;
-  },
-  actual: (c) => amountAfter(c.email.text, 'recarga mínima de') || amountAfter(c.email.text, 'Monto mínimo a recargar'),
-  compare: (actual, _expected, c) => {
-    const x = c.X ?? 0;
-    const post = c.postBalance ?? 0;
-    const got = stripSign(actual);
-    return [x, x * 3, x / 3].some(
-      (candidate) => stripSign(formatCRC(expectedMinimum(event, candidate, post))) === got,
-    );
-  },
-});
+    return [x, x * 3, x / 3];
+  };
+  return {
+    row: 'Recarga mínima = expected minimum',
+    contextual: true,
+    expected: (c) => {
+      const post = c.postBalance ?? 0;
+      const first = formatCRC(expectedMinimum(event, bases(c)[0], post));
+      return breach ? `${first} (amount owed + 2,915.10, JEPYP-319 Q3)` : `${first} (or the 3x / ÷3 kWh-basis variant)`;
+    },
+    actual: (c) => amountAfter(c.email.text, 'recarga mínima de') || amountAfter(c.email.text, 'Monto mínimo a recargar'),
+    compare: (actual, _expected, c) => {
+      const post = c.postBalance ?? 0;
+      const got = stripSign(actual);
+      return bases(c).some((x) => stripSign(formatCRC(expectedMinimum(event, x, post))) === got);
+    },
+  };
+};
 
 /**
  * Compare amounts on digits and separators only.

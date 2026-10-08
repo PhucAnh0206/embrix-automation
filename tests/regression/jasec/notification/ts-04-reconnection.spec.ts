@@ -28,9 +28,10 @@
  * WHY IT DISABLES THE CCP BASELINE: jasec-fixtures carries an AUTO fixture
  * (`jasecCcpBaseline`) that parks the tenant CCP clock at the JASEC baseline before
  * every test. The clock is shared with everyone on the tenant, and this spec acts on
- * a PRE-EXISTING suspended account whose subscription is only effective at the
- * current date — so it opts out with `test.use({ ccpBaseline: null })` and leaves
- * the clock alone. It used to escape the reset by not importing jasec-fixtures at
+ * a suspended account it SEEDS ITSELF at the current CCP date (since 2026-10-05; it
+ * used to act on a pre-existing one), whose subscription is only effective from that
+ * date — so it opts out with `test.use({ ccpBaseline: null })` and leaves the clock
+ * alone. It used to escape the reset by not importing jasec-fixtures at
  * all, which meant hand-copying page-factory's `page` helpers; the opt-out removed
  * that duplication.
  *
@@ -279,8 +280,9 @@ async function ensureSuspendedCandidate(): Promise<Candidate | null> {
 }
 
 test.describe('TS-04 — reconnection after top-up', () => {
-  // This spec owns the clock: it acts on a PRE-EXISTING suspended account, whose
-  // subscription is only effective at the tenant's current CCP date. Parking the
+  // This spec owns the clock: it acts on a suspended account it seeds itself
+  // (since 2026-10-05), whose subscription is only effective from the tenant's
+  // current CCP date. Parking the
   // clock at the JASEC baseline would put the account in the future and the
   // top-ups would silently record nothing. Opting out is why this spec no longer
   // needs to re-implement page-factory's `page` helpers by hand.
@@ -302,11 +304,10 @@ test.describe('TS-04 — reconnection after top-up', () => {
     // so a tenant with no suspended accounts in range reported TS-04 as red and
     // pointed the reader at reconnection logic that had never run.
     //
-    // Note the second sentence of the reason. This case CONSUMES its account -
-    // it reconnects it - so the pool shrinks by one every run and eventually
-    // empties. That is a real gap against the rule that a case should create
-    // what it needs; until it seeds its own suspended account, expect this to
-    // block periodically and re-seed by suspending one.
+    // This case CONSUMES its account - it reconnects it. Since 2026-10-05 it
+    // seeds its own suspended subject every run (ensureSuspendedCandidate), so
+    // there is no shared pool to shrink any more; a BLOCKED here means the seed
+    // itself failed to reach SUSPENDED.
     if (blockedIf(
       !candidate,
       'could not seed a suspended subject (the seeded account never reached ' +
@@ -441,19 +442,24 @@ test.describe('TS-04 — reconnection after top-up', () => {
     // ── 5.3 — partial top-up must NOT reconnect ────────────────────────────
     const partial = Math.max(100, Math.floor(debt / 2));
     await test.step(`5.3 — top up ${partial}, less than the ${debt.toFixed(2)} owed`, async () => {
+      const suspendsBefore = (await db.query<{ id: string }>(
+        `SELECT id FROM core_oms."order" WHERE accountid = $1 AND type = 'SUSPEND'`, [accountId])).map(r => r.id);
       await topup.enterAmount(partial);
       await topup.clickPayWithPlaceToPay();
       try {
         await checkout.completePaymentFlow('approve');
       } catch (err) {
-        // The displayed minimum here is 3300 + debt, which by construction always
-        // EXCEEDS the debt. So if the amount field is validated against it, no
-        // top-up can ever leave the account still in debt, and case 5.3 is not
-        // reachable through Selfcare at all. Worth recording rather than failing.
+        // The subject is freshly seeded, so it is in its first month and the
+        // displayed minimum is 2920 + debt (3300 + debt only from the second
+        // month; the figure in the message below is the ongoing-base one). Either
+        // way it by construction always EXCEEDS the debt. So if the amount field
+        // is validated against it, no top-up can ever leave the account still in
+        // debt, and case 5.3 is not reachable through Selfcare at all. Worth
+        // recording rather than failing.
         test.info().annotations.push({
           type: 'partial-topup-blocked',
           description:
-            `Top-up of ${partial} (below the displayed minimum of ${(3300 + debt).toFixed(2)}) ` +
+            `Top-up of ${partial} (below the displayed minimum: 2920 + debt for this first-month subject; ongoing-base figure ${(3300 + debt).toFixed(2)}) ` +
             `did not complete. If the minimum is enforced, case 5.3 cannot be produced via ` +
             `Selfcare — every valid top-up clears the debt. ` +
             `${String(err).split('\n')[0].slice(0, 140)}`,
@@ -469,6 +475,17 @@ test.describe('TS-04 — reconnection after top-up', () => {
         accountIds: [accountId], type: 'RESUME_SUBSCRIPTION', afterId: watermark,
       });
       console.log(`[TS-04] after partial: balance ${balance} | status ${status} | resume rows ${resumed.length}`);
+
+      // O1 - RECORDED, not judged (open with the team, seen on this very case: prod ACT-100173 ORD-323, preprod
+      // ORD-555): the partial top-up on a cut, in-debt account can raise ANOTHER CreditLimitBreach SUSPEND.
+      const extra = (await db.query<{ id: string; status: string; userid: string }>(
+        `SELECT id, status, userid FROM core_oms."order" WHERE accountid = $1 AND type = 'SUSPEND'`, [accountId]))
+        .filter(o => !suspendsBefore.includes(o.id));
+      if (extra.length) {
+        test.info().annotations.push({ type: 'O1',
+          description: `a partial top-up on the cut account raised another SUSPEND: ${extra.map(o => `${o.id} ${o.status} by ${o.userid}`).join(', ')}` });
+        console.log(`[TS-04] O1 recorded: ${extra.map(o => o.id).join(', ')}`);
+      }
 
       expect
         .soft(status, `${accountId} must stay SUSPENDED after a partial top-up`)
@@ -497,7 +514,8 @@ test.describe('TS-04 — reconnection after top-up', () => {
     // ── 5.2 — clearing top-up must reconnect ───────────────────────────────
     const remaining = (await notifyDb.getCrcBalance(accountId)) ?? debt;
     // Just over the remaining debt. Deliberately BELOW the displayed minimum
-    // (3300 + debt): the runbook records reconnection working at a final balance
+    // (2920 + debt for this freshly seeded, first-month subject; 3300 + debt from
+    // the second month): the runbook records reconnection working at a final balance
     // of -0.70, so clearing the debt should be sufficient. If reconnection needs
     // the full suggested minimum instead, this step catches that.
     const clearing = Math.max(200, Math.ceil(remaining) + 200);
@@ -536,7 +554,10 @@ test.describe('TS-04 — reconnection after top-up', () => {
       }
 
       /**
-       * THE AMI HALF CANNOT COMPLETE ON DEV, AND THAT IS NOT A DEFECT.
+       * THE AMI HALF CANNOT COMPLETE ON DEV (NOR ON PROD), AND THAT IS NOT A DEFECT.
+       *
+       * Also true on prod: its AMI rejects our QA meters too, so TC-82 is
+       * BLOCKED there (2026-10-08).
        *
        * Clearing the debt DOES trigger reconnection - the product raises a
        * RESUME order correctly. That order then dispatches to JASEC's AMI,

@@ -123,19 +123,21 @@ function saveArtifact(name: string, payload: unknown): string {
 }
 
 /**
- * Gate. `PAYMENT_PROOF_RUN` is set in playwright.config.ts when — and only when —
- * `jasec-payment-proof` is named on the command line. Without it every test here
- * skips, so a bare `npx playwright test` cannot move the tenant clock or spend a job
- * slot by accident.
+ * Gate. Every test here skips unless `PAYMENT_PROOF_RUN=true`, so a bare
+ * `npx playwright test` cannot move the tenant clock or spend a job slot by
+ * accident. NOTE (2026-10-08): there is NO `jasec-payment-proof` project and
+ * playwright.config.ts does not set PAYMENT_PROOF_RUN - no Playwright project
+ * matches payment/ at all. These payment specs are diagnostics, not wired to any
+ * project; add a project before running them.
  */
 const PROOF_RUN = process.env.PAYMENT_PROOF_RUN === 'true';
 
 test.beforeAll(async () => {
   test.skip(
     !PROOF_RUN,
-    'Forward proof of the billing chain. Run it deliberately:\n' +
-    '  npx playwright test --project=jasec-payment-proof --grep "@proof-a"\n' +
-    '  npx playwright test --project=jasec-payment-proof --grep "@proof-b"\n' +
+    'Forward proof of the billing chain. Run it deliberately with PAYMENT_PROOF_RUN=true.\n' +
+    '  The payment specs are not wired to any Playwright project (diagnostics) - add a\n' +
+    '  project matching payment/ before running, then --grep "@proof-a" or "@proof-b".\n' +
     'It creates an account + order + meter, loads a real MDR file, MOVES THE TENANT ' +
     'CCP CLOCK, spends a job_schedule slot, and pays the bill it produces.',
   );

@@ -5,7 +5,8 @@
  * and the JASEC DAILY job schedule has BILL_CHECK / INVOICE_CHECK but no BILL_CC / INVOICE_CC, so the
  * account is silently never billed again. Preprod had 61 such accounts (fixed by hand 2026-10-03).
  * FIXED ON PREPROD 2026-10-05: DAILY gained BILL_CC + INVOICE_CC - the method still flips, but the
- * account is invoiced (TC-141 PASS there). Dev and prod: not yet.
+ * account is invoiced (TC-141 PASS there). Updated 2026-10-08: JEPYP-326 is now FIXED on dev, preprod
+ * and prod (TC-141 PASS on preprod and prod; dev proven via TC-139's run, ACT-101205).
  * dev 2026-10-05: of 545 accounts that topped up by card, the 257 with a STORED card are all
  * CREDIT_CARD, the 288 without are all CHECK.
  *
@@ -179,7 +180,8 @@ test('a customer who saved a card and topped up with it is still invoiced @tc-14
     expect(inv.length, `${accountId} (${mode}) - payment method ${method} - was NOT invoiced for its cycle on ` +
       `${billDate}. DAILY billing jobs: ${jobNames.join(', ')}. ` +
       (method === 'CREDIT_CARD' && !jobNames.some(j => /_CC$/.test(j))
-        ? 'Known: JEPYP-326 - saving a card makes the account CREDIT_CARD and DAILY has no BILL_CC/INVOICE_CC.'
+        ? 'JEPYP-326 shape - saving a card makes the account CREDIT_CARD and DAILY has no BILL_CC/INVOICE_CC. ' +
+          'It was fixed on dev, preprod and prod by 2026-10-08, so this is a REGRESSION of that fix.'
         : 'Not the known JEPYP-326 shape - investigate.')).toBeGreaterThan(0);
     expect.soft(uiBills.map(r => r['Invoice Id']).sort(), `Core UI Bills and the database list different invoices for ${accountId}`)
       .toEqual(inv.map(i => i.id).sort());

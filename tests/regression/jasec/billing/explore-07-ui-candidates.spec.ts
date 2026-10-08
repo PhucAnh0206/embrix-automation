@@ -203,6 +203,10 @@ test.describe('UI candidate screens - pass 2 @ui-candidates-2', () => {
 test.describe('UI candidate screens - pass 3 (MUTATING: Bill Pending -> GENERATE_INVOICE) @ui-candidates-3', () => {
   test.setTimeout(300_000);
   test('V5 Bill Pending charges -> Process -> GENERATE_INVOICE', async ({ page, customerManagementPage, billsPage }) => {
+    // It INVOICES an account mid-cycle (that is how A7 / invoice 000070 was made) - never as part of a plain
+    // `--project=jasec-billing-explore` run.
+    test.skip(String(process.env.JASEC_EXPLORE_BILL_RUN ?? '').trim().toLowerCase() !== 'true',
+      'GATED: bills an account mid-cycle. Set JASEC_EXPLORE_BILL_RUN=true (and JASEC_UIC_PENDING=<own account>).');
     const acct = process.env.JASEC_UIC_PENDING ?? 'ACT-100128';
     await openAccount(page, customerManagementPage, acct);
     await billsPage.navigateToBills();

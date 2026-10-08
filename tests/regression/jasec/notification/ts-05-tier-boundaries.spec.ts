@@ -264,12 +264,16 @@ test.describe('TS-05 — threshold email tier boundaries', () => {
     // Capability is the binding constraint, so it is checked per candidate rather
     // than assumed from the eligible count.
     if (!SCHEDULE_DATE_OVERRIDE) {
-      // FORWARD ONLY. `findScheduleDateCandidates` considers past dates by design
-      // (older cycles hold more un-billed accounts), and ranking by richest would
-      // actively prefer them — 2026-09-09 has 133 eligible accounts. But the CCP
-      // clock is tenant-global and shared, so picking a past date would drag
-      // everyone else's clock backward, potentially by a year, as a side effect of
-      // a test run. Pin the floor at the current clock and only ever move forward.
+      // Floor at the current clock. CCP moves are allowed in EITHER direction on
+      // dev/preprod (see the clock step below; the old "forward only" rule is
+      // superseded as of 2026-10-08), so this floor is a choice, not a rule.
+      // `findScheduleDateCandidates` considers past dates by design (older cycles
+      // hold more un-billed accounts), and ranking by richest would actively
+      // prefer them — 2026-09-09 has 133 eligible accounts. But the CCP clock is
+      // tenant-global and shared, so AUTO-picking a past date could drag everyone
+      // else's clock back by up to a year as a side effect of a test run. To use
+      // an earlier date, pin it with JEPYP230_TIER_DATE and set the clock back by
+      // hand afterwards.
       const fromDate = await notifyDb.getCcpDate();
       const seen = new Set<string>();
       const candidates: Array<{ date: string; eligibleCount: number }> = [];
@@ -308,12 +312,15 @@ test.describe('TS-05 — threshold email tier boundaries', () => {
         SCHEDULE_DATE = c.date;
         break;
       }
-      // Test data, not the product. No free job slot or no account carrying a
-      // valuethreshold means the tier emails were never given a chance to fire,
-      // so a red result here would accuse a feature that was never invoked.
-      // The valuethreshold half is the known credit-profile gap: Prepaid Energy
-      // Profile ships with valuethreshold NULL on both tenants, so a correctly
-      // created prepaid account is NOT threshold-capable by default.
+      // An unmet precondition FOR THIS SPEC, so BLOCKED. No free job slot or no
+      // account carrying a valuethreshold means the tier emails were never given
+      // a chance to fire, so a red result here would accuse a feature that was
+      // never invoked. The valuethreshold half is the KNOWN CONFIG DEFECT: the
+      // Prepaid Energy Profile (<tenant>-CRPRE) carries valuethreshold NULL
+      // instead of the agreed -4000|-2000 (JEPYP-319 Q1; fix requested
+      // 2026-10-08; asserted, and failing, in ts-03 @saldo-config), so a
+      // correctly created prepaid account is NOT threshold-capable. That defect
+      // is reported by @saldo-config, not here.
       if (blockedIf(
         SCHEDULE_DATE === UNRESOLVED,
         `no date has both a free job_schedule slot and ${needed} threshold-capable ` +

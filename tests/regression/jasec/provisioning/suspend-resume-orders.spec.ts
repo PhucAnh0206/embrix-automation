@@ -48,8 +48,9 @@
  *   npx playwright test --project=jasec-provisioning-orders suspend-resume-orders --grep "@order-journey"
  *   npx playwright test --project=jasec-provisioning-orders suspend-resume-orders --grep "@api-control"
  *
- * dev only. Preprod has no provisioningEnabled, so nothing dispatches there and
- * the test reports BLOCKED.
+ * Was "dev only" until 2026-10-07: preprod had no provisioningEnabled, so nothing
+ * dispatched there and the test reported BLOCKED. Preprod has provisioningEnabled=true
+ * since 2026-10-07 (setCcpProperties, DB + Redis), so it can dispatch now too.
  *
  * Owner: Anh Tran (QC).
  */

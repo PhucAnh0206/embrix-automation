@@ -293,14 +293,14 @@ test.describe('Invoice document format vs JEPYP-125 and JEPYP-266 (both shipped)
       .soft(
         hasPhrase,
         `${pdfName}: JEPYP-125 item 1 — no "Factura por servicios electricos" header. ` +
-        `Implemented by JEPYP-266 (Backlog/To do).`,
+        `Implemented by JEPYP-266 (shipped 2026-09-10 as template v5).`,
       )
       .toBe(true);
     expect
       .soft(
         hasModality,
         `${pdfName}: JEPYP-125 item 1 — header does not state the PREPAGO modality. ` +
-        `Implemented by JEPYP-266 (Backlog/To do).`,
+        `Implemented by JEPYP-266 (shipped 2026-09-10 as template v5).`,
       )
       .toBe(true);
   });

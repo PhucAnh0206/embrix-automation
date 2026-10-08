@@ -364,8 +364,9 @@ export class NotificationDbHelper {
    * SELECTS ON THE CREDIT PROFILE, which is the real cause. An account only gets a
    * low-balance warning if its subscription resolves to a credit profile whose CRC
    * row has a `valuethreshold`; without one the credit check returns before the
-   * threshold logic ever runs. Dev confirmed 2026-08-14 that production MUST
-   * assign a profile carrying -4000|-2000.
+   * threshold logic ever runs. The Prepaid Energy Profile (<tenant>-CRPRE) must
+   * carry -4000|-2000 (JEPYP-319 Q1); it was NULL on prod and preprod on
+   * 2026-10-08 (known config defect, asserted by ts-03 @saldo-config).
    *
    * This replaces an earlier heuristic that picked accounts which had fired
    * BEFORE. That was a correlation, not a cause, and it produced an invalid bug
@@ -407,6 +408,10 @@ export class NotificationDbHelper {
 
 
   /**
+   * In practice this selects accounts on the POSTPAID Default Credit Profile (the
+   * Prepaid Energy Profile has NULL valuethreshold), so results prove the email
+   * copy, not that a prepaid customer is warned — see ts-03 @saldo-config.
+   *
    * @param contactEmail REQUIRED — only accounts whose contact carries this
    *   address. Without it this selected, staged and triggered threshold emails on
    *   whoever owned the capable accounts. Pass `EmailHelper.recipient()`.

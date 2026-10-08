@@ -19,11 +19,15 @@
  * order is refused (BACKDATED_EFFECTIVE_DATE), so the only way to get a real
  * cycle is to create the account, move the clock FORWARD, and then bill.
  *
- * Two tests, because they need accounts with different cycle lengths:
- *   A  a real cycle   -> the true-up fires, and the bill carrying the -17.40
- *                        CVG credit must also invoice
- *   B  a zero-length  -> no true-up at all. Huy's open question: should a
- *      cycle                same-day cycle still bill the fixed charge?
+ * Two tests:
+ *   A  (TC-58) a real cycle -> the true-up fires, and the bill carrying the
+ *      -17.40 CVG credit must also invoice
+ *   B  (TC-59) a zero-length cycle cannot occur in production. Huy's question
+ *      ("should a same-day cycle still bill the fixed charge?") was ANSWERED on
+ *      JEPYP-319 Q2, 2026-10-08 (Luis): an account created ON its billing day gets
+ *      a full month (preprod ACT-100294: 12-01 -> 01-01). Test B asserts that rule.
+ *      ACT-100876's zero-day cycle came from the old runPendingBill API closing the
+ *      cycle on the creation date - not something production does.
  *
  * ── MUTATING, AND IT MOVES A SHARED CLOCK ──────────────────────────────────
  * Seeds accounts, MOVES THE TENANT-GLOBAL CCP CLOCK, and bills irreversibly.
@@ -31,7 +35,7 @@
  *   A  on a free billing day, the cycle is closed and invoiced by the operator's daily run - Operations Hub >
  *      Daily Schedule > Create > Process - exactly as production does it. ("Bill Pending charges" on the
  *      Bills screen is DISABLED for a 0-kWh cycle, so a manual bill is not how this cycle gets billed.)
- *   B  tries Bills > "Bill Pending charges" on the creation day and records what the screen allows.
+ *   B  seeds an account whose billing day is TODAY's day and reads its first cycle - no billing, no clock move.
  * Only ever on accounts this spec created. The clock is restored afterwards. Gated behind JASEC_TRUEUP_RUN=true.
  *
  *     $env:JASEC_TRUEUP_RUN='true'
@@ -93,11 +97,11 @@ async function trueUpLines(db: DbHelper, billUnitId: string) {
 }
 
 test.describe('JASEC billing — 0-30 kWh true-up and cycle length (MUTATING)', {
-  tag: ['@jasec', '@billing', '@trueup', '@tc-58', '@tc-59'],
+  tag: ['@jasec', '@billing', '@trueup'],
 }, () => {
   test.setTimeout(15 * 60 * 1000);
 
-  test('A — a real cycle under 30 kWh is trued up to the fixed charge, and invoices', async ({ page, customerManagementPage, billsPage, dailySchedulePage }) => {
+  test('A — a real cycle under 30 kWh is trued up to the fixed charge, and invoices', { tag: '@tc-58' }, async ({ page, customerManagementPage, billsPage, dailySchedulePage }) => {
     blockedIf(
       !RUN_ENABLED,
       'JASEC_TRUEUP_RUN is not "true". This spec moves the TENANT-GLOBAL CCP clock ' +
@@ -116,6 +120,7 @@ test.describe('JASEC billing — 0-30 kWh true-up and cycle length (MUTATING)', 
         `SELECT t.d FROM generate_series(2,28) AS t(d) LEFT JOIN core_engine.billing_profile bp
            ON bp.billingdom = t.d AND bp.status = 'ACTIVE' GROUP BY t.d HAVING COUNT(bp.accountid) = 0 ORDER BY t.d`);
       const startDay = Number(startDate.slice(8, 10));
+      // Not the creation day: that gives a full-month first cycle (TC-59), and this test wants the bill date soon.
       const bdom = Number(process.env.JASEC_TRUEUP_BDOM) || free.map(f => f.d).find(d => d !== startDay);
       if (blockedIf(!bdom, 'no free billing day (2-28) on this tenant - the daily run would bill other accounts')) return;
 
@@ -212,87 +217,49 @@ test.describe('JASEC billing — 0-30 kWh true-up and cycle length (MUTATING)', 
     }
   });
 
-  // TC-59. RECORDS the behaviour, does not judge it: whether a same-day cycle should bill the
-  // fixed charge is an OPEN business decision (OPEN-BUSINESS-QUESTIONS item 2, Huy). Asserting
-  // either answer would pin an undecided rule - a PASS would bless it, and a fix would read as a
-  // regression. Once the team decides, assert THAT answer here. (Relabelled 2026-10-05.)
-  test('B — a zero-length cycle: behaviour recorded, decision pending (open question 2)', async ({ page, customerManagementPage, billsPage }) => {
+  // TC-59. The agreed rule (JEPYP-319 Q2, Luis, 2026-10-08): a zero-length billing cycle cannot occur in
+  // production, because an account created ON its billing day gets a full month - start = creation day,
+  // end = the same day next month. (Until 2026-10-08 this test only RECORDED a "same-day cycle"; it could never
+  // build one - the seed defaulted to billing day 1 - and the disabled "Bill Pending charges" button it saw came
+  // from the 0 kWh, not from the cycle length.)
+  test('B — an account created on its billing day gets a full-month first cycle (no zero-length cycle)', { tag: '@tc-59' }, async () => {
     blockedIf(!RUN_ENABLED, 'JASEC_TRUEUP_RUN is not "true".');
-    // A PASS here records today's behaviour; it is not a verdict on whether it is right.
-    test.info().annotations.push({
-      type: 'open-question',
-      description: 'Should a same-day (zero-length) cycle still bill the 1943.40 fixed charge? (Huy)',
-    });
 
-    const logger = new TestLogger('ts-10-trueup-zero-length');
+    const logger = new TestLogger('ts-10-first-cycle-on-billing-day');
     const db = new DbHelper(logger);
     await db.connect();
 
     try {
       const seed = new PrepaidSeedHelper(logger);
       const today = await seed.ccpDate();
+      const day = Number(today.slice(8, 10));
+      if (blockedIf(day > 28, `the clock is on day ${day} - billing days are 1-28 only, so no account can be created on its billing day today`)) return;
+
       const suffix = uniqueRunSuffix();
       const meter = assertQaMeter(`M-QABIL-${suffix}`);
-
       const { accountId } = await seed.seed({
-        meter,
-        customerId: `E2ETRUEUP-B-${suffix}`,
-        name: `E2ETRUEUP-B ${suffix}`,
+        meter, customerId: `E2ETRUEUP-B-${suffix}`, name: `E2ETRUEUP-B ${suffix}`, billingDom: day,
       });
-      await seed.topUp(accountId, 5000);
-      console.log(`\n  seeded ${accountId} on ${today}, billing the SAME day (cycle length 0)`);
+      console.log(`\n  seeded ${accountId} on ${today} with billing day ${day} (its own creation day)`);
 
-      // No clock move: bill on the creation date, exactly as ACT-100876 was - through the Core UI.
-      const pendingId = await pendingBillUnit(db, accountId);
-      expect(pendingId, `${accountId} has no PENDING bill unit`).toBeTruthy();
-      await openBills(page, customerManagementPage, billsPage, accountId);
-      const enabled = await billsPage.isBillPendingEnabled();
-      if (!enabled) {
-        // Also a behaviour: the screen does not offer to bill a same-day cycle at all.
-        test.info().annotations.push({ type: 'decision-pending',
-          description: 'Behaviour recorded: "Bill Pending charges" is DISABLED on a same-day cycle - the screen cannot bill it. Open question 2.' });
-        console.log(`\n  RECORDED - Bill Pending charges is disabled on a same-day cycle (${accountId}).\n`);
-        return;
+      // The cycle is read after creation - nothing is billed and the clock does not move. The first REGULAR
+      // bill unit appears a few seconds after the seed returns (it is not linked yet at +0s), so poll for it.
+      let r: { s: string; e: string; want: string }[] = [];
+      for (let i = 0; i < 30 && !r.length; i++) {
+        r = await db.query<{ s: string; e: string; want: string }>(
+          `SELECT bu.startdate::date::text s, bu.enddate::date::text e,
+                  ($2::date + interval '1 month')::date::text want
+             FROM core_engine.bill_unit bu
+            WHERE bu.accountid = $1 AND bu.type = 'REGULAR'
+            ORDER BY bu.id LIMIT 1`, [accountId, today]);
+        if (!r.length) await new Promise((res) => setTimeout(res, 2000));
       }
-      await billsPage.billPendingCharges();
-      let bill: any = null;
-      for (let i = 0; i < 20 && !(bill && bill.status !== 'PENDING'); i++) {
-        bill = (await db.query<any>(`SELECT id, status, total::float8 AS "billTotal" FROM core_engine.bill_unit WHERE id = $1`, [pendingId]))[0];
-        if (bill?.status === 'PENDING') await page.waitForTimeout(3000);
-      }
-      expect(bill?.status, 'Process on the Bill Pending screen did not close the cycle').not.toBe('PENDING');
-      const lines = await trueUpLines(db, bill!.id);
-
-      const period = await db.query<any>(
-        `SELECT startdate::text AS s, enddate::text AS e FROM core_engine.bill_unit WHERE id = $1`,
-        [bill!.id],
-      );
-      console.log(
-        `  bill unit ${bill!.id}: period ${period[0]?.s} -> ${period[0]?.e}, ` +
-        `total ${bill!.billTotal}, ${lines.length} true-up line(s)`,
-      );
-
-      // Only a PARTIAL true-up (1-3 of the 4 lines) is a defect under EITHER answer.
-      expect(
-        [0, 4],
-        `a zero-length cycle produced ${lines.length} true-up line(s) - neither "no charge" (0) nor the full ` +
-        `fixed charge (4 lines, ${FIXED_CHARGE}). A partial true-up is wrong whatever the team decides.`,
-      ).toContain(lines.length);
-
-      const recorded = lines.length === 0
-        ? `no fixed charge - bill ${bill!.billTotal}, 0 true-up lines`
-        : `the full fixed charge - 4 true-up lines (${FIXED_CHARGE}) - CHANGED since 2026-10-05, check it was intended`;
-      test.info().annotations.push({
-        type: 'decision-pending',
-        description: `Behaviour recorded: a same-day cycle bills ${recorded}. Not a verdict - open question 2.`,
-      });
-      console.log(
-        `
-  RECORDED, decision pending — a same-day cycle bills ${recorded}.
-` +
-        `  Open question 2 for the team: should it bill the ${FIXED_CHARGE} fixed charge?
-`,
-      );
+      expect(r[0], `${accountId} has no REGULAR bill unit 60 s after creation`).toBeTruthy();
+      console.log(`  first cycle ${r[0].s} -> ${r[0].e} (expected ${today} -> ${r[0].want})`);
+      expect(r[0].e, `${accountId}: a zero-length first cycle (${r[0].s} -> ${r[0].e}) - JEPYP-319 Q2 says it cannot occur`)
+        .not.toBe(r[0].s);
+      expect(`${r[0].s} -> ${r[0].e}`, `${accountId}: created on its billing day, the first cycle must be one full month`)
+        .toBe(`${today} -> ${r[0].want}`);
     } finally {
       await db.disconnect();
     }

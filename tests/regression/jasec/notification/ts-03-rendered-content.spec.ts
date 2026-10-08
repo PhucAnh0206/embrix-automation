@@ -255,6 +255,35 @@ test.describe('TS-03 — rendered notification content (replay)', () => {
    * The day the PAC config is completed and the flag flipped, the on-branch starts
    * asserting with no code change.
    */
+  /**
+   * The low-balance warning ("saldo próximo a agotarse", TC-70..78) can only reach a
+   * real prepaid customer if the PREPAID credit profile carries the thresholds. The
+   * live cases (ts-02 / ts-05) stage on whatever account has a threshold - in
+   * practice the POSTPAID Default Credit Profile - so they prove the email copy, not
+   * that a prepaid customer is ever warned. This is the check that does.
+   *
+   * Agreed values: -4000|-2000 on the Prepaid Energy Profile (JEPYP-319 Q1, Tri,
+   * 2026-10-08). NULL on prod and preprod that day: the tenant-deployment baseline
+   * writes NULL on every re-apply. Fix requested from the team 2026-10-08.
+   */
+  test('the Prepaid Energy Profile carries the agreed warning thresholds @saldo-config', async () => {
+    const profiles = await db.query<{ id: string; valuethreshold: string | null }>(
+      `SELECT id, valuethreshold FROM core_config.credit_profiles
+        WHERE id LIKE '%-CRPRE' AND currency = 'CRC'`,
+    );
+    const flag = await db.query<{ value: string }>(
+      `SELECT value FROM core_config.ccp_properties WHERE property = 'prepaidThresholdEnrichEnabled'`,
+    );
+    console.log(`[TS-03] Prepaid Energy Profile: ${JSON.stringify(profiles)} | prepaidThresholdEnrichEnabled=${flag[0]?.value}`);
+    blockedIf(!profiles.length, `no <tenant>-CRPRE CRC credit profile on "${connectedDb}"`);
+    for (const p of profiles) {
+      expect.soft(p.valuethreshold, `${p.id} valuethreshold - a prepaid customer is never warned without it ` +
+        `(agreed -4000|-2000, JEPYP-319 Q1; reported 2026-10-08)`).toBe('-4000|-2000');
+    }
+    expect.soft(String(flag[0]?.value ?? '').trim().toLowerCase(),
+      'ccp prepaidThresholdEnrichEnabled - gates the prepaid warning messages 1/2/3 (JEPYP-50)').toBe('true');
+  });
+
   test('7.5 — fiscal identifiers match the configured stamping state', async () => {
     const stamping = await notifyDb.getStampingState();
     const invoices = await notifyDb.getInvoiceArtifacts({ sinceMinutes: 60 * 24 * 400 });

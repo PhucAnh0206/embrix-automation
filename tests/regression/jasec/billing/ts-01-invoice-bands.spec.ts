@@ -2,8 +2,9 @@
  * Monthly invoice — all seven consumption bands.
  *
  * Source: Spanish scenario doc TC20–TC26, "Facturación de cliente que consume una
- * cantidad de kWh entre …". NOT EPDP-348 case IDs — official numbering is the
- * EPDP-348 sub-task list and these have none yet, deliberately.
+ * cantidad de kWh entre …". Those scenario-doc numbers are NOT EPDP-348 case IDs.
+ * The official EPDP-348 cases are TC-127..133, one per band, tagged @tc-127..133
+ * via BANDS[].tc (updated 2026-10-08; this line used to say they had none yet).
  *
  * ── WHERE EVERY NUMBER IN THIS FILE COMES FROM ────────────────────────────
  *
@@ -279,9 +280,11 @@ const BANDS: Band[] = [
  *
  * KNOWN OPEN DISCREPANCY, restated 2026-09-08: EIGHT sub-30 invoices on dev total
  * 1960.80, which is 30 x (62.69 + 2.67) - the CVG ENERGIA credit line posts 0.00
- * instead of -17.40, leaving them exactly 17.40 high. This assertion is EXPECTED to
- * fail on those eight, and that failure is the point. Do not "fix" it by moving the
- * constant.
+ * instead of -17.40, leaving them exactly 17.40 high. Superseded 2026-10-08: those
+ * eight predate FIRST_POST_FIX_INVOICE, so splitAtFix() now EXCLUDES them from the
+ * subtotal assertion and reportPreFix() only prints them (uncorrected history, a
+ * business decision). A NEW invoice at 1960.80 still fails, and that failure is the
+ * point. Do not "fix" it by moving the constant.
  *
  * DO NOT read that as "the true-up never fires" - an earlier version of this comment
  * implied it and it is FALSE. TC53 re-run on a clean account (ACT-100831) on

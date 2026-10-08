@@ -15,18 +15,24 @@
  *   @auto-nise      the same journey on an account shaped like the Create Account
  *                   screen makes it (NISE in clientId); the automatic orders must
  *                   carry no clientid (order_clientid_fkey fixed, engine 4f16ffb9f).
- *   @auto-race      TC40: the customer tops up BEFORE JASEC's suspend callback.
- *                   Exploratory - asserts only the end state (account ACTIVE, no
- *                   order left open) and prints the order timeline.
+ *   @auto-race      TC-125 (scenario doc TC40): the customer tops up BEFORE JASEC's
+ *                   suspend callback. Asserts the end state (account ACTIVE, no order
+ *                   left open) and prints the order timeline. Cut-then-reconnect is the
+ *                   intended behaviour (EP-5480).
  *   @auto-window    TC-126: the stock profile's no-cut window, judged against real
- *                   Costa Rica time (inside: no SUSPEND; outside: SUSPEND).
+ *                   Costa Rica time (inside: no SUSPEND; outside: SUSPEND). The
+ *                   "morning after" half (scenario doc TC41) is open finding A8.
  *   @auto-held-cycle  EXPLORATORY: a cut account with a held reading stays cut through
  *                   a daily run days later. Own gate JASEC_HELD_CYCLE_RUN (it moves the
  *                   clock and runs the whole DAILY chain), refused on jasec-preprod.
  *
  * A6 (2026-10-07). With countHeldUsageInCreditCheck=true (the engine fix for "reconnect without top-up") the
  * journey also asserts that completing the SUSPEND raises no RESUME, and that a top-up smaller than the held
- * reading leaves the account cut; only the covering top-up reconnects. With the switch off it records instead.
+ * reading leaves the account cut; only the covering top-up reconnects. The fix is live on dev, preprod and prod, so
+ * with the switch OFF the journey is BLOCKED (misconfigured tenant) - never a silent pass.
+ *
+ * O1 (seen 2026-10-07/08, not yet raised): the partial top-up on the cut, in-debt account can raise ANOTHER
+ * CreditLimitBreach SUSPEND (and cut command). Recorded as an annotation, not judged, until the team answers.
  *
  * WHAT IS OBSERVED, NOT ASSERTED. Whether the subscription is suspended when the
  * breach happens or only when the callback arrives. The code routes a
@@ -187,7 +193,7 @@ async function balance(db: DbHelper, accountId: string): Promise<number> {
 /**
  * A6 fix (engine e5a26f9, 2026-10-07): with countHeldUsageInCreditCheck=true a reading refused for credit keeps its
  * charge ("held") and both reconnect checks count it - completing the SUSPEND no longer reconnects, and only a top-up
- * that covers balance + held charge does. Off, the old behaviour (A6) returns, so the expectations follow the switch.
+ * that covers balance + held charge does. Off, the old behaviour (A6) returns - the journey is then BLOCKED.
  */
 async function heldUsageOn(db: DbHelper): Promise<boolean> {
   return db.isHeldUsageCountedInCreditCheck();
@@ -457,6 +463,9 @@ async function fullJourney(
   db: DbHelper, mdr: MdrRemoteHelper, s: Seeded, request: APIRequestContext, testInfo: TestInfo,
   logger: TestLogger, nise: boolean, ui: AgentScreens,
 ) {
+    // The A6 expectations below need the held-usage fix; off means the tenant is misconfigured, not a pass.
+    blockedIf(!(await heldUsageOn(db)), 'countHeldUsageInCreditCheck is off - the A6 fix (live on dev, preprod and ' +
+      'prod since 2026-10-08) is not active on this tenant, so the journey cannot be judged');
     let suspendOrder = '';
     await test.step('breach: the reading parks and a CreditLimitBreach SUSPEND is raised', async () => {
       suspendOrder = await breach(db, mdr, s, testInfo);
@@ -496,19 +505,12 @@ async function fullJourney(
       expect.soft(od['Status'], `order detail ${suspendOrder}: Status`).toBe('COMPLETED');
       expect.soft(od['User Id'], `order detail ${suspendOrder}: raised by the system on a breach, not by an agent`).toBe('CreditLimitBreach');
       // A6 (found 2026-10-06, fixed 2026-10-07 behind countHeldUsageInCreditCheck): completing the SUSPEND used to
-      // raise a RESUME (TOPUP, embrxadmin) in the same second - no top-up, the held reading unpaid, the customer back
-      // on. With the switch on that is a defect; with it off it is the old behaviour, recorded rather than judged.
+      // raise a RESUME (TOPUP, embrxadmin) in the same second - no top-up, the held reading unpaid, the customer back on.
       const early = await autoOrder(db, s.accountId, 'RESUME');
-      if (await heldUsageOn(db)) {
-        expect(early, `A6 - ${early?.id} (${early?.reason}, by ${early?.userid}) was raised the moment the SUSPEND ` +
-          `completed, with no top-up: the customer is reconnected while the held reading is unpaid`).toBeUndefined();
-        expect.soft(sv.incomplete.filter(r => /\bRESUME\b/.test(r)), 'Core UI In-complete Orders: no RESUME before a top-up')
-          .toEqual([]);
-      } else if (early) {
-        await note(testInfo, 'an automatic RESUME exists BEFORE the top-up (countHeldUsageInCreditCheck off)',
-          `${early.id} ${early.status} reason ${early.reason} by ${early.userid}; balance ${await balance(db, s.accountId)} ` +
-          `(the parked reading is still unfunded). The meter would be reconnected without a payment.`);
-      }
+      expect(early, `A6 - ${early?.id} (${early?.reason}, by ${early?.userid}) was raised the moment the SUSPEND ` +
+        `completed, with no top-up: the customer is reconnected while the held reading is unpaid`).toBeUndefined();
+      expect.soft(sv.incomplete.filter(r => /\bRESUME\b/.test(r)), 'Core UI In-complete Orders: no RESUME before a top-up')
+        .toEqual([]);
     });
     await test.step('a reading that arrives while SUSPENDED is refused and charges nothing', async () => {
       const r = await readingOutcome(db, mdr, s, WHILE_SUSPENDED_READING);
@@ -518,10 +520,6 @@ async function fullJourney(
       expect.soft(r.after, 'a reading on a suspended service must not change the balance').toBe(r.before);
     });
     await test.step('a top-up smaller than the held reading does not reconnect', async () => {
-      if (!(await heldUsageOn(db))) {
-        await note(testInfo, 'partial top-up step not judged', 'countHeldUsageInCreditCheck is off - the A6 fix is not active');
-        return;
-      }
       const held = await heldCharge(db, s.meter);
       expect(held, 'the refused reading carries no held charge - the fix did not keep it').not.toBeNull();
       const before = await balance(db, s.accountId);
@@ -529,8 +527,15 @@ async function fullJourney(
       expect(owed, `balance ${before} + held ${held} must still be owed before this step`).toBeGreaterThan(0);
       const partial = Math.max(100, Math.floor(owed / 2));
       console.log(`  held ${held}, balance ${before}: owed ${owed.toFixed(2)} -> top up ${partial} (not enough)`);
+      const suspendsBefore = (await orders(db, s.accountId)).filter(o => o.type === 'SUSPEND').map(o => o.id);
       await new PrepaidSeedHelper(logger).topUp(s.accountId, partial);
       await sleep(45_000);                               // give any (wrong) RESUME time to appear
+      // O1 - RECORDED, not judged (open with the team): does the partial top-up raise ANOTHER breach SUSPEND?
+      const extra = (await orders(db, s.accountId)).filter(o => o.type === 'SUSPEND' && !suspendsBefore.includes(o.id));
+      if (extra.length) {
+        await note(testInfo, 'O1 - a partial top-up on the cut account raised another SUSPEND',
+          extra.map(o => `${o.id} ${o.status} by ${o.userid}`).join(', '));
+      }
       const res = await autoOrder(db, s.accountId, 'RESUME');
       expect(res, `${res?.id} was raised by a ${partial} top-up that does not cover the held ${held} - the customer ` +
         `would be reconnected without paying`).toBeUndefined();
@@ -635,7 +640,7 @@ test.describe('JEPYP-27 - automatic suspend and resume (credit breach / top-up)'
       }
     });
 
-  test('top-up arrives before JASEC confirm the suspend (TC40) @auto-race',
+  test('top-up arrives before JASEC confirm the suspend (scenario doc TC40) @auto-race @tc-125',
     async ({ request, page }, testInfo) => {
       test.skip(!RUN, 'GATED: seeds, drops MDR files and dispatches to the live AMI. Set JASEC_AUTO_PROV_RUN=true.');
       test.setTimeout(1_200_000);
@@ -691,22 +696,6 @@ test.describe('JEPYP-27 - automatic suspend and resume (credit breach / top-up)'
       }
     });
   /**
-   * The stock profile's no-cut rule, judged against REAL Costa Rica time (the
-   * CCP clock has no time of day, so it cannot be simulated). The test picks its
-   * expectation from the clock at run time:
-   *
-   *   inside 20:00-08:00 CR, a weekend or a fixed-date holiday
-   *       -> the reading parks, NO SUSPEND is raised, the account stays ACTIVE
-   *   an ordinary CR weekday 08:00-20:00
-   *       -> the reading parks and a CreditLimitBreach SUSPEND is raised
-   *
-   * It prints the account id. Checking that same account again after 08:00 CR
-   * answers TC41 ("accounts that ran out overnight are suspended when the
-   * window ends"), which our notes suggest does NOT happen under Option A - the
-   * balance never moved, so the daily CREDIT_LIMIT_ACTIONS selection may not
-   * pick it up.
-   */
-  /**
    * EXPLORATORY - NOT AN OFFICIAL CASE YET (no EPDP-348 sub-task; deliberately no TC tag).
    *
    * A teammate's "gap test" (2026-10-07): the A6 fix covers the two reconnect checks that fire at once (cut
@@ -721,7 +710,7 @@ test.describe('JEPYP-27 - automatic suspend and resume (credit breach / top-up)'
    * today it should not. Give that account in JASEC_HELD_ACTIVE_ACCOUNT (dev: ACT-101220).
    *
    * MUTATING: moves the tenant clock (restored), runs the DAILY chain on that date (bills whoever is due - dev).
-   *   $env:JASEC_AUTO_PROV_RUN='true'; npx playwright test --project=jasec-provisioning-orders auto-suspend-resume --grep "@auto-held-cycle"
+   *   $env:JASEC_AUTO_PROV_RUN='true'; $env:JASEC_HELD_CYCLE_RUN='true'; npx playwright test --project=jasec-provisioning-orders auto-suspend-resume --grep "@auto-held-cycle"
    */
   test('a cut account with a held reading stays cut through a daily run days later @auto-held-cycle',
     async ({ request, page, dailySchedulePage }, testInfo) => {
@@ -801,7 +790,23 @@ test.describe('JEPYP-27 - automatic suspend and resume (credit breach / top-up)'
       }
     });
 
-  test('the stock profile defers a breach inside the no-cut window and suspends outside it @auto-window',
+  /**
+   * The stock profile's no-cut rule, judged against REAL Costa Rica time (the
+   * CCP clock has no time of day, so it cannot be simulated). The test picks its
+   * expectation from the clock at run time:
+   *
+   *   inside 20:00-08:00 CR, a weekend or a fixed-date holiday
+   *       -> the reading parks, NO SUSPEND is raised, the account stays ACTIVE
+   *   an ordinary CR weekday 08:00-20:00
+   *       -> the reading parks and a CreditLimitBreach SUSPEND is raised
+   *
+   * It prints the account id. Checking that same account again after the window
+   * ends answers scenario doc TC41 ("accounts that ran out overnight are suspended
+   * when the window ends"). It does NOT happen: finding A8, confirmed on dev
+   * 2026-10-07 by @auto-held-cycle - the balance never moved (the reading is held),
+   * and the daily CREDIT_LIMIT_ACTIONS selects accounts by balance only.
+   */
+  test('the stock profile defers a breach inside the no-cut window and suspends outside it @auto-window @tc-126',
     async ({ page }, testInfo) => {
       test.skip(!RUN, 'GATED: seeds, drops MDR files and may dispatch to the live AMI. Set JASEC_AUTO_PROV_RUN=true.');
       test.setTimeout(900_000);
@@ -826,7 +831,7 @@ test.describe('JEPYP-27 - automatic suspend and resume (credit breach / top-up)'
         console.log(`\n  ${deferred ? 'EXPECT DEFERRAL - ' + deferred : `EXPECT SUSPENSION - CR ${cr.weekday} ${cr.date} ${cr.hhmm} is an ordinary weekday outside ${win.start}-${win.end}`}\n`);
 
         const { s, mdr } = await fundedAccount(db, logger, deferred ? 'QAWINDOWIN' : 'QAWINDOWOUT', undefined, STOCK_PROFILE);
-        await note(testInfo, 'account for the morning-after (TC41) check', `${s.accountId} meter ${s.meter}`);
+        await note(testInfo, 'account for the morning-after (scenario doc TC41) check', `${s.accountId} meter ${s.meter}`);
 
         if (!deferred) {
           let suspendOrder = '';
@@ -880,8 +885,8 @@ test.describe('JEPYP-27 - automatic suspend and resume (credit breach / top-up)'
           expect(sv.sub, 'Core UI Services: the subscription must show ACTIVE inside the window').toBe('ACTIVE');
           expect(sv.incomplete.filter(r => /\bSUSPEND\b/.test(r)), 'Core UI In-complete Orders: no SUSPEND inside the window')
             .toEqual([]);
-          console.log(`\n  Re-check ${s.accountId} after ${win.end} CR on a weekday: per TC41 it should then be ` +
-            `suspended; per our Option A notes it may not be.\n`);
+          console.log(`\n  Re-check ${s.accountId} after ${win.end} CR on a weekday: per scenario doc TC41 it should ` +
+            `then be suspended; finding A8 (confirmed 2026-10-07) says it is not.\n`);
         });
       } finally {
         await db.disconnect();

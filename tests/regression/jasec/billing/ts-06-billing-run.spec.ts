@@ -22,8 +22,11 @@
  *
  *  1. The schedule date must EXACTLY equal an account's own next billing date,
  *     which is `billing_profile.nextaccountingdate + get_future_cycle_date(account)`.
- *     On JASEC that offset is 8 days, so a BDOM-1 account bills on the 9th and a
- *     BDOM-10 account on the 18th. Pick any other date and the run completes
+ *     On JASEC that offset is per environment (the cycle-end delay in
+ *     core_config.future_cycle_list_config): 8 days on prod and dev, so a BDOM-1
+ *     account bills on the 9th and a BDOM-10 account on the 18th; 1 day on preprod,
+ *     so BDOM-1 bills on the 2nd. The code computes it - never assume a fixed
+ *     offset. Pick any other date and the run completes
  *     successfully having billed nobody — which reads exactly like a broken
  *     screen. Observed for real on 2026-08-28: a schedule on that date ran with
  *     BILL_CHECK and INVOICE_CHECK both COMPLETED and produced no invoice,

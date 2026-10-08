@@ -314,8 +314,8 @@ export default defineConfig({
     // PROVISIONING_INITIATED, which only exists once JASEC accept a dispatched
     // command on a meter they recognise, and dispatching consumes the single
     // meter they have released.
-    // suspend-resume-orders and reprocess-failed-step are excluded here and run in jasec-provisioning-orders below,
-    // because it needs a browser and a logged-in session and these do not.
+    // suspend-resume-orders, reprocess-failed-step and auto-suspend-resume are excluded here and run in
+    // jasec-provisioning-orders below, because they need a browser and a logged-in session and these do not.
     {
       name: 'jasec-provisioning',
       testMatch: ['**/regression/jasec/provisioning/*.spec.ts'],
@@ -338,8 +338,11 @@ export default defineConfig({
     // line) - plus an API-built control. Gated behind JASEC_SUSPEND_ORDERS_RUN;
     // run one tag at a time (@order-journey, @resume-billing-only-suspend, @resume-existing-suspension, @api-control).
     //
-    // Needs a browser, a session and therefore the VPN. Gated on top of that
-    // behind JASEC_REPROCESS_RUN because it dispatches to JASEC's live AMI.
+    // Needs a browser, a session and therefore the VPN. Each spec carries its OWN
+    // run gate on top of that, because they dispatch to JASEC's live AMI:
+    // suspend-resume-orders JASEC_SUSPEND_ORDERS_RUN, reprocess-failed-step
+    // JASEC_REPROCESS_RUN, auto-suspend-resume JASEC_AUTO_PROV_RUN (plus
+    // JASEC_HELD_CYCLE_RUN for @auto-held-cycle).
     {
       name: 'jasec-provisioning-orders',
       testMatch: ['**/regression/jasec/provisioning/suspend-resume-orders.spec.ts', '**/regression/jasec/provisioning/reprocess-failed-step.spec.ts', '**/regression/jasec/provisioning/auto-suspend-resume.spec.ts'],
@@ -356,9 +359,10 @@ export default defineConfig({
     // cannot stop the regression suite from billing.
     //
     // IRREVERSIBLE: moves the tenant CCP clock, spends a job_schedule slot, and
-    // bills real accounts (advancing their cycle). Gated behind
-    // JASEC_BILL_RUN=true inside the spec and refuses to start without an
-    // explicit JASEC_BILL_DATE, so a broad run can never trigger it.
+    // bills real accounts (advancing their cycle). Gates live inside each spec
+    // and differ: ts-06 needs JASEC_BILL_RUN=true and refuses to start without an
+    // explicit JASEC_BILL_DATE; ts-08 is gated on JASEC_TOPUP_RUN; ts-07 has NO
+    // run gate - naming this project runs it.
     // Needs a browser and the DB, therefore the VPN.
     {
       name: 'jasec-billing-run',

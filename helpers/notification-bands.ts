@@ -53,8 +53,9 @@ export type KwhTier = 'BASE' | 'HIGH';
  * from the threshold, so a tenant configured with different values would be
  * staged at a balance that never crosses — the run would produce no email and the
  * suite would report a product defect that does not exist. Dev confirmed on
- * 2026-08-14 that production MUST assign a profile carrying thresholds, but not
- * that every tenant carries THESE numbers.
+ * 2026-08-14 that production MUST assign a profile carrying thresholds. For JASEC
+ * the values are AGREED: -4000|-2000 on the Prepaid Energy Profile (JEPYP-319 Q1,
+ * 2026-10-08) - NULL there today on prod and preprod, fix requested from the team.
  *
  * Read them with NotificationDbHelper.getAccountThresholds().
  */
@@ -79,7 +80,7 @@ export const THRESHOLD_HIGH = Number(process.env.JASEC_THRESHOLD_HIGH ?? -4000);
 
 /**
  * Fallback when the caller does not supply the account's own thresholds.
- * Confirmed correct for jasec-dev, but treat it as a default, not a fact.
+ * These are JASEC's agreed values (JEPYP-319 Q1, 2026-10-08).
  */
 export const DEFAULT_THRESHOLDS: Thresholds = { base: THRESHOLD_BASE, high: THRESHOLD_HIGH };
 
@@ -169,11 +170,22 @@ export function tierForKwh(kwh: number): KwhTier {
 }
 
 /**
+ * Base of the out-of-credit minimum recharge (Saldo Agotado / Servicio Suspendido):
+ * the customer must cover what they owe PLUS this amount - 45 kWh at 64.78.
+ * Agreed by Luis on JEPYP-319 (Q3, 2026-10-08): "amount owed + 2,915.10", where
+ * "owed" is the WHOLE refused bill less any credit (credit 0 -> 1,943.40 + 2,915.10
+ * = 4,858.50). The engine today adds only the excess of the one bill line that
+ * broke the limit (preprod ACT-100224: 2,995.20; ACT-100249: 4,795.80) - TC-85
+ * fails on that until it is fixed.
+ */
+export const BREACH_MINIMUM_BASE = 2915.10;
+
+/**
  * Expected `minimumTopupAmount` in the rendered body.
  *
  * Runbook §4: reconcile the amount, never expect a fixed number.
  *   Events 1B/1C : |(-X) - post|
- *   Events 4/5   : X + post
+ *   Events 4/5   : X + post   (X = BREACH_MINIMUM_BASE, post = the full refused bill less credit)
  */
 export function expectedMinimum(event: BillingEvent, X: number, post: number): number {
   switch (event) {

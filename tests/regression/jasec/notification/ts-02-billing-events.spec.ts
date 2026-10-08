@@ -10,8 +10,11 @@
  * ─────────────────────────────────────────────────────────────────────────────
  * THIS SPEC CHANGES THE ENVIRONMENT AND SOME OF IT CANNOT BE UNDONE.
  *
- *   - It moves the tenant-global CCP clock FORWARD. There is no way back, and
- *     the clock is shared with everyone else testing on the tenant.
+ *   - It moves the tenant-global CCP clock, which is shared with everyone else
+ *     testing on the tenant. Moves are allowed in either direction (superseded
+ *     2026-10-08: the old "FORWARD only, no way back" rule no longer holds), so
+ *     the clock can be put back afterwards. This spec does not do that itself:
+ *     set it back by hand after the run (always on preprod).
  *   - It consumes one of the TWO job_schedule slots on the target date.
  *   - It bills the staged accounts, which advances their nextaccountingdate and
  *     closes their PENDING bill units. Restoring balances does NOT restore
@@ -46,9 +49,10 @@ import { NotificationReportHelper } from '../../../../helpers/notification-repor
 import { EmailHelper } from '../../../../helpers/email.helper';
 import {
   branchFor, stageFor, stageForThreshold, postBalance, willCrossZero,
-  crossesThreshold, tierForKwh, DEFAULT_THRESHOLDS,
+  crossesThreshold, tierForKwh, DEFAULT_THRESHOLDS, expectedMinimum, BREACH_MINIMUM_BASE,
   type BillingEvent, type KwhTier,
 } from '../../../../helpers/notification-bands';
+import { formatCRC } from '../../../../helpers/email.helper';
 import {
   BILLING_EVENT_TEMPLATES,
   amountAfter,
@@ -225,7 +229,7 @@ test.beforeAll(async () => {
   test.skip(
     !LIVE,
     'Live staged billing run. Set JEPYP230_LIVE_RUN=true to enable — it moves the ' +
-    'tenant CCP clock forward irreversibly and consumes a job_schedule slot.',
+    'shared tenant CCP clock (set it back by hand afterwards) and consumes a job_schedule slot.',
   );
   api = await playwrightRequest.newContext();
   db = new DbHelper();
@@ -274,8 +278,8 @@ test.afterAll(async () => {
 [TS-02] restored ${plan.accounts.length} balances ` +
         `(batchSizeBilling untouched at ${plan.originalBatchSize}).
 ` +
-        `        NOT reversible: the spent ${FREQUENCY} slot on ${plan.scheduleDate}, ` +
-        `the billed accounts' advanced cycle, and the CCP clock.
+        `        NOT reversible: the spent ${FREQUENCY} slot on ${plan.scheduleDate} and ` +
+        `the billed accounts' advanced cycle. NOT restored here: the CCP clock (set it back by hand).
 `,
       );
     }
@@ -665,19 +669,25 @@ test.describe('TS-02 — staged billing run', () => {
       // Staging is derived from the threshold (staged = threshold - 400), so a
       // tenant configured with different values would be staged at a balance that
       // never crosses: no email fires, and the 3.4 check would then report a
-      // product defect that does not exist. Dev confirmed production must assign a
-      // profile with thresholds, but not that every tenant uses -4000|-2000.
+      // product defect that does not exist. -4000|-2000 are JASEC's agreed values
+      // (JEPYP-319 Q1, 2026-10-08), but staging still reads each account's own.
       //
-      // Null means the account cannot warn at all — invalid test data, caught here
-      // at PLAN time rather than after a billing period has been spent.
+      // Null means the account cannot warn at all, caught here at PLAN time rather
+      // than after a billing period has been spent. A prepaid account on the
+      // Prepaid Energy Profile with NULL valuethreshold is the KNOWN CONFIG DEFECT
+      // (agreed -4000|-2000, fix requested 2026-10-08, asserted by ts-03
+      // @saldo-config). For THIS spec such an account is still unusable as a
+      // staging subject.
       let thresholds;
       if (w.tier) {
         thresholds = await thresholdsFor(acct.accountId);
         expect(
           thresholds,
           `${acct.accountId} has no credit-limit thresholds, so it can never produce a ` +
-          `threshold email. That is invalid test data, not a defect — pick accounts ` +
-          `with findThresholdCapableAccounts().`,
+          `threshold email and cannot be a staging subject here. On the Prepaid Energy ` +
+          `Profile that NULL is the known config defect (agreed -4000|-2000, fix requested ` +
+          `2026-10-08, asserted by ts-03 @saldo-config) — pick accounts with ` +
+          `findThresholdCapableAccounts().`,
         ).toBeTruthy();
         if (thresholds!.base !== DEFAULT_THRESHOLDS.base || thresholds!.high !== DEFAULT_THRESHOLDS.high) {
           console.log(
@@ -770,12 +780,15 @@ test.describe('TS-02 — staged billing run', () => {
         `or widen the candidate filter.`;
       test.info().annotations.push({ type: 'coverage-reduced', description: msg });
       console.log(`\n[TS-02] ⚠ ${msg}\n`);
-      // Staging NOTHING is an unmet precondition, not a defect. The blocker is
-      // the known credit-profile gap: Prepaid Energy Profile ships with
-      // valuethreshold NULL, so a correctly created prepaid account can never
-      // warn or breach and is not a candidate. With zero candidates the billing
-      // run was never staged, so sections 3/4/5 tested nothing - reporting that
-      // as FAIL accuses notification logic that was never reached.
+      // Staging NOTHING is an unmet precondition FOR THIS SPEC, so it stays
+      // BLOCKED. The usual blocker is the KNOWN CONFIG DEFECT: the Prepaid Energy
+      // Profile (<tenant>-CRPRE) carries valuethreshold NULL instead of the agreed
+      // -4000|-2000 (JEPYP-319 Q1; fix requested 2026-10-08; asserted, and
+      // failing, in ts-03 @saldo-config), so a correctly created prepaid account
+      // can never warn or breach and is not a candidate. That defect is reported
+      // by @saldo-config, not here. With zero candidates the billing run was never
+      // staged, so sections 3/4/5 tested nothing - reporting that as FAIL accuses
+      // notification logic that was never reached.
       //
       // A PARTIAL stage still proceeds: the annotation and console warning above
       // already record the reduced coverage, and the slots that did fill are
@@ -1042,10 +1055,12 @@ test.describe('TS-02 — assertions on the completed run', () => {
   /**
    * Event 7 invoice artifact — SKELETON.
    *
-   * Report cases 7.2 / 7.4 assert PDF CONTENT, which cannot be verified while
-   * stamping is on: generation waits on tax-authority validation and emits a
-   * ~15-byte stub (`%PDF-1.4` with no `%%EOF`). That is configuration, not a
-   * renderer bug, so the content assertions must SKIP rather than fail.
+   * Report cases 7.2 / 7.4 assert PDF CONTENT. WHEN stamping is ON, generation
+   * waits on tax-authority validation and emits a ~15-byte stub (`%PDF-1.4` with
+   * no `%%EOF`). That is configuration, not a renderer bug, so in that state the
+   * content assertions must SKIP rather than fail. JASEC dev/preprod run with
+   * pacEnabled=false, so PDFs DO generate there (see ts-03 and the INDEX); the
+   * content assertions below are still unwritten, so this stays a skeleton.
    *
    * The gate is the ARTIFACT ITSELF, not a config flag — I could not find a
    * reliable global stamping property, and `foliostatus` per invoice is a better
@@ -1095,22 +1110,23 @@ test.describe('TS-02 — assertions on the completed run', () => {
     // tenant, so requiring it tests an invariant that has never held. Rendered
     // output is not reachable from invoice_unit at all here — neither filepath nor
     // invoicebase64pdf is ever populated — so PDF retrieval needs the document
-    // service, and there is nothing to assert from the database until stamping is
-    // off. Recorded as diagnostics instead.
+    // service, and there is nothing to assert from the database. Recorded as
+    // diagnostics instead. (With pacEnabled=false, as on JASEC dev/preprod,
+    // STAMPED is expected to be 0 simply because nothing is stamped.)
     test.info().annotations.push({
       type: 'artifact-state',
       description:
         `filepath populated: ${withPath.length}/${invoices.length} · ` +
         `STAMPED: ${stamped.length} · base64: ${invoices.filter((i) => i.hasBase64Pdf).length}. ` +
-        `All three are expected to be 0 on this tenant while stamping is on.`,
+        `All three are expected to be 0 on this tenant (STAMPED is 0 because pacEnabled=false on JASEC dev/preprod).`,
     });
 
     test.info().annotations.push({
       type: 'deferred',
       description:
-        'PDF CONTENT NOT ASSERTED. Stamping gates generation, so the file is a ~15-byte ' +
-        'stub. Report cases 7.2 / 7.4 stay Pending until stamping is off; the skeleton ' +
-        'above then needs only the fetch-and-extract body filled in.',
+        'PDF CONTENT NOT ASSERTED. When stamping is ON the file is a ~15-byte stub; JASEC ' +
+        'dev/preprod run with pacEnabled=false, so PDFs generate there. Report cases 7.2 / 7.4 ' +
+        'stay Pending until the fetch-and-extract body in the skeleton above is filled in.',
     });
   });
   /**
@@ -1202,6 +1218,8 @@ test.describe('TS-02 — assertions on the completed run', () => {
           // defect 4.2 — 13 emails arrived on 2026-10-09 with zero rows). The
           // suspension that shares its handler IS logged, so verify the path
           // through that instead of demanding a row that cannot exist.
+          // Since 2026-10-08 this mail-only path also asserts the Event 4 minimum
+          // VALUE (owed + 2,915.10, TC-85, JEPYP-319 Q3), not just its presence.
           if (a.event === 'CREDIT_LIMIT_BREACH') {
             const suspend = await notifyDb.getRenderedEmail(a.accountId, 'SUSPEND_SUBSCRIPTION', {
               afterId: plan.notificationWatermark,
@@ -1299,6 +1317,20 @@ test.describe('TS-02 — assertions on the completed run', () => {
                   )
                   .toBe(true);
 
+                // TC-85 — the VALUE, not just its presence: amount owed (the whole
+                // refused bill less credit = predicted post) + 2,915.10 (JEPYP-319 Q3).
+                if (min4) {
+                  const want4 = expectedMinimum('CREDIT_LIMIT_BREACH', BREACH_MINIMUM_BASE, a.post);
+                  expect
+                    .soft(
+                      Number(min4.replace(/[^\d,]/g, '').replace(',', '.')),
+                      `TC-85 — "Saldo Agotado" minimum for ${a.accountId} is ${min4}; expected ` +
+                      `${formatCRC(want4)} = owed ${a.post} + 2,915.10 (JEPYP-319 Q3). Known defect ` +
+                      `(reported 2026-10-08): the engine adds only the excess of the bill line that broke the limit.`,
+                    )
+                    .toBeCloseTo(want4, 2);
+                }
+
                 const suspendedForOrder = tagged.find((e) => /Servicio Suspendido/i.test(e.subject));
                 if (suspendedForOrder) {
                   expect
@@ -1322,9 +1354,11 @@ test.describe('TS-02 — assertions on the completed run', () => {
               // runs. This block used to demand the email right after that job,
               // which reds the run even when the product behaved correctly.
               //
-              // core_oms.order_provisioning is an empty stub on dev, so there is no
-              // callback trail to wait on. The observable proof that the callback
-              // landed is the subscription actually moving to SUSPENDED, plus the
+              // Provisioning and callbacks are live on dev, preprod and prod now
+              // (auto-suspend-resume drives them; this used to be an empty stub on
+              // dev). This leg still reads the outcome rather than the callback
+              // trail: the observable proof that the callback landed is the
+              // subscription actually moving to SUSPENDED, plus the
               // SUSPEND_SUBSCRIPTION row the same handler writes.
               //
               // Note this account may legitimately never suspend: defect 4.2 rolls
@@ -1387,6 +1421,10 @@ test.describe('TS-02 — assertions on the completed run', () => {
               });
 
               // ── Case 6.2 — the minimum must AGREE across Events 4 and 5 ────
+              //
+              // Since 2026-10-08 Event 4's minimum VALUE is also asserted above
+              // (owed + 2,915.10, TC-85). This case still cross-checks Events 4
+              // and 5 against each other.
               //
               // Each template already checks its own figure against X + post, so
               // why cross-check? Because minimumEqualsFormulaCheck deliberately
@@ -1566,20 +1604,26 @@ test.describe('TS-02 — assertions on the completed run', () => {
           // reported as generic silence and never attributed to 3.4 — which is
           // the filed bug. Attribute it here instead.
           if (a.event === 'CREDIT_THRESHOLD_BREACH') {
-            // Separate BAD TEST DATA from a real defect before blaming the product.
-            // An account whose credit profile has no CRC valuethreshold can never
-            // warn — the credit check returns before the threshold logic runs. 166
-            // prepaid accounts on dev are in that state, and reporting their silence
-            // as a bug is exactly the invalid report filed on 2026-08-13. Dev
-            // confirmed production MUST assign a profile carrying -4000|-2000.
+            // Separate an unusable staging subject from a notification defect
+            // before blaming the email logic. An account whose credit profile has
+            // no CRC valuethreshold can never warn — the credit check returns
+            // before the threshold logic runs. 166 prepaid accounts on dev are in
+            // that state; reporting their silence as a NOTIFICATION bug is exactly
+            // the invalid report filed on 2026-08-13. The NULL itself is a known
+            // CONFIG defect (updated 2026-10-08): the target is valuethreshold on
+            // the Prepaid Energy Profile (<tenant>-CRPRE), which must carry the
+            // agreed -4000|-2000 (JEPYP-319 Q1) and was NULL on prod and preprod
+            // 2026-10-08. Fix requested; ts-03 @saldo-config asserts it.
             const thresholds = await notifyDb.getAccountThresholds(a.accountId);
             if (!thresholds) {
               expect(
                 thresholds,
                 `${a.accountId} has no usable credit-limit threshold, so it CANNOT produce\n` +
-                `  a threshold email however it is staged. That is invalid test data, not a\n` +
-                `  defect. Select accounts with findThresholdCapableAccounts(), which now\n` +
-                `  filters on the credit profile.`,
+                `  a threshold email however it is staged and is unusable as a staging subject\n` +
+                `  for this spec. A prepaid account on the Prepaid Energy Profile with NULL\n` +
+                `  valuethreshold is the known config defect (agreed -4000|-2000, fix requested\n` +
+                `  2026-10-08, asserted by ts-03 @saldo-config). Select accounts with\n` +
+                `  findThresholdCapableAccounts(), which filters on the credit profile.`,
               ).toBeTruthy();
               return;
             }
@@ -1618,9 +1662,13 @@ test.describe('TS-02 — assertions on the completed run', () => {
         const invoices = await notifyDb.getInvoiceTotals(a.accountId, 6);
         const thisRunInvoice = invoices.find((i) => i.date === plan.scheduleDate);
         const observedBalance = await notifyDb.getCrcBalance(a.accountId);
+        // Events 4/5: a refused bill rolls back, so the live balance no longer holds
+        // it - but the minimum must cover the WHOLE refused bill (JEPYP-319 Q3), so
+        // the reference is the predicted post (staged + full charge), not the live read.
+        const breachEvent = a.event === 'CREDIT_LIMIT_BREACH' || a.event === 'SUSPEND_SUBSCRIPTION';
         const observedPost = thisRunInvoice
           ? Number((a.stagedBalance + Number(thisRunInvoice.total)).toFixed(2))
-          : (observedBalance ?? a.post);
+          : breachEvent ? a.post : (observedBalance ?? a.post);
         if (thisRunInvoice) {
           console.log(
             `[TS-02] ${a.accountId}: invoice ${thisRunInvoice.id} total ` +
