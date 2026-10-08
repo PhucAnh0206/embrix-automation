@@ -23,7 +23,20 @@
  * SCHEDULED job slot on the bill date.
  *
  *   $env:JASEC_BREACH_RUN='true'; npx playwright test --project=jasec-billing-breach --reporter=line
- *   optional: JASEC_BREACH_N (default 8), JASEC_BREACH_BDOM (default 20)
+ *   optional: JASEC_BREACH_N (default 8), JASEC_BREACH_BDOM (default 20),
+ *             JASEC_BREACH_TOPUPS="500,500" (credit for the LAST accounts, one value each; default none)
+ *
+ * ALSO THE SALDO AGOTADO MINIMUM (TC-85's rule, JEPYP-319 Q3) - added 2026-10-08. Every account here breaches on
+ * its month-end bill, so each gets the "Saldo Agotado" email; its minimum must be owed + 2,915.10, owed = the whole
+ * bill (JASEC_CYCLE_CHARGE, default 1,943.40 for a full first month) less the account's credit. The old engine adds
+ * only the excess of the first bill line that broke the limit (0 credit: 4,795.80 instead of 4,858.50; 500 credit:
+ * 4,295.80 instead of 4,358.50). The team's fix is ccp creditLimitCheckOnWholeBill=true + a new engine build
+ * (tenant-deployment 106f50e); the value is recorded, not gated. The email is never written to email_notification
+ * (defect 4.2), so it is read from the monitored mailbox: each account's contact is a plus-address of
+ * NOTIFY_EMAIL_TO. Soft assertions - the freeze verdict above stands on its own.
+ * Seed on the account's own billing day (BDOM = clock day) for a full first month, so the bill is the full charge.
+ *
+ * On preprod and prod the run is BLOCKED if any account that is not ours is due on the bill date (own-data rule).
  */
 import { test, expect } from '@playwright/test';
 import { PrepaidSeedHelper } from '../../../../helpers/prepaid-seed.helper';
@@ -32,6 +45,10 @@ import { DbHelper, hasDbConfig } from '../../../../helpers/db.helper';
 import { TestLogger } from '../../../../helpers/test-logger';
 import { uniqueRunSuffix, assertQaMeter } from '../../../../fixtures/create-prepaid-account.helper';
 import { blockedIf } from '../../../../helpers/blocked.helper';
+import { EmailHelper } from '../../../../helpers/email.helper';
+import { NotificationDbHelper } from '../../../../helpers/notification-db.helper';
+import { BREACH_MINIMUM_BASE, expectedMinimum } from '../../../../helpers/notification-bands';
+import { amountAfter } from '../../../../test-data/notifications/billing-events.templates';
 
 const RUN = String(process.env.JASEC_BREACH_RUN ?? '').trim().toLowerCase() === 'true';
 // dev, preprod and prod build 2 (Anh, 2026-10-05: fixes land on preprod first; prod build 2 has no UAT on it).
@@ -40,6 +57,9 @@ const ALLOWED_ENV = ['jasec-dev', 'jasec-preprod', 'jasec'].includes(process.env
 const N = Number(process.env.JASEC_BREACH_N ?? 8);
 const BDOM = Number(process.env.JASEC_BREACH_BDOM ?? 20);
 const MIN_BREACHES = 5; // the old pool size - fewer simultaneous breaches could never have frozen it
+const TOPUPS = (process.env.JASEC_BREACH_TOPUPS ?? '').split(',').map(x => x.trim()).filter(Boolean).map(Number);
+const CYCLE_CHARGE = Number(process.env.JASEC_CYCLE_CHARGE ?? 1943.40);
+const OWN_DATA_ONLY = ['jasec-preprod', 'jasec'].includes(process.env.TEST_ENV ?? '');
 
 test('several credit-limit breaches in one BILL_CHECK run do not freeze it', async ({ request }) => {
   if (blockedIf(!RUN, 'JASEC_BREACH_RUN is not "true" - this seeds accounts and moves the CCP clock')) return;
@@ -53,16 +73,27 @@ test('several credit-limit breaches in one BILL_CHECK run do not freeze it', asy
   await db.connect();
   const startClock = await seed.ccpDate();
   try {
-    // 1. N zero-balance accounts on a quiet billing day (no top-up = balance 0, credit limit 0).
+    if (blockedIf(TOPUPS.some(x => !(x > 0)) || TOPUPS.length > N, `JASEC_BREACH_TOPUPS must be up to ${N} positive amounts`)) return;
+    // 1. N zero-balance accounts on a quiet billing day (no top-up = balance 0, credit limit 0); the last
+    //    TOPUPS.length accounts get that much credit first. Contact = a plus-address of the monitored mailbox.
+    const monitored = EmailHelper.recipient();
     const ids: string[] = [];
+    const credit: Record<string, number> = {};
+    const tagOf: Record<string, string> = {};
     for (let i = 0; i < N; i++) {
       const s = uniqueRunSuffix();
+      const customerId = `E2EBRC-${s}`;
       const { accountId } = await seed.seed({
-        meter: assertQaMeter(`M-QABRC-${s}`), customerId: `E2EBRC-${s}`, name: `E2EBRC ${s}`, billingDom: BDOM,
+        meter: assertQaMeter(`M-QABRC-${s}`), customerId, name: `E2EBRC ${s}`, billingDom: BDOM,
+        email: NotificationDbHelper.plusAddress(monitored, customerId),
       });
       ids.push(accountId);
+      tagOf[accountId] = NotificationDbHelper.plusTag(customerId);
+      credit[accountId] = TOPUPS[i - (N - TOPUPS.length)] ?? 0;
     }
-    console.log(`  seeded ${ids.length} zero-balance accounts on BDOM ${BDOM} at ${startClock}: ${ids.join(', ')}`);
+    for (const id of ids) if (credit[id] > 0) await seed.topUp(id, credit[id]);
+    console.log(`  seeded ${ids.length} accounts on BDOM ${BDOM} at ${startClock}: ` +
+      ids.map(id => `${id}${credit[id] ? ` (credit ${credit[id]})` : ''}`).join(', '));
 
     // 2. Their bill date, once each has a PENDING bill unit (the order completes asynchronously).
     let dates: string[] = [];
@@ -87,7 +118,10 @@ test('several credit-limit breaches in one BILL_CHECK run do not freeze it', asy
          JOIN core_engine.payment_profile pp ON pp.accountid = bp.accountid AND pp.paymentmethod = 'CHECK'
         WHERE bp.accountid <> ALL($1)
           AND bp.nextaccountingdate = $2::date - core_engine.get_future_cycle_date(bp.accountid)`, [ids, billDate]);
-    console.log(`  bill date ${billDate}; other dev accounts due that day: ${others[0]?.n ?? 0}`);
+    console.log(`  bill date ${billDate}; other accounts due that day: ${others[0]?.n ?? 0}`);
+    if (blockedIf(OWN_DATA_ONLY && (others[0]?.n ?? 0) > 0,
+      `${others[0]?.n} account(s) that are not ours are due on ${billDate} - on ${process.env.TEST_ENV} we bill our own ` +
+      `accounts only. Pick another JASEC_BREACH_BDOM.`)) return;
 
     // 3. Clock to the bill date (setCcpDate clears a stranded future-order pin first), BILL_CHECK alone.
     await seed.setCcpDate(billDate);
@@ -130,6 +164,42 @@ test('several credit-limit breaches in one BILL_CHECK run do not freeze it', asy
     blockedIf(breaches < MIN_BREACHES,
       `only ${breaches} account(s) breached their credit limit - at least ${MIN_BREACHES} at once are needed to exercise the freeze`);
     console.log(`  PASS - ${breaches} simultaneous credit-limit breaches, run finished in ${secs}s, every account accounted for`);
+
+    // 5. TC-85's rule on every breached account: the Saldo Agotado minimum = owed + 2,915.10.
+    const wholeBill = (await db.query<{ value: string }>(
+      `SELECT value FROM core_config.ccp_properties WHERE property = 'creditLimitCheckOnWholeBill'`))[0]?.value ?? '<absent>';
+    const breached = results.filter(r => /credit limit/i.test(r.reason)).map(r => r.accountid);
+    const mail = new EmailHelper();
+    await mail.connect();
+    const found: Record<string, string> = {};
+    try {
+      const since = new Date(t0 - 60_000);
+      for (let i = 0; i < 30 && breached.some(id => !(id in found)); i++) {   // up to ~5 min for delivery
+        if (i) await new Promise(res => setTimeout(res, 10_000));
+        const got = await mail.searchEmails({ match: e => /Saldo Agotado/i.test(e.subject), since, limit: 200 });
+        for (const id of breached) {
+          const m = got.find(e => e.to.includes(tagOf[id]));
+          if (m) found[id] = amountAfter(m.text, 'Monto mínimo a recargar') || amountAfter(m.text, 'recarga mínima de') || '(none)';
+        }
+      }
+    } finally {
+      await mail.disconnect();
+    }
+    console.log(`  Saldo Agotado minimum (creditLimitCheckOnWholeBill=${wholeBill}, bill ${CYCLE_CHARGE}):`);
+    for (const id of breached) {
+      const owed = Math.round((CYCLE_CHARGE - credit[id]) * 100) / 100;
+      const want = expectedMinimum('CREDIT_LIMIT_BREACH', BREACH_MINIMUM_BASE, owed);
+      const got = found[id];
+      const n = got && got !== '(none)' ? Number(got.replace(/[^\d,]/g, '').replace(',', '.')) : NaN;
+      console.log(`    ${id} credit ${credit[id]}: email ${got ?? 'NOT DELIVERED'}, expected ${want.toFixed(2)}`);
+      test.info().annotations.push({ type: 'TC-85', description: `${id} credit ${credit[id]}: ${got ?? 'not delivered'} vs ${want.toFixed(2)} (creditLimitCheckOnWholeBill=${wholeBill})` });
+      expect.soft(got, `${id}: no "Saldo Agotado" email reached ${tagOf[id]} within ~5 min`).toBeTruthy();
+      if (!Number.isNaN(n)) {
+        expect.soft(n, `TC-85 rule - ${id} (credit ${credit[id]}): Saldo Agotado minimum ${got}, expected ` +
+          `${want.toFixed(2)} = owed ${owed.toFixed(2)} + 2,915.10 (JEPYP-319 Q3). creditLimitCheckOnWholeBill=${wholeBill}.`)
+          .toBeCloseTo(want, 2);
+      }
+    }
   } finally {
     await seed.setCcpDate(startClock).catch(e => console.log(`  WARNING: clock not restored to ${startClock}: ${e}`));
     await db.disconnect();
