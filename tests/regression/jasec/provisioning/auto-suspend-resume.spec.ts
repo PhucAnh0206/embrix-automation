@@ -714,6 +714,55 @@ test.describe('JEPYP-27 - automatic suspend and resume (credit breach / top-up)'
    * MUTATING: moves the tenant clock (restored), runs the DAILY chain on that date (bills whoever is due - dev).
    *   $env:JASEC_AUTO_PROV_RUN='true'; $env:JASEC_HELD_CYCLE_RUN='true'; npx playwright test --project=jasec-provisioning-orders auto-suspend-resume --grep "@auto-held-cycle"
    */
+  /**
+   * EXPLORATORY (2026-10-08) - the SUSPEND side of F7. The engine skips an automatic SUSPEND/RESUME/CANCEL while
+   * the account has another order of that type in any status except FAILED/COMPLETED/CANCELLED
+   * (PGOrderUtilsService.processSubscriptionUpdateOrder, EP-5528). So if the breach SUSPEND fails at JASEC
+   * (PROVISIONING_ERROR - here because the AMI refuses QA meters; in production a comms error), the meter is NOT
+   * cut, and the question is whether the NEXT breach raises a SUSPEND again. No callback is sent on purpose.
+   * Records the answer; asserts only the harness. No clock move.
+   */
+  test('a failed breach SUSPEND does not stop the next breach from suspending (F7 mirror, exploratory) @auto-stuck-suspend',
+    async ({}, testInfo) => {
+      test.skip(!RUN, 'GATED: seeds, drops MDR files and dispatches to the live AMI. Set JASEC_AUTO_PROV_RUN=true.');
+      test.setTimeout(1_200_000);
+      const logger = new TestLogger('auto-suspend-resume-stuck-suspend');
+      const db = new DbHelper(logger);
+      try { await db.connect(); } catch (e) { blockedIf(true, `database unreachable (VPN?): ${(e as Error).message}`); }
+      try {
+        const { s, mdr } = await fundedAccount(db, logger, 'QAAUTOSTK');
+        const first = await test.step('breach: a SUSPEND is raised and JASEC refuses it (no callback)', async () => {
+          const id = await breach(db, mdr, s, testInfo);
+          await waitForDispatch(db, id, 'D');
+          return id;
+        });
+        const stuck = await accountState(db, s);
+        console.log(`  after the failed SUSPEND ${first}: subscription ${stuck.sub}, service unit ${stuck.svc} (meter NOT cut)`);
+        await note(testInfo, 'state after the failed SUSPEND', `${first} PROVISIONING_ERROR; subscription ${stuck.sub}, service unit ${stuck.svc}`);
+
+        await test.step('a further reading breaches again: is a SUSPEND raised?', async () => {
+          const before = (await orders(db, s.accountId)).filter(o => o.type === 'SUSPEND').map(o => o.id);
+          const out = await readingOutcome(db, mdr, s, WHILE_SUSPENDED_READING);
+          await sleep(60_000);
+          const after = (await orders(db, s.accountId)).filter(o => o.type === 'SUSPEND');
+          const fresh = after.filter(o => !before.includes(o.id));
+          const acc = await accountState(db, s);
+          const verdict = fresh.length
+            ? `NOT reproduced: the second breach raised ${fresh.map(o => `${o.id} ${o.status}`).join(', ')}`
+            : `REPRODUCED: the second breach raised NO SUSPEND - the only one is ${first} (PROVISIONING_ERROR); ` +
+              `subscription ${acc.sub}, service unit ${acc.svc} - the customer keeps power`;
+          console.log(`  reading ${WHILE_SUSPENDED_READING}: ${out.row?.where} ${out.row?.status}/${out.row?.errorcode}, balance ` +
+            `${out.before} -> ${out.after}
+  [F7-mirror] ${verdict}`);
+          await note(testInfo, 'F7 mirror verdict', `${verdict}. Second reading ${out.row?.status}/${out.row?.errorcode} ` +
+            `(${out.file}), balance ${out.before} -> ${out.after}. Breach emails: ${await notified(db, s.accountId, 'CREDIT_LIMIT_BREACH')}.`);
+          expect(out.row, 'the second reading never appeared - harness problem').toBeTruthy();
+        });
+      } finally {
+        await db.disconnect();
+      }
+    });
+
   test('a cut account with a held reading stays cut through a daily run days later @auto-held-cycle',
     async ({ request, page, dailySchedulePage }, testInfo) => {
       // Its OWN gate: JASEC_AUTO_PROV_RUN alone runs every test here, and this one also moves the clock and runs
