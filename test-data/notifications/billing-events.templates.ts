@@ -257,8 +257,8 @@ const saldoEqualsPostCheck = (): FieldCheck => ({
  */
 const minimumEqualsFormulaCheck = (event: Parameters<typeof expectedMinimum>[0]): FieldCheck => {
   const breach = event === 'CREDIT_LIMIT_BREACH' || event === 'SUSPEND_SUBSCRIPTION';
-  const bases = (c: { X?: number }) => {
-    if (breach) return [BREACH_MINIMUM_BASE];
+  const bases = (c: { X?: number; breachBase?: number }) => {
+    if (breach) return [c.breachBase ?? BREACH_MINIMUM_BASE];
     const x = c.X ?? 0;
     return [x, x * 3, x / 3];
   };
@@ -268,7 +268,10 @@ const minimumEqualsFormulaCheck = (event: Parameters<typeof expectedMinimum>[0])
     expected: (c) => {
       const post = c.postBalance ?? 0;
       const first = formatCRC(expectedMinimum(event, bases(c)[0], post));
-      return breach ? `${first} (amount owed + 2,915.10, JEPYP-319 Q3)` : `${first} (or the 3x / ÷3 kWh-basis variant)`;
+      const base = bases(c)[0];
+      return breach
+        ? `${first} (amount owed + ${formatCRC(base)}, ${base === BREACH_MINIMUM_BASE ? 'no top-up in the cycle - JEPYP-319 Q3' : 'after a top-up in the cycle - team rule, Luis to confirm'})`
+        : `${first} (or the 3x / ÷3 kWh-basis variant)`;
     },
     actual: (c) => amountAfter(c.email.text, 'recarga mínima de') || amountAfter(c.email.text, 'Monto mínimo a recargar'),
     compare: (actual, _expected, c) => {

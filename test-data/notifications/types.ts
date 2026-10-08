@@ -49,6 +49,11 @@ export interface NotificationContext {
   C?: number;
   /** Balance the notification branch actually read: staged balance + C. */
   postBalance?: number;
+  /**
+   * Standard part of the out-of-credit minimum (Saldo Agotado / Servicio Suspendido): 2,915.10 (45 kWh) with no
+   * top-up in the billed cycle, 971.70 (15 kWh) after one (team, 2026-10-08). Unset = 2,915.10.
+   */
+  breachBase?: number;
   /** Balance staged before the run. */
   stagedBalance?: number;
   /** kWh the engine saw, evaluated against the CCP date. */

@@ -26,12 +26,18 @@
  *   optional: JASEC_BREACH_N (default 8), JASEC_BREACH_BDOM (default 20),
  *             JASEC_BREACH_TOPUPS="500,500" (credit for the LAST accounts, one value each; default none)
  *
- * ALSO THE SALDO AGOTADO MINIMUM (TC-85's rule, JEPYP-319 Q3) - added 2026-10-08. Every account here breaches on
- * its month-end bill, so each gets the "Saldo Agotado" email; its minimum must be owed + 2,915.10, owed = the whole
- * bill (JASEC_CYCLE_CHARGE, default 1,943.40 for a full first month) less the account's credit. The old engine adds
- * only the excess of the first bill line that broke the limit (0 credit: 4,795.80 instead of 4,858.50; 500 credit:
- * 4,295.80 instead of 4,358.50). The team's fix is ccp creditLimitCheckOnWholeBill=true + a new engine build
- * (tenant-deployment 106f50e); the value is recorded, not gated. The email is never written to email_notification
+ * ALSO THE SALDO AGOTADO MINIMUM (TC-85's rule, JEPYP-319 Q3) - added 2026-10-08. Every account here whose credit is
+ * below its month-end bill breaches, so it gets the "Saldo Agotado" email; its minimum must be owed + the standard
+ * minimum. owed = the WHOLE bill, net of its credit lines (JASEC_CYCLE_CHARGE, default 1,943.40 for a full first
+ * month), less the account's credit. Standard minimum (team's fix note, 2026-10-08): 2,915.10 (45 kWh) with no top-up
+ * in the month, 971.70 (15 kWh) after one - every JASEC_BREACH_TOPUPS account topped up in this cycle. Luis's Q3
+ * answer covers only the no-top-up case, so the 971.70 half is an assumption until he confirms it (TC-86).
+ * The team's fix is ccp creditLimitCheckOnWholeBill=true + a new engine build (tenant-deployment 106f50e); the value
+ * is recorded, not gated.
+ *
+ * SIDE EFFECT (intended, team 2026-10-08): the bill is judged as a whole, so an account whose credit covers the WHOLE
+ * bill is ACCEPTED even if one line on its own would go over (credit 1,950 vs 1,880.70 + 80.10 - 17.40 = 1,943.40).
+ * Give one account JASEC_BREACH_TOPUPS=1950 to check it: it must be billed, not refused, and get no Saldo Agotado. The email is never written to email_notification
  * (defect 4.2), so it is read from the monitored mailbox: each account's contact is a plus-address of
  * NOTIFY_EMAIL_TO. Soft assertions - the freeze verdict above stands on its own.
  * Seed on the account's own billing day (BDOM = clock day) for a full first month, so the bill is the full charge.
@@ -47,7 +53,7 @@ import { uniqueRunSuffix, assertQaMeter } from '../../../../fixtures/create-prep
 import { blockedIf } from '../../../../helpers/blocked.helper';
 import { EmailHelper } from '../../../../helpers/email.helper';
 import { NotificationDbHelper } from '../../../../helpers/notification-db.helper';
-import { BREACH_MINIMUM_BASE, expectedMinimum } from '../../../../helpers/notification-bands';
+import { BREACH_MINIMUM_BASE, BREACH_MINIMUM_BASE_AFTER_TOPUP, expectedMinimum } from '../../../../helpers/notification-bands';
 import { amountAfter } from '../../../../test-data/notifications/billing-events.templates';
 
 const RUN = String(process.env.JASEC_BREACH_RUN ?? '').trim().toLowerCase() === 'true';
@@ -151,6 +157,8 @@ test('several credit-limit breaches in one BILL_CHECK run do not freeze it', asy
        SELECT accountid, 'refused', coalesce(reason,'') FROM core_engine.jobs_error WHERE id = $1 AND accountid = ANY($2)`,
       [row?.jobid ?? '', ids]);
     const breaches = results.filter(r => /credit limit/i.test(r.reason)).length;
+    // Accounts whose credit covers the whole bill must be BILLED now (the whole-bill side effect).
+    const covered = ids.filter(id => credit[id] >= CYCLE_CHARGE);
     const missing = ids.filter(id => !results.some(r => r.accountid === id));
     console.log(`  ${scheduleId} BILL_CHECK ${row?.status} in ${secs}s - success ${row?.ok}, error ${row?.err}` +
       `${processError ? ` (process call: ${processError})` : ''}`);
@@ -165,6 +173,13 @@ test('several credit-limit breaches in one BILL_CHECK run do not freeze it', asy
       `only ${breaches} account(s) breached their credit limit - at least ${MIN_BREACHES} at once are needed to exercise the freeze`);
     console.log(`  PASS - ${breaches} simultaneous credit-limit breaches, run finished in ${secs}s, every account accounted for`);
 
+    for (const id of covered) {
+      const r = results.find(x => x.accountid === id);
+      console.log(`  whole-bill side effect: ${id} credit ${credit[id]} >= bill ${CYCLE_CHARGE} -> ${r?.r ?? 'no result'} ${r?.reason ?? ''}`);
+      expect.soft(r?.r, `${id}: credit ${credit[id]} covers the whole bill ${CYCLE_CHARGE}, so it must be BILLED, not refused ` +
+        `(team 2026-10-08: "if one line goes over the limit but the whole bill fits in the credit, the bill is now accepted")`).toBe('billed');
+    }
+
     // 5. TC-85's rule on every breached account: the Saldo Agotado minimum = owed + 2,915.10.
     const wholeBill = (await db.query<{ value: string }>(
       `SELECT value FROM core_config.ccp_properties WHERE property = 'creditLimitCheckOnWholeBill'`))[0]?.value ?? '<absent>';
@@ -175,9 +190,10 @@ test('several credit-limit breaches in one BILL_CHECK run do not freeze it', asy
     try {
       const since = new Date(t0 - 60_000);
       for (let i = 0; i < 30 && breached.some(id => !(id in found)); i++) {   // up to ~5 min for delivery
+        // (covered accounts are searched too, below, so a wrongly sent email is caught)
         if (i) await new Promise(res => setTimeout(res, 10_000));
         const got = await mail.searchEmails({ match: e => /Saldo Agotado/i.test(e.subject), since, limit: 200 });
-        for (const id of breached) {
+        for (const id of [...breached, ...covered]) {
           const m = got.find(e => e.to.includes(tagOf[id]));
           if (m) found[id] = amountAfter(m.text, 'Monto mínimo a recargar') || amountAfter(m.text, 'recarga mínima de') || '(none)';
         }
@@ -185,10 +201,14 @@ test('several credit-limit breaches in one BILL_CHECK run do not freeze it', asy
     } finally {
       await mail.disconnect();
     }
+    for (const id of covered) {
+      expect.soft(found[id], `${id}: its bill was covered, so no "Saldo Agotado" email may be sent`).toBeUndefined();
+    }
     console.log(`  Saldo Agotado minimum (creditLimitCheckOnWholeBill=${wholeBill}, bill ${CYCLE_CHARGE}):`);
     for (const id of breached) {
       const owed = Math.round((CYCLE_CHARGE - credit[id]) * 100) / 100;
-      const want = expectedMinimum('CREDIT_LIMIT_BREACH', BREACH_MINIMUM_BASE, owed);
+      const base = credit[id] > 0 ? BREACH_MINIMUM_BASE_AFTER_TOPUP : BREACH_MINIMUM_BASE;   // topped up this cycle?
+      const want = expectedMinimum('CREDIT_LIMIT_BREACH', base, owed);
       const got = found[id];
       const n = got && got !== '(none)' ? Number(got.replace(/[^\d,]/g, '').replace(',', '.')) : NaN;
       console.log(`    ${id} credit ${credit[id]}: email ${got ?? 'NOT DELIVERED'}, expected ${want.toFixed(2)}`);
@@ -196,7 +216,9 @@ test('several credit-limit breaches in one BILL_CHECK run do not freeze it', asy
       expect.soft(got, `${id}: no "Saldo Agotado" email reached ${tagOf[id]} within ~5 min`).toBeTruthy();
       if (!Number.isNaN(n)) {
         expect.soft(n, `TC-85 rule - ${id} (credit ${credit[id]}): Saldo Agotado minimum ${got}, expected ` +
-          `${want.toFixed(2)} = owed ${owed.toFixed(2)} + 2,915.10 (JEPYP-319 Q3). creditLimitCheckOnWholeBill=${wholeBill}.`)
+          `${want.toFixed(2)} = owed ${owed.toFixed(2)} (whole bill net of credit lines, less credit) + ${base.toFixed(2)} ` +
+          `(${credit[id] > 0 ? '15 kWh after a top-up this month - team rule, Luis to confirm' : '45 kWh, no top-up - JEPYP-319 Q3'}). ` +
+          `creditLimitCheckOnWholeBill=${wholeBill}.`)
           .toBeCloseTo(want, 2);
       }
     }

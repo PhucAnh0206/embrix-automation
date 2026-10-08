@@ -16,9 +16,10 @@
  *                                                            with a credit line)
  * Checks 2 and 3 judge the EFFECT on the GL account, so either fix in the bug report (keep
  * the sign, or swap debit/credit) makes them pass - see EntrySignResult in
- * helpers/accounting-db.helper.ts. Batches extracted BEFORE the fix keep their wrong
- * entries, so after the fix check 3 still lists them: judge the fix on batches extracted
- * after it (the ts-06 run does exactly that, for its own batch).
+ * helpers/accounting-db.helper.ts. FIXED 2026-10-08 (team: credit lines keep their sign).
+ * Batches extracted BEFORE the fix keep their old amounts by design, so per tenant
+ * TIE_OUT_FIX_FROM_BATCH names the first post-fix batch: older ones are logged, not judged;
+ * that one and every later one must tie out exactly (ts-06 also checks its own new batch).
  *
  * READ-ONLY. Queries only, no clock move (plain `@playwright/test`, not the JASEC
  * fixtures). Needs the database, therefore the VPN.
@@ -28,11 +29,14 @@
 
 import { test, expect } from '@playwright/test';
 import { DbHelper } from '../../../../helpers/db.helper';
-import { AccountingDbHelper, KNOWN_BASIS_GAPS, KNOWN_TIE_OUT_DEBRIS } from '../../../../helpers/accounting-db.helper';
+import { AccountingDbHelper, KNOWN_BASIS_GAPS, KNOWN_TIE_OUT_DEBRIS, TIE_OUT_FIX_FROM_BATCH } from '../../../../helpers/accounting-db.helper';
 import { blockedIf } from '../../../../helpers/blocked.helper';
 
 const DEFECT = 'credit lines booked as positive amounts (accounting extract defect raised 2026-10-08)';
 const CENT = 0.005;
+/** First batch extracted with the team's fix on this tenant (see TIE_OUT_FIX_FROM_BATCH). Undefined = judge all. */
+const FIX_FROM = TIE_OUT_FIX_FROM_BATCH[process.env.TEST_ENV ?? ''];
+const preFix = (batchId: string) => FIX_FROM !== undefined && /^\d+$/.test(batchId) && Number(batchId) < FIX_FROM;
 
 let db: DbHelper;
 let acct: AccountingDbHelper;
@@ -70,8 +74,15 @@ test.describe('JASEC accounting — the extract ties out to the net invoice', {
   });
 
   test('every accounting entry keeps the sign of its journal', async () => {
-    const r = await acct.entrySign();
-    blockedIf(r.judged === 0, 'no journal in an INVOICE extract has an accounting entry');
+    if (FIX_FROM !== undefined) {
+      const old = await acct.entrySign(undefined, { below: FIX_FROM });
+      console.log(`\n  pre-fix batches (< ${FIX_FROM}, kept with their old amounts by design - team 2026-10-08): ` +
+        `${old.broken} of ${old.credits} credit line(s) booked like charges - logged, not judged`);
+    }
+    const r = await acct.entrySign(undefined, FIX_FROM !== undefined ? { from: FIX_FROM } : undefined);
+    blockedIf(r.judged === 0, FIX_FROM !== undefined
+      ? `no journal extracted at or after batch ${FIX_FROM} (the first post-fix batch) - extract a day first (TC-146)`
+      : 'no journal in an INVOICE extract has an accounting entry');
     console.log(`\n  ${r.judged} journal(s) judged, ${r.credits} credit line(s), ${r.broken} booked against their sign`);
     for (const x of r.sample) {
       console.log(`    journal ${x.journalId} (batch ${x.batchId}, ${x.accountId}): amount ${x.amount}, entry moves its GL account by ${x.effect}`);
@@ -85,11 +96,23 @@ test.describe('JASEC accounting — the extract ties out to the net invoice', {
   test('every INVOICE batch line equals the net of the journals it consumed', async () => {
     const lines = await acct.batchNetTieOut();
     const known = KNOWN_TIE_OUT_DEBRIS[process.env.TEST_ENV ?? ''] ?? [];
-    const judged = lines.filter((l) => !known.includes(l.batchId));
+    const pre = lines.filter((l) => !known.includes(l.batchId) && preFix(l.batchId));
+    const preOff = new Set(pre.filter((l) => Math.abs(l.batch - l.net) > CENT).map((l) => l.batchId));
+    if (FIX_FROM !== undefined) {
+      console.log(`  pre-fix batches (< ${FIX_FROM}): ${preOff.size} keep their old amounts by design (team 2026-10-08) - ` +
+        `logged, not judged: ${[...preOff].join(', ') || 'none'}`);
+      // A pre-fix batch that is off in some OTHER way than the known defect is still a finding.
+      const preOther = pre.filter((l) => Math.abs(l.batch - l.net) > CENT && !(l.credits > 0 && Math.abs(l.batch - l.gross) <= CENT));
+      expect.soft(preOther.map((l) => `batch ${l.batchId} ${l.glAccount}: net ${l.net.toFixed(2)}, batch ${l.batch.toFixed(2)}`),
+        'pre-fix batches that are off in some way OTHER than the known credit-line defect').toEqual([]);
+    }
+    const judged = lines.filter((l) => !known.includes(l.batchId) && !preFix(l.batchId));
     for (const id of new Set(lines.filter((l) => known.includes(l.batchId)).map((l) => l.batchId))) {
       console.log(`  known pre-existing anomaly, see KNOWN_TIE_OUT_DEBRIS — batch ${id}`);
     }
-    blockedIf(judged.length === 0, 'no INVOICE batch on this tenant has journals stamped with it');
+    blockedIf(judged.length === 0, FIX_FROM !== undefined
+      ? `no INVOICE batch at or after ${FIX_FROM} (the first post-fix batch) - extract a day first (TC-146)`
+      : 'no INVOICE batch on this tenant has journals stamped with it');
 
     const off = judged.filter((l) => Math.abs(l.batch - l.net) > CENT);
     const batches = new Set(judged.map((l) => l.batchId));

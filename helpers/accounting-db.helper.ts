@@ -228,6 +228,23 @@ export const KNOWN_TIE_OUT_DEBRIS: Record<string, string[]> = {
  * Invoices excused from the BASIS check (invoice = signed sum of its journals), keyed by
  * tenant. Not the sign defect - these invoices are simply missing journals.
  */
+/**
+ * FIRST BATCH EXTRACTED WITH THE FIX, per tenant. The team fixed the credit-line sign on 2026-10-08
+ * (create_accounting_entry keeps an INVOICE credit line negative) and said "batches made before the fix keep their
+ * old amounts". Entries are written AT EXTRACT TIME, so a batch's correctness depends on when it was extracted:
+ * batches below this id keep the old ABS amounts by design and are LOGGED as pre-fix, not failed; this batch and
+ * every later one must tie out exactly. A tenant with no entry here is judged strictly throughout (set it only after
+ * a post-fix batch on that tenant has been seen to tie out).
+ *   jasec-preprod: 10031 (2027-02-22 invoices, 7 credit lines, ties to the cent) - 10029 (10:07) was pre-fix.
+ *   jasec-dev:     10035 (2026-10-28 invoices, 7 credit lines, ties to the cent) - 10033 (10-07) was pre-fix;
+ *                  there is no 10034.
+ *   jasec (prod):  not set yet - verify a post-fix batch there first.
+ */
+export const TIE_OUT_FIX_FROM_BATCH: Record<string, number> = {
+  'jasec-preprod': 10031,
+  'jasec-dev': 10035,
+};
+
 export const KNOWN_BASIS_GAPS: Record<string, string[]> = {
   'jasec-dev': [
     // Measured 2026-10-08. All five sit in batch 10004 (extracted 2026-09-04, clock
@@ -627,7 +644,7 @@ export class AccountingDbHelper {
    * journal's SIGNED amount? See EntrySignResult for the defect and why this is judged
    * on the effect. `batchId` narrows it to one batch (ts-06 after its own extract).
    */
-  async entrySign(batchId?: string): Promise<EntrySignResult> {
+  async entrySign(batchId?: string, range?: { from?: number; below?: number }): Promise<EntrySignResult> {
     const rows = await this.db.query<any>(
       `WITH inv AS (SELECT DISTINCT batchid FROM core_revenue.ebs_header_extract WHERE type = 'INVOICE'),
        j AS (
@@ -639,6 +656,8 @@ export class AccountingDbHelper {
            JOIN core_revenue.accounting_entry ae ON ae.journalid::text = rj.id::text
           WHERE rj.extractbatchid IN (SELECT batchid FROM inv)
             AND ($1::text IS NULL OR rj.extractbatchid = $1::text)
+            AND ($2::bigint IS NULL OR (rj.extractbatchid ~ '^[0-9]+$' AND rj.extractbatchid::bigint >= $2::bigint))
+            AND ($3::bigint IS NULL OR (rj.extractbatchid ~ '^[0-9]+$' AND rj.extractbatchid::bigint <  $3::bigint))
           GROUP BY rj.id, rj.extractbatchid, rj.accountid, rj.amount)
        SELECT count(*)::int                                   AS judged,
               count(*) FILTER (WHERE amount < 0)::int         AS credits,
@@ -647,7 +666,7 @@ export class AccountingDbHelper {
                                            'amount', amount, 'effect', effect) ORDER BY id::bigint)
                  FILTER (WHERE effect <> amount))[1:10]       AS sample
          FROM j`,
-      [batchId ?? null],
+      [batchId ?? null, range?.from ?? null, range?.below ?? null],
     );
     const r = rows[0] ?? {};
     return {

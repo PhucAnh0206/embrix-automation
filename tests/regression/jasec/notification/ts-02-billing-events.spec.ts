@@ -51,7 +51,7 @@ import { NotificationReportHelper } from '../../../../helpers/notification-repor
 import { EmailHelper } from '../../../../helpers/email.helper';
 import {
   branchFor, stageFor, stageForThreshold, postBalance, willCrossZero,
-  crossesThreshold, tierForKwh, DEFAULT_THRESHOLDS, expectedMinimum, BREACH_MINIMUM_BASE,
+  crossesThreshold, tierForKwh, DEFAULT_THRESHOLDS, expectedMinimum, BREACH_MINIMUM_BASE, BREACH_MINIMUM_BASE_AFTER_TOPUP,
   type BillingEvent, type KwhTier,
 } from '../../../../helpers/notification-bands';
 import { formatCRC } from '../../../../helpers/email.helper';
@@ -464,8 +464,8 @@ test.describe('TS-02 — staged billing run', () => {
 
     console.log(`[TS-02] ${candidates.length} eligible accounts for scheduleDate ${scheduleDate}`);
     if (blockedIf(
-      candidates.length < 7,
-      `only ${candidates.length} eligible account(s) for ${scheduleDate}, 7 needed. An account ` +
+      candidates.length < 8,
+      `only ${candidates.length} eligible account(s) for ${scheduleDate}, 8 needed (one per planned event). An account ` +
       `is eligible only when required_scheduledate == scheduleDate exactly; accounts billed ` +
       `by a previous run have advanced a cycle.`,
     )) return;
@@ -649,6 +649,9 @@ test.describe('TS-02 — staged billing run', () => {
         continue;
       }
       expect(idx, `ran out of eligible accounts while planning ${w.event}`).toBeGreaterThanOrEqual(0);
+      // The pool can run dry even above the guard (capability filters); report it, never crash on undefined.
+      if (blockedIf(pool.length === 0, `ran out of eligible accounts while planning ${w.event} on ${scheduleDate} - ` +
+        `${candidates.length} were eligible for ${wanted.length} planned events`)) return;
       const acct: EligibleAccount = pool.splice(idx, 1)[0];
 
       const X = await notifyDb.getX(acct.accountId);
@@ -1348,7 +1351,9 @@ test.describe('TS-02 — assertions on the completed run', () => {
                 // TC-85 — the VALUE, not just its presence: amount owed (the whole
                 // refused bill less credit = predicted post) + 2,915.10 (JEPYP-319 Q3).
                 if (min4) {
-                  const want4 = expectedMinimum('CREDIT_LIMIT_BREACH', BREACH_MINIMUM_BASE, a.post);
+                  // 2,915.10 with no top-up in the billed cycle, 971.70 after one (team, 2026-10-08; Luis to confirm the latter).
+                  const base4 = (await notifyDb.topUpsInOpenCycle(a.accountId)) > 0 ? BREACH_MINIMUM_BASE_AFTER_TOPUP : BREACH_MINIMUM_BASE;
+                  const want4 = expectedMinimum('CREDIT_LIMIT_BREACH', base4, a.post);
                   // The team's fix (tenant-deployment 106f50e, 2026-10-08, applied on dev + preprod)
                   // is the ccp switch creditLimitCheckOnWholeBill=true plus a new engine build.
                   // Recorded, not gated: off (or absent) is the old behaviour and must still FAIL here.
@@ -1360,8 +1365,8 @@ test.describe('TS-02 — assertions on the completed run', () => {
                     .soft(
                       Number(min4.replace(/[^\d,]/g, '').replace(',', '.')),
                       `TC-85 — "Saldo Agotado" minimum for ${a.accountId} is ${min4}; expected ` +
-                      `${formatCRC(want4)} = owed ${a.post} + 2,915.10 (JEPYP-319 Q3). Known defect ` +
-                      `(reported 2026-10-08): the engine adds only the excess of the bill line that broke the limit. ` +
+                      `${formatCRC(want4)} = owed ${a.post} + ${formatCRC(base4)} (${base4 === BREACH_MINIMUM_BASE ? 'no top-up in the cycle' : 'after a top-up in the cycle'}, JEPYP-319 Q3). ` +
+                      `Before the team's fix the engine added only the excess of the bill line that broke the limit. ` +
                       `creditLimitCheckOnWholeBill=${wholeBill} (the fix switch; it also needs the new engine).`,
                     )
                     .toBeCloseTo(want4, 2);
@@ -1752,6 +1757,7 @@ test.describe('TS-02 — assertions on the completed run', () => {
           X: a.X, C: a.C,
           stagedBalance: a.stagedBalance,
           postBalance: observedPost,
+          breachBase: (await notifyDb.topUpsInOpenCycle(a.accountId)) > 0 ? BREACH_MINIMUM_BASE_AFTER_TOPUP : BREACH_MINIMUM_BASE,
           // For case 3.5 the engine sees no rows, and the <=100 branch applies —
           // so 0, not null, which is what makes the tier expectation resolve to
           // "no tax paragraph" instead of "unknown".

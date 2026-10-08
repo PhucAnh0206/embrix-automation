@@ -434,6 +434,26 @@ export class NotificationDbHelper {
   }
 
   /**
+   * Top-ups the account made inside its OPEN cycle (the bill unit billing is about to settle, or the one a
+   * refused bill left open). `subscription_topup.createddate` is stamped with the CCP date, so it compares with
+   * the bill unit's dates. Decides the out-of-credit minimum's standard part: 971.70 after a top-up in the cycle,
+   * 2,915.10 without (team, 2026-10-08; see BREACH_MINIMUM_BASE_AFTER_TOPUP).
+   */
+  async topUpsInOpenCycle(accountId: string): Promise<number> {
+    const rows = await this.db.query<{ n: number }>(
+      `SELECT count(*)::int AS n
+         FROM core_engine.subscription_topup t
+         JOIN core_engine.billing_profile bp ON bp.accountid = t.accountid
+         JOIN core_engine.bill_unit bu ON bu.id = bp.nextbillunitid
+        WHERE t.accountid = $1
+          AND t.createddate::date >= bu.startdate::date
+          AND t.createddate::date <  bu.enddate::date`,
+      [accountId],
+    );
+    return rows[0]?.n ?? 0;
+  }
+
+  /**
    * The Prepaid Energy Profile's CRC thresholds (null = not set). Read before a
    * JASEC_WARN_PROFILE=prepaid run so a missing Q1 fix reports BLOCKED, not "no accounts".
    */

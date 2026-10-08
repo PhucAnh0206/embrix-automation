@@ -181,6 +181,15 @@ export function tierForKwh(kwh: number): KwhTier {
 export const BREACH_MINIMUM_BASE = 2915.10;
 
 /**
+ * The same base AFTER A TOP-UP in the month: 15 kWh at 64.78. From the team's fix note (2026-10-08, JEPYP-319 Q3):
+ * "the standard minimum part is unchanged: 45 kWh (2,915.10) if the customer made no top-up this month, 15 kWh
+ * (971.70) after a top-up". Consistent with the functional design (a later recharge is fixed charge + 15 kWh)
+ * and not contradicted by Luis (his Q3 example had no top-up) - but Luis never stated the top-up case, so it is
+ * an ASSUMPTION until he confirms it (TC-86, "45 vs 15 kWh basis").
+ */
+export const BREACH_MINIMUM_BASE_AFTER_TOPUP = 971.70;
+
+/**
  * Expected `minimumTopupAmount` in the rendered body.
  *
  * Runbook §4: reconcile the amount, never expect a fixed number.
