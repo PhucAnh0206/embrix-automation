@@ -42,7 +42,9 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { test, expect, request as playwrightRequest, type APIRequestContext } from '@playwright/test';
 import { DbHelper } from '../../../../helpers/db.helper';
-import { NotificationDbHelper, type EligibleAccount } from '../../../../helpers/notification-db.helper';
+import {
+  NotificationDbHelper, isPrepaidEnergyProfile, warnProfileMode, type EligibleAccount,
+} from '../../../../helpers/notification-db.helper';
 import { JobScheduleHelper } from '../../../../helpers/job-schedule.helper';
 import { ServerHelper } from '../../../../helpers/server-api.helper';
 import { NotificationReportHelper } from '../../../../helpers/notification-report.helper';
@@ -422,6 +424,23 @@ test.describe('TS-02 — staged billing run', () => {
       `team/test domain in with JEPYP230_ALLOWED_RECIPIENT_DOMAINS.`,
     )) return;
 
+    // JASEC_WARN_PROFILE=prepaid (see warnProfileMode): the Event 3 warning accounts must
+    // be on the Prepaid Energy Profile, so a pass proves a PREPAID customer is warned. The
+    // breach (4+5) keeps any capable profile - it is judged on the credit limit, not on
+    // the warning thresholds. Checked BEFORE the clock moves.
+    const warnProfile = warnProfileMode();
+    console.log(`[TS-02] warning profile: ${warnProfile}`);
+    if (warnProfile === 'prepaid') {
+      const crpre = await notifyDb.prepaidProfileThresholds();
+      console.log(`[TS-02] Prepaid Energy Profile ${crpre?.id ?? '(none)'} = ${crpre?.valuethreshold ?? 'NULL'}`);
+      if (blockedIf(
+        !crpre?.valuethreshold,
+        `JASEC_WARN_PROFILE=prepaid but the Prepaid Energy Profile has no warning thresholds ` +
+        `(${crpre?.id ?? 'no <tenant>-CRPRE row'} = ${crpre?.valuethreshold ?? 'NULL'}). The JEPYP-319 Q1 ` +
+        `fix (-4000|-2000) is not on this tenant - see ts-03 @saldo-config.`,
+      )) return;
+    }
+
     // ── Align the clock ourselves ────────────────────────────────────────
     // Either direction is allowed on dev/preprod. Asserted rather than assumed
     // because setCcpTime is applied asynchronously — setAndVerifyCcpTime polls
@@ -497,10 +516,11 @@ test.describe('TS-02 — staged billing run', () => {
      * The guard below is kept as a backstop rather than removed: it should now be
      * unreachable, and if it ever fires again something changed underneath.
      */
-    const pickCapableIdx = async (requireZeroKwh: boolean): Promise<number> => {
+    const pickCapableIdx = async (requireZeroKwh: boolean, prepaidOnly = false): Promise<number> => {
       for (let i = 0; i < pool.length; i++) {
         if (requireZeroKwh && pool[i].kwhRows !== 0) continue;
-        if (await thresholdsFor(pool[i].accountId)) return i;
+        const t = await thresholdsFor(pool[i].accountId);
+        if (t && (!prepaidOnly || isPrepaidEnergyProfile(t.profileId))) return i;
       }
       return -1;
     };
@@ -607,7 +627,10 @@ test.describe('TS-02 — staged billing run', () => {
       // Event 3 needs an account whose kWh we fully control AND that is capable of
       // warning at all.
       let idx = needsCreditProfile(w.event)
-        ? await pickCapableIdx(w.event === 'CREDIT_THRESHOLD_BREACH')
+        ? await pickCapableIdx(
+          w.event === 'CREDIT_THRESHOLD_BREACH',
+          w.event === 'CREDIT_THRESHOLD_BREACH' && warnProfile === 'prepaid',
+        )
         : 0;
       // 1B only - see pickStableChargeIdx. Falls back to the first candidate so a
       // tenant with no stable account still runs, and the assertion below then
@@ -681,6 +704,11 @@ test.describe('TS-02 — staged billing run', () => {
       let thresholds;
       if (w.tier) {
         thresholds = await thresholdsFor(acct.accountId);
+        test.info().annotations.push({
+          type: 'warn-profile',
+          description: `${acct.accountId} (${w.event} ${w.tier} ${w.kwh} kWh) staged on ` +
+            `${thresholds?.profileId || 'no profile'} (${warnProfile})`,
+        });
         expect(
           thresholds,
           `${acct.accountId} has no credit-limit thresholds, so it can never produce a ` +
@@ -1321,12 +1349,20 @@ test.describe('TS-02 — assertions on the completed run', () => {
                 // refused bill less credit = predicted post) + 2,915.10 (JEPYP-319 Q3).
                 if (min4) {
                   const want4 = expectedMinimum('CREDIT_LIMIT_BREACH', BREACH_MINIMUM_BASE, a.post);
+                  // The team's fix (tenant-deployment 106f50e, 2026-10-08, applied on dev + preprod)
+                  // is the ccp switch creditLimitCheckOnWholeBill=true plus a new engine build.
+                  // Recorded, not gated: off (or absent) is the old behaviour and must still FAIL here.
+                  const wholeBill = (await notifyDb.getCcpProperty('creditLimitCheckOnWholeBill')) ?? '<absent>';
+                  test.info().annotations.push({
+                    type: 'TC-85', description: `${a.accountId}: minimum ${min4}, expected ${formatCRC(want4)}, creditLimitCheckOnWholeBill=${wholeBill}`,
+                  });
                   expect
                     .soft(
                       Number(min4.replace(/[^\d,]/g, '').replace(',', '.')),
                       `TC-85 — "Saldo Agotado" minimum for ${a.accountId} is ${min4}; expected ` +
                       `${formatCRC(want4)} = owed ${a.post} + 2,915.10 (JEPYP-319 Q3). Known defect ` +
-                      `(reported 2026-10-08): the engine adds only the excess of the bill line that broke the limit.`,
+                      `(reported 2026-10-08): the engine adds only the excess of the bill line that broke the limit. ` +
+                      `creditLimitCheckOnWholeBill=${wholeBill} (the fix switch; it also needs the new engine).`,
                     )
                     .toBeCloseTo(want4, 2);
                 }

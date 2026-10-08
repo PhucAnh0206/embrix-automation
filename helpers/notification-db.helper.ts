@@ -23,6 +23,30 @@ import { TestLogger } from './test-logger';
  * Source of truth for the queries: notes/RUNBOOK-QA-all-events.md.
  */
 
+/**
+ * WHICH CREDIT PROFILE THE LOW-BALANCE WARNING CASES STAGE ON (TC-70..78: ts-02 Event 3,
+ * ts-05). Set with JASEC_WARN_PROFILE. Added 2026-10-08 for the JEPYP-319 Q1 fix.
+ *
+ *   any      (default) any profile whose CRC row carries a valuethreshold. While the
+ *            Prepaid Energy Profile was NULL that meant the POSTPAID Default Credit
+ *            Profile, so a pass proved the email copy, not that a prepaid customer is warned.
+ *   prepaid  only the Prepaid Energy Profile (`<tenant>-CRPRE`, the profile every prepaid
+ *            account is created on). A pass proves a PREPAID customer is warned. If that
+ *            profile has no thresholds the specs report BLOCKED (the Q1 fix is not there).
+ *
+ * Anything else throws, so a typo can never quietly fall back to `any`. Default stays
+ * `any` so nothing changes until a run asks for `prepaid`.
+ */
+export type WarnProfileMode = 'any' | 'prepaid';
+export function warnProfileMode(): WarnProfileMode {
+  const v = (process.env.JASEC_WARN_PROFILE ?? 'any').trim().toLowerCase();
+  if (v === 'any' || v === 'prepaid') return v;
+  throw new Error(`JASEC_WARN_PROFILE="${process.env.JASEC_WARN_PROFILE}" - use "any" or "prepaid"`);
+}
+/** The Prepaid Energy Profile id, as ts-03 @saldo-config reads it (excludes "-CRPRE-E2E"). */
+export const isPrepaidEnergyProfile = (profileId: string | null | undefined): boolean =>
+  /-CRPRE$/.test(profileId ?? '');
+
 /** One row of `core_engine.email_notification`. */
 export interface NotificationRow {
   /**
@@ -390,9 +414,9 @@ export class NotificationDbHelper {
    */
   async getAccountThresholds(
     accountId: string,
-  ): Promise<{ base: number; high: number; raw: string; profile: string } | null> {
-    const rows = await this.db.query<{ v: string | null; profile: string | null }>(
-      `SELECT cps.valuethreshold AS v, cp.name AS profile
+  ): Promise<{ base: number; high: number; raw: string; profile: string; profileId: string } | null> {
+    const rows = await this.db.query<{ v: string | null; profile: string | null; profileid: string | null }>(
+      `SELECT cps.valuethreshold AS v, cp.name AS profile, cp.id AS profileid
          FROM core_engine.subscription s
          JOIN core_config.credit_profile  cp  ON cp.name = s.creditprofilename
          JOIN core_config.credit_profiles cps ON cps.id = cp.id AND cps.currency = 'CRC'
@@ -403,7 +427,22 @@ export class NotificationDbHelper {
     if (!raw) return null;
     const parts = raw.split('|').map(Number).filter((n) => !Number.isNaN(n)).sort((a, b) => a - b);
     if (parts.length < 2) return null;
-    return { high: parts[0], base: parts[parts.length - 1], raw, profile: rows[0].profile ?? '(unnamed)' };
+    return {
+      high: parts[0], base: parts[parts.length - 1], raw,
+      profile: rows[0].profile ?? '(unnamed)', profileId: rows[0].profileid ?? '',
+    };
+  }
+
+  /**
+   * The Prepaid Energy Profile's CRC thresholds (null = not set). Read before a
+   * JASEC_WARN_PROFILE=prepaid run so a missing Q1 fix reports BLOCKED, not "no accounts".
+   */
+  async prepaidProfileThresholds(): Promise<{ id: string; valuethreshold: string | null } | null> {
+    const rows = await this.db.query<{ id: string; valuethreshold: string | null }>(
+      `SELECT id, valuethreshold FROM core_config.credit_profiles
+        WHERE id LIKE '%-CRPRE' AND currency = 'CRC'`,
+    );
+    return rows[0] ?? null;
   }
 
 
@@ -420,13 +459,15 @@ export class NotificationDbHelper {
     scheduleDate: string,
     limit: number,
     contactEmail: string,
-  ): Promise<Array<{ accountId: string; fires: number; thresholds: string }>> {
+    mode: WarnProfileMode = 'any',
+  ): Promise<Array<{ accountId: string; fires: number; thresholds: string; profileId: string }>> {
     if (!contactEmail) {
       throw new Error('findThresholdCapableAccounts: contactEmail is required (the monitored mailbox)');
     }
     return this.db.query(
       `SELECT a.id AS "accountId",
               cps.valuethreshold AS thresholds,
+              cp.id AS "profileId",
               (SELECT count(*)::int FROM core_engine.email_notification n
                 WHERE n.accountid = a.id AND n.type = 'CREDIT_THRESHOLD_BREACH') AS fires
          FROM core_engine.account a
@@ -438,13 +479,14 @@ export class NotificationDbHelper {
         WHERE a.accountcategory = 'PREPAID'
           AND a.status = 'ACTIVE'
           AND cps.valuethreshold IS NOT NULL
+          AND ($4::text <> 'prepaid' OR cp.id LIKE '%-CRPRE')
           AND bp.nextaccountingdate + core_engine.get_future_cycle_date(a.id) = $1::date
           AND EXISTS (
                 SELECT 1 FROM core_engine.contact ct
                  WHERE ct.accountid = a.id AND lower(ct.email) = lower($3::varchar))
         ORDER BY fires DESC, a.id
         LIMIT $2`,
-      [scheduleDate, limit, contactEmail],
+      [scheduleDate, limit, contactEmail, mode],
     );
   }
 

@@ -1,6 +1,6 @@
 import { test, expect, request as playwrightRequest, type APIRequestContext } from '@playwright/test';
 import { DbHelper } from '../../../../helpers/db.helper';
-import { NotificationDbHelper, type KwhRow } from '../../../../helpers/notification-db.helper';
+import { NotificationDbHelper, warnProfileMode, type KwhRow } from '../../../../helpers/notification-db.helper';
 import { JobScheduleHelper } from '../../../../helpers/job-schedule.helper';
 import { ServerHelper } from '../../../../helpers/server-api.helper';
 import {
@@ -87,6 +87,8 @@ const ALLOWED_RECIPIENT_DOMAINS = (process.env.JEPYP230_ALLOWED_RECIPIENT_DOMAIN
  * previous one (2026-11-09) had both slots spent and silently blocked the suite.
  */
 const UNRESOLVED = '(unresolved)';
+/** any | prepaid - see warnProfileMode(). `prepaid` proves a PREPAID customer is warned. */
+const WARN_PROFILE = warnProfileMode();
 const SCHEDULE_DATE_OVERRIDE = process.env.JEPYP230_TIER_DATE;
 let SCHEDULE_DATE = SCHEDULE_DATE_OVERRIDE ?? UNRESOLVED;
 
@@ -263,6 +265,21 @@ test.describe('TS-05 — threshold email tier boundaries', () => {
     // below picks whichever) and it carries enough threshold-capable accounts.
     // Capability is the binding constraint, so it is checked per candidate rather
     // than assumed from the eligible count.
+    // JASEC_WARN_PROFILE=prepaid: stage only on the Prepaid Energy Profile. Without its
+    // thresholds (JEPYP-319 Q1) no prepaid account can warn, so that is BLOCKED here and
+    // reported as the config defect by ts-03 @saldo-config.
+    console.log(`[TS-05] warning profile: ${WARN_PROFILE}`);
+    if (WARN_PROFILE === 'prepaid') {
+      const crpre = await notifyDb.prepaidProfileThresholds();
+      console.log(`[TS-05] Prepaid Energy Profile ${crpre?.id ?? '(none)'} = ${crpre?.valuethreshold ?? 'NULL'}`);
+      if (blockedIf(
+        !crpre?.valuethreshold,
+        `JASEC_WARN_PROFILE=prepaid but the Prepaid Energy Profile has no warning thresholds ` +
+        `(${crpre?.id ?? 'no <tenant>-CRPRE row'} = ${crpre?.valuethreshold ?? 'NULL'}). The JEPYP-319 Q1 ` +
+        `fix (-4000|-2000) is not on this tenant - see ts-03 @saldo-config.`,
+      )) return;
+    }
+
     if (!SCHEDULE_DATE_OVERRIDE) {
       // Floor at the current clock. CCP moves are allowed in EITHER direction on
       // dev/preprod (see the clock step below; the old "forward only" rule is
@@ -294,7 +311,7 @@ test.describe('TS-05 — threshold email tier boundaries', () => {
         (candidates.map((c) => `${c.date}(${c.eligibleCount})`).join(', ') || '(none)'),
       );
       for (const c of candidates) {
-        const capable = await notifyDb.findThresholdCapableAccounts(c.date, needed, monitored);
+        const capable = await notifyDb.findThresholdCapableAccounts(c.date, needed, monitored, WARN_PROFILE);
         if (capable.length < needed) {
           console.log(`[TS-05] ${c.date} skipped — ${capable.length}/${needed} capable accounts`);
           continue;
@@ -387,11 +404,17 @@ test.describe('TS-05 — threshold email tier boundaries', () => {
     // The (n) beside each account is its prior-fire count, kept as context only —
     // it does NOT gate selection. Seeing capable accounts with (0) warn correctly
     // is the evidence that retired the previously-firing theory.
-    const pool = await notifyDb.findThresholdCapableAccounts(SCHEDULE_DATE, needed + 6, monitored);
+    const pool = await notifyDb.findThresholdCapableAccounts(SCHEDULE_DATE, needed + 6, monitored, WARN_PROFILE);
     console.log(
       `[TS-05] threshold-capable pool on ${SCHEDULE_DATE} (${pool.length}): ` +
       pool.map((p) => `${p.accountId}(${p.fires})`).join(' '),
     );
+    // Which profile proved it - a pass on the postpaid Default Credit Profile proves the
+    // email copy only (see warnProfileMode).
+    test.info().annotations.push({
+      type: 'warn-profile',
+      description: `${WARN_PROFILE}: ${[...new Set(pool.map((p) => p.profileId))].join(', ') || '(none)'}`,
+    });
     if (blockedIf(
       pool.length < needed,
       `need ${needed} threshold-capable account(s) billable on ${SCHEDULE_DATE}, found ` +
