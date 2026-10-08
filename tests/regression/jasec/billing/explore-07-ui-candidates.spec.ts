@@ -234,13 +234,13 @@ test.describe('UI candidate screens - pass 3 (MUTATING: Bill Pending -> GENERATE
 });
 
 /**
- * CONTROL for TC-143's customer view: the same Self Care read (listInvoicesToPay) on an account that DOES
+ * CONTROL for TC-145's customer view: the same Self Care read (listInvoicesToPay) on an account that DOES
  * have open invoices must list them - otherwise "nothing to pay" on a settled prepaid account proves nothing.
  * Read-only. Default account: a postpaid dev account with ACTIVE invoices (JASEC_SC_CONTROL_ACCOUNT overrides).
  *
  *   npx playwright test --project=jasec-billing-explore --grep "@sc-control"
  */
-test.describe('TC-143 control - Self Care lists open invoices @sc-control', () => {
+test.describe('TC-145 control - Self Care lists open invoices @sc-control', () => {
   test('Self Care Make Payment lists the open invoices of an account that has them', async ({
     selfcareLoginPage, selfcareAccountSearchPage, selfcareActivityPage, selfcareMakePaymentPage,
   }) => {
@@ -259,7 +259,7 @@ test.describe('TC-143 control - Self Care lists open invoices @sc-control', () =
     console.log(`  Self Care: asked=${asked} settled=${settled} listed=${listed.map(l => `${l.invoiceId} due ${l.due}`).join(', ') || 'none'}`);
     expect(asked).toBe(true);
     expect(settled).toBe(true);
-    expect(listed.length, 'the read found no invoice on an account that has open ones - the TC-143 check could never fail').toBeGreaterThan(0);
+    expect(listed.length, 'the read found no invoice on an account that has open ones - the TC-145 check could never fail').toBeGreaterThan(0);
     expect.soft(open.map(o => o.id).filter(id => !listed.some(l => l.invoiceId === id)), 'open invoices missing from Self Care').toEqual([]);
   });
 });

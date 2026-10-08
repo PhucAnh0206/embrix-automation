@@ -42,7 +42,7 @@ let db: DbHelper;
 let acct: AccountingDbHelper;
 
 test.describe('JASEC accounting — the extract ties out to the net invoice', {
-  tag: ['@jasec', '@accounting', '@tc-146', '@ebs-net'],
+  tag: ['@jasec', '@accounting', '@tc-148', '@ebs-net'],
 }, () => {
 
   test.beforeAll(async () => {
@@ -81,7 +81,7 @@ test.describe('JASEC accounting — the extract ties out to the net invoice', {
     }
     const r = await acct.entrySign(undefined, FIX_FROM !== undefined ? { from: FIX_FROM } : undefined);
     blockedIf(r.judged === 0, FIX_FROM !== undefined
-      ? `no journal extracted at or after batch ${FIX_FROM} (the first post-fix batch) - extract a day first (TC-146)`
+      ? `no journal extracted at or after batch ${FIX_FROM} (the first post-fix batch) - extract a day first (TC-148)`
       : 'no journal in an INVOICE extract has an accounting entry');
     console.log(`\n  ${r.judged} journal(s) judged, ${r.credits} credit line(s), ${r.broken} booked against their sign`);
     for (const x of r.sample) {
@@ -111,7 +111,7 @@ test.describe('JASEC accounting — the extract ties out to the net invoice', {
       console.log(`  known pre-existing anomaly, see KNOWN_TIE_OUT_DEBRIS — batch ${id}`);
     }
     blockedIf(judged.length === 0, FIX_FROM !== undefined
-      ? `no INVOICE batch at or after ${FIX_FROM} (the first post-fix batch) - extract a day first (TC-146)`
+      ? `no INVOICE batch at or after ${FIX_FROM} (the first post-fix batch) - extract a day first (TC-148)`
       : 'no INVOICE batch on this tenant has journals stamped with it');
 
     const off = judged.filter((l) => Math.abs(l.batch - l.net) > CENT);

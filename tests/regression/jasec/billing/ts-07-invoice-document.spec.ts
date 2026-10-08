@@ -92,7 +92,7 @@ const gql = new BillingGqlHelper();
 
 for (const c of CASES) {
   test.describe(`Monthly invoice ${c.invoiceId || `${c.lo}-${c.hi} kWh`} in Core UI — ${c.note}`, () => {
-    test(`invoice ${c.invoiceId || `${c.lo}-${c.hi} kWh`} renders correctly for an agent @jasec @billing @invoice-document @tc-137`, async ({
+    test(`invoice ${c.invoiceId || `${c.lo}-${c.hi} kWh`} renders correctly for an agent @jasec @billing @invoice-document @tc-139`, async ({
       page, invoiceDetailPage,
     }) => {
       test.setTimeout(240_000);

@@ -224,7 +224,7 @@ async function settleReconnection(
  * account carrying an earlier RESUME stuck in PROVISIONING_ERROR - and on such an
  * account a clearing top-up raises NO new RESUME at all (finding F7). TC-82 then failed
  * for a reason that is not its question. F7 is a REAL product behaviour: it is reported
- * (pick-up list B7 / D5) and has its OWN check (billing/explore-05-stuck-resume.spec.ts),
+ * (confirmed by the team 2026-10-08) and has its OWN official case, TC-128 (provisioning/auto-suspend-resume, tag tc-128),
  * so this is not a workaround - TC-82's precondition is simply "a suspended customer in
  * debt", and a fresh subject is the only way to guarantee it.
  *
@@ -232,6 +232,13 @@ async function settleReconnection(
  * sends nothing to JASEC's AMI (asserted below - fails closed). Same shape as the
  * credit-breach suspend (subscription + service unit SUSPENDED). The debt is then staged
  * on our own account (a pure DB write that dispatches nothing).
+ *
+ * NOT the production shape on the meter side (team, 2026-10-08): a billing-only suspend
+ * leaves the meter ON, and debt written into the balance makes the top-up's credit check
+ * see the account over its limit - so a partial top-up runs the cut and sends the FIRST
+ * cut command for that meter (that is "O1", explained, not a defect). On a QA meter that
+ * cut fails (PROVISIONING_ERROR) and, until the F7 fix, blocks later automatic SUSPENDs
+ * on this account - harmless here, the account is never reused.
  */
 const SEED_DEBT = 1500;
 
@@ -239,8 +246,8 @@ async function ensureSuspendedCandidate(): Promise<Candidate | null> {
   const seed = new PrepaidSeedHelper();
   const s = uniqueRunSuffix();
   const meter = assertQaMeter(`M-QARCN-${s}`);
-  // JASEC_RCN_PROFILE (optional, 2026-10-08): seed on another credit profile - e.g. "Prepaid Energy E2E No Window" to
-  // see O1 (the partial top-up's second breach SUSPEND) at any hour; the stock profile defers it 20:00-08:00 CR.
+  // JASEC_RCN_PROFILE (optional, 2026-10-08): seed on another credit profile - e.g. "Prepaid Energy E2E No Window" so
+  // the partial top-up's cut (O1, explained 2026-10-08) runs at any hour; the stock profile defers it 20:00-08:00 CR.
   const profile = (process.env.JASEC_RCN_PROFILE ?? '').trim() || undefined;
   const { accountId } = await seed.seed({ meter, customerId: `E2ERCN-${s}`, name: `E2ERCN ${s}`, creditProfileName: profile });
 
@@ -479,8 +486,9 @@ test.describe('TS-04 — reconnection after top-up', () => {
       });
       console.log(`[TS-04] after partial: balance ${balance} | status ${status} | resume rows ${resumed.length}`);
 
-      // O1 - RECORDED, not judged (open with the team, seen on this very case: prod ACT-100173 ORD-323, preprod
-      // ORD-555): the partial top-up on a cut, in-debt account can raise ANOTHER CreditLimitBreach SUSPEND.
+      // O1 - RECORDED, not judged. EXPLAINED by the team 2026-10-08, not a defect: this subject's suspend is billing-only
+      // (meter still on) and its debt sits in the balance, so the partial top-up's credit check runs the cut - the
+      // first cut command for that meter (prod ACT-100173 ORD-323, ACT-100202 ORD-380; preprod ORD-555).
       const extra = (await db.query<{ id: string; status: string; userid: string }>(
         `SELECT id, status, userid FROM core_oms."order" WHERE accountid = $1 AND type = 'SUSPEND'`, [accountId]))
         .filter(o => !suspendsBefore.includes(o.id));

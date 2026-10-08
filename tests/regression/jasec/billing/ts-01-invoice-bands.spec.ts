@@ -3,7 +3,7 @@
  *
  * Source: Spanish scenario doc TC20–TC26, "Facturación de cliente que consume una
  * cantidad de kWh entre …". Those scenario-doc numbers are NOT EPDP-348 case IDs.
- * The official EPDP-348 cases are TC-128..134, one per band, tagged @tc-128..134
+ * The official EPDP-348 cases are TC-130..136, one per band, tagged @tc-130..136
  * via BANDS[].tc (updated 2026-10-08; this line used to say they had none yet).
  *
  * ── WHERE EVERY NUMBER IN THIS FILE COMES FROM ────────────────────────────
@@ -247,13 +247,13 @@ interface Band {
 }
 
 const BANDS: Band[] = [
-  { name: '0-30',       lo: 0,     hi: 30,       icb: false, iva: false, doc: 'TC20', tc: '128' },
-  { name: '31-100',     lo: 31,    hi: 100,      icb: false, iva: false, doc: 'TC21', tc: '129' },
-  { name: '101-200',    lo: 101,   hi: 200,      icb: true,  iva: false, doc: 'TC22', tc: '130' },
-  { name: '201-280',    lo: 201,   hi: 280,      icb: true,  iva: false, doc: 'TC23', tc: '131' },
-  { name: '281-1750',   lo: 281,   hi: 1750,     icb: true,  iva: true,  doc: 'TC24', tc: '132' },
-  { name: '1751-50000', lo: 1751,  hi: 50000,    icb: true,  iva: true,  doc: 'TC25', tc: '133', icbCapped: true },
-  { name: '50001+',     lo: 50001, hi: Infinity, icb: true,  iva: true,  doc: 'TC26', tc: '134', icbCapped: true },
+  { name: '0-30',       lo: 0,     hi: 30,       icb: false, iva: false, doc: 'TC20', tc: '130' },
+  { name: '31-100',     lo: 31,    hi: 100,      icb: false, iva: false, doc: 'TC21', tc: '131' },
+  { name: '101-200',    lo: 101,   hi: 200,      icb: true,  iva: false, doc: 'TC22', tc: '132' },
+  { name: '201-280',    lo: 201,   hi: 280,      icb: true,  iva: false, doc: 'TC23', tc: '133' },
+  { name: '281-1750',   lo: 281,   hi: 1750,     icb: true,  iva: true,  doc: 'TC24', tc: '134' },
+  { name: '1751-50000', lo: 1751,  hi: 50000,    icb: true,  iva: true,  doc: 'TC25', tc: '135', icbCapped: true },
+  { name: '50001+',     lo: 50001, hi: Infinity, icb: true,  iva: true,  doc: 'TC26', tc: '136', icbCapped: true },
 ];
 
 /**

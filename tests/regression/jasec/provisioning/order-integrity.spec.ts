@@ -143,9 +143,12 @@ test.describe('JASEC provisioning - order integrity after callbacks', () => {
     // already closed out (FAILED/CANCELLED - how the team cleaned up the pre-fix
     // pairs) are history; any other pair is a live duplicate.
     //
-    // EXCEPT a pair whose first SUSPEND COMPLETED (the meter was already cut): that is O1 - a later top-up that
-    // did not clear the debt raised a second breach SUSPEND on the cut account (preprod ORD-555, prod ORD-323).
-    // A different finding, still open with the team, so it is labelled here and not counted as Defect 3.
+    // EXCEPT a pair whose first SUSPEND COMPLETED: that is O1 - a later top-up that did not clear the debt raised a
+    // second breach SUSPEND (preprod ORD-555, prod ORD-323 / ORD-380). EXPLAINED by the team 2026-10-08, not a
+    // defect: in every sighting the first suspend was billing-only (meter still on, no cut ever sent) and the debt
+    // sat in the balance, so the second order was the first real cut. Labelled here, not counted as Defect 3.
+    // A pair whose first SUSPEND is still PROVISIONING_ERROR IS counted: that is the F7 mirror (TC-129) once fixed
+    // wrongly - the old errored cut must be cancelled when a new one is raised.
     const rows = await db.query<{ accountid: string; prev: string; prevstatus: string; id: string; status: string }>(
       `SELECT accountid, prev, prevstatus, id, status FROM (
          SELECT o.accountid, o.id, o.status, o.type, o.userid,
@@ -158,10 +161,13 @@ test.describe('JASEC provisioning - order integrity after callbacks', () => {
         WHERE type = 'SUSPEND' AND userid = 'CreditLimitBreach'
           AND prevtype = 'SUSPEND' AND prevuser = 'CreditLimitBreach'
           AND prevstatus NOT IN ('FAILED','CANCELLED')
+          -- a pair whose LATER order is itself closed out is not a live duplicate either: CANCEL ORDER renames the
+          -- order ORD-n-<timestamp>, which sorts after the new one (F7 workaround, TC-128/129, 2026-10-08)
+          AND status NOT IN ('FAILED','CANCELLED')
         ORDER BY accountid`);
     const o1 = rows.filter(r => r.prevstatus === 'COMPLETED');
     if (o1.length) {
-      const msg = `O1 (not Defect 3): ${o1.map(r => `${r.accountid}: ${r.prev} COMPLETED then ${r.id} (${r.status})`).join('; ')}`;
+      const msg = `O1 (explained 2026-10-08, not a defect): ${o1.map(r => `${r.accountid}: ${r.prev} COMPLETED then ${r.id} (${r.status})`).join('; ')}`;
       console.log(`  INFO: ${msg}`);
       test.info().annotations.push({ type: 'O1', description: msg });
     }

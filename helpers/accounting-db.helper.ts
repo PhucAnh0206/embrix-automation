@@ -142,7 +142,7 @@ export const NOT_ALREADY_EXTRACTED_SQL = `
  * Demonstrated as well as stated: on 2026-09-29 the auto-selected target
  * 2028-08-09 held exactly 6 extractable rows, all PURCHASE/BILLED, and
  * `ebsExtract` returned "No data found" — it took none of them. Without this
- * filter TC-146 fails on rows the extract is never going to take.
+ * filter TC-148 fails on rows the extract is never going to take.
  *
  * ⚠️ REMOVE THIS the day an ACCOUNT_RECEIVABLE extract is configured on JASEC.
  * From then on top-ups ARE extractable and hiding them would mask a real gap —

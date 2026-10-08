@@ -6,7 +6,7 @@
  * provisioningEnabled was absent on dev, so a breach suspended for billing only
  * and no order ever reached the AMI.
  *
- * FIVE TESTS, run one tag at a time (each is several minutes):
+ * SEVEN TESTS, run one tag at a time (each is several minutes):
  *
  *   @auto-journey   TC-127 (EPDP-515, official since 2026-10-08): a customer cut off for a
  *                   refused reading is not reconnected until a top-up covers it. Clean
@@ -24,6 +24,13 @@
  *   @auto-window    TC-126: the stock profile's no-cut window, judged against real
  *                   Costa Rica time (inside: no SUSPEND; outside: SUSPEND). The
  *                   "morning after" half (scenario doc TC41) is open finding A8.
+ *   @auto-stuck-resume  TC-128 (EPDP-516, F7): a customer who pays after a failed reconnect
+ *                   is reconnected. The RESUME fails at JASEC (no callback), the customer
+ *                   tops up again: a reconnect must be attempted again. FAILS until the
+ *                   EP-5528 open-order fix is deployed; then completes the reconnect - with
+ *                   the fix directly, without it via CANCEL ORDER on the Services screen.
+ *   @auto-stuck-suspend TC-129 (EPDP-517, F7 mirror): a customer out of credit is cut off
+ *                   even after an earlier cut failed. Same shape on the SUSPEND side.
  *   @auto-held-cycle  EXPLORATORY: a cut account with a held reading stays cut through
  *                   a daily run days later. Own gate JASEC_HELD_CYCLE_RUN (it moves the
  *                   clock and runs the whole DAILY chain), refused on jasec-preprod.
@@ -33,8 +40,9 @@
  * reading leaves the account cut; only the covering top-up reconnects. The fix is live on dev, preprod and prod, so
  * with the switch OFF the journey is BLOCKED (misconfigured tenant) - never a silent pass.
  *
- * O1 (seen 2026-10-07/08, not yet raised): the partial top-up on the cut, in-debt account can raise ANOTHER
- * CreditLimitBreach SUSPEND (and cut command). Recorded as an annotation, not judged, until the team answers.
+ * O1 - EXPLAINED by the team 2026-10-08, not a defect: a second CreditLimitBreach SUSPEND after a partial top-up was
+ * only seen where the first suspend was billing-only (no cut ever sent) and the debt sat in the balance itself. Still
+ * recorded as an annotation if it ever shows here, where the first cut is a real one.
  *
  * WHAT IS OBSERVED, NOT ASSERTED. Whether the subscription is suspended when the
  * breach happens or only when the callback arrives. The code routes a
@@ -609,6 +617,98 @@ async function fullJourney(
   }
 }
 
+// ── F7: a failed order blocks the next automatic one (TC-128 / TC-129) ───
+
+/** The customer pays again after a failed reconnect (TC-128). Small: by then the balance is well in credit. */
+const TOP_UP_AGAIN = 500;
+/** Statuses the engine's open-order check treats as closed (EP-5528). Anything else blocks the next automatic order. */
+const CLOSED = ['COMPLETED', 'CANCELLED', 'FAILED'];
+/** CANCEL ORDER on screen renames the order to `<id>-<timestamp>` (seen on prod 2026-10-08: ORD-386-2026-10-08_02-10-39-216). */
+const renamedByCancel = (id: string) => /^ORD-\d+-\d{4}-/.test(id);
+
+async function orderStatus(db: DbHelper, id: string): Promise<string> {
+  const r = await db.query<{ status: string }>(`SELECT status FROM core_oms."order" WHERE id = $1`, [id]);
+  return r[0]?.status ?? '';
+}
+
+/** The newest order of a type that is not in `known` (and not an order renamed by CANCEL ORDER). */
+async function newest(db: DbHelper, accountId: string, type: 'SUSPEND' | 'RESUME', known: string[]) {
+  const r = (await orders(db, accountId))
+    .filter(o => o.type === type && !known.includes(o.id) && !renamedByCancel(o.id))
+    .sort((a, b) => Number(a.id.replace(/\D/g, '')) - Number(b.id.replace(/\D/g, '')));
+  return r[r.length - 1];
+}
+
+/**
+ * Runs `act` (a top-up, or a breaching reading) while `stuck` sits in PROVISIONING_ERROR and waits up to 5 min - the
+ * same window the retired F7 check (explore-05) gave its control - for the engine to try again: a NEW order of that type, or the stuck one
+ * re-sent (more AMI commands for it). Either counts as "retried"; the fix's exact shape is the team's choice.
+ */
+async function retriedAfter(db: DbHelper, s: Seeded, type: 'SUSPEND' | 'RESUME', stuck: string, act: () => Promise<void>) {
+  const known = (await orders(db, s.accountId)).filter(o => o.type === type).map(o => o.id);
+  const sent = (await commands(db, stuck)).length;
+  await act();
+  const v = await poll(async () => ({
+    fresh: await newest(db, s.accountId, type, known),
+    sent: (await commands(db, stuck)).length,
+  }), x => !!x.fresh || x.sent > sent, 300_000, 10_000);
+  const acc = await accountState(db, s);
+  const verdict = v.fresh
+    ? `a new ${type} ${v.fresh.id} (${v.fresh.status}) was raised`
+    : v.sent > sent
+      ? `the stuck ${type} ${stuck} was re-sent (${v.sent - sent} more command(s))`
+      : `NO new ${type} in 5 min and ${stuck} not re-sent - the only ${type} is ${stuck} (${await orderStatus(db, stuck)}); ` +
+        `subscription ${acc.sub}, service unit ${acc.svc}`;
+  console.log(`  [F7] ${verdict}`);
+  return { retried: !!v.fresh || v.sent > sent, fresh: v.fresh?.id, verdict };
+}
+
+/**
+ * Completes whatever the engine retried; when it did not retry (F7 still live), takes the agent's way out on screen:
+ * Services > In-complete Orders > CANCEL ORDER on the stuck order, then `trigger` again (top-up / breaching reading),
+ * which must raise a new order (verified by hand on prod 2026-10-08). Then JASEC's callback for it.
+ */
+async function finish(
+  db: DbHelper, request: APIRequestContext, s: Seeded, ui: AgentScreens, testInfo: TestInfo,
+  type: 'SUSPEND' | 'RESUME', stuck: string, retry: { retried: boolean; fresh?: string }, trigger: () => Promise<void>,
+) {
+  let target = retry.fresh ?? (retry.retried ? stuck : '');
+  if (!target) {
+    await ui.cancelIncompleteOrder(s.accountId, stuck);
+    const gone = await poll(() => db.query<{ id: string; status: string }>(
+      `SELECT id, status FROM core_oms."order" WHERE accountid = $1 AND (id = $2 OR id LIKE $3)`,
+      [s.accountId, stuck, `${stuck}-%`]), r => r.length === 1 && r[0].status === 'CANCELLED', 60_000, 5_000);
+    expect(gone.map(r => `${r.id} ${r.status}`).join(', '), `CANCEL ORDER on screen did not cancel ${stuck}`).toMatch(/ CANCELLED$/);
+    const known = (await orders(db, s.accountId)).filter(o => o.type === type).map(o => o.id);
+    await trigger();
+    const fresh = await poll(() => newest(db, s.accountId, type, known), o => !!o, 180_000, 5_000);
+    expect(fresh, `after CANCEL ORDER on ${stuck} the next ${type === 'RESUME' ? 'top-up' : 'breach'} raised no ${type} - ` +
+      `the agent's workaround does not work`).toBeTruthy();
+    await note(testInfo, "agent's way out", `CANCEL ORDER on ${stuck} (now ${gone[0].id}) -> ${fresh!.id} raised`);
+    target = fresh!.id;
+  }
+  if (target === stuck) {
+    await poll(() => orderStatus(db, stuck), st => !['PROVISIONING_INITIATED', 'PROCESSING', 'SUBMITTED'].includes(st), 240_000, 6_000);
+  } else {
+    await waitForDispatch(db, target, type === 'SUSPEND' ? 'D' : 'C');
+  }
+  await callback(request, s, target, type);
+  const st = await poll(() => orderStatus(db, target), x => x === 'COMPLETED', 60_000, 5_000);
+  expect.soft(st, `${type} ${target} after an accepted callback`).toBe('COMPLETED');
+}
+
+/** End state, in the database and as the agent sees it: the expected status, no order left open. */
+async function endsClean(db: DbHelper, s: Seeded, ui: AgentScreens, want: 'ACTIVE' | 'SUSPENDED') {
+  await test.step(`Core UI: at the end the agent sees the account ${want}, nothing left open`, async () => {
+    const open = (await orders(db, s.accountId)).filter(o => !CLOSED.includes(o.status));
+    expect.soft(open.map(o => `${o.id} ${o.type} ${o.status} by ${o.userid}`),
+      'no order may be left open - an open order blocks every later automatic order of its type (F7)').toEqual([]);
+    const sv = await ui.services(s.accountId);
+    expect.soft(sv.sub, 'Services screen: subscription status at the end').toBe(want);
+    expect.soft(sv.incomplete, 'Services > In-complete Orders must be empty at the end').toEqual([]);
+  });
+}
+
 // ── tests ────────────────────────────────────────────────────────────────
 
 test.describe('JEPYP-27 - automatic suspend and resume (credit breach / top-up)', () => {
@@ -698,6 +798,141 @@ test.describe('JEPYP-27 - automatic suspend and resume (credit breach / top-up)'
       }
     });
   /**
+   * TC-128 (EPDP-516, official since 2026-10-08) - F7: a customer who pays after a failed reconnect is reconnected.
+   *
+   * The engine skips an automatic SUSPEND/RESUME/CANCEL while the account has another order of that type in any
+   * status except FAILED/COMPLETED/CANCELLED (PGOrderUtilsService.processSubscriptionUpdateOrder, EP-5528), and
+   * PROVISIONING_ERROR is not in that list. So once a RESUME fails at JASEC (here: the AMI refuses QA meters; in
+   * production a comms error), every later top-up is skipped - the customer pays and stays cut off. Confirmed by the
+   * team 2026-10-08 (High; prod log "There is already open RESUME order for the account so not creating it again").
+   *
+   * Built the production way: real breach -> CreditLimitBreach SUSPEND -> JASEC's suspend callback (the cut) ->
+   * covering top-up -> automatic RESUME, which JASEC refuses (no callback). Then the customer pays again: a reconnect
+   * MUST be attempted again - a new RESUME, or the stuck one re-sent. EXPECTED TO FAIL until the fix is deployed.
+   * Either way the test then gets the customer back on, so the account never stays blocked: with the fix it
+   * completes the new reconnect; without it, it uses the agent's way out on screen (Services > In-complete Orders >
+   * CANCEL ORDER, then one more top-up) - which also proves that workaround every run. Ends ACTIVE, nothing open.
+   */
+  test('a customer who pays after a failed reconnect is reconnected (F7) @auto-stuck-resume @tc-128',
+    async ({ request, page }, testInfo) => {
+      test.skip(!RUN, 'GATED: seeds, drops MDR files and dispatches to the live AMI. Set JASEC_AUTO_PROV_RUN=true.');
+      test.setTimeout(1_800_000);
+      const logger = new TestLogger('auto-suspend-resume-stuck-resume');
+      const db = new DbHelper(logger);
+      const ui = new AgentScreens(page);
+      try { await db.connect(); } catch (e) { blockedIf(true, `database unreachable (VPN?): ${(e as Error).message}`); }
+      try {
+        const { s, mdr } = await fundedAccount(db, logger, 'QAAUTOF7R');
+        await test.step('breach -> automatic SUSPEND -> JASEC confirm the cut', async () => {
+          const susp = await breach(db, mdr, s, testInfo);
+          await waitForDispatch(db, susp, 'D');
+          await callback(request, s, susp, 'SUSPEND');
+          const acc = await poll(() => accountState(db, s), a => a.sub === 'SUSPENDED' && a.svc === 'SUSPENDED', 60_000, 5_000);
+          blockedIf(acc.sub !== 'SUSPENDED', `${s.accountId} is ${acc.sub}/${acc.svc} after the suspend callback - no cut account to test`);
+        });
+        const stuck = await test.step(`the customer pays (${RECOVERY_TOPUP}): the automatic RESUME fails at JASEC`, async () => {
+          await new PrepaidSeedHelper(logger).topUp(s.accountId, RECOVERY_TOPUP);
+          const res = await poll(() => newest(db, s.accountId, 'RESUME', []), o => !!o, 120_000, 5_000);
+          expect(res, 'the covering top-up raised no RESUME - the precondition of F7 (a RESUME to fail) was not built').toBeTruthy();
+          await waitForDispatch(db, res!.id, 'C');
+          const st = await orderStatus(db, res!.id);
+          blockedIf(st !== 'PROVISIONING_ERROR', `the RESUME ${res!.id} ended ${st}, not PROVISIONING_ERROR - no stuck order ` +
+            `(on a tenant whose AMI accepts the meter, F7 needs a real comms failure)`);
+          return res!.id;
+        });
+        await test.step('Core UI: the agent sees the account still cut and the failed RESUME waiting', async () => {
+          const sv = await ui.services(s.accountId);
+          expect.soft(sv.sub, 'Services: subscription after the failed reconnect').toBe('SUSPENDED');
+          const row = sv.incomplete.find(r => r.startsWith(`${stuck} `));
+          expect.soft(row, `In-complete Orders does not list the failed RESUME ${stuck}`).toBeTruthy();
+          expect.soft(row ?? '', `In-complete Orders: ${stuck} status`).toContain('PROVISIONING_ERROR');
+        });
+        const retry = await test.step(`the customer pays again (${TOP_UP_AGAIN}): a reconnect must be attempted again`, async () => {
+          const r = await retriedAfter(db, s, 'RESUME', stuck, async () => {
+            const before = await balance(db, s.accountId);
+            await new PrepaidSeedHelper(logger).topUp(s.accountId, TOP_UP_AGAIN);
+            const after = await poll(() => balance(db, s.accountId), v => v !== before, 120_000, 5_000);
+            expect(after, `top-up ${TOP_UP_AGAIN} was not applied - harness problem`).toBeCloseTo(before - TOP_UP_AGAIN, 2);
+          });
+          await note(testInfo, 'F7 verdict', r.verdict);
+          expect.soft(r.retried, `F7 - ${r.verdict}. The customer paid twice and stays cut off; the skip is only logged ` +
+            `(EP-5528 open-order check counts PROVISIONING_ERROR as open). Confirmed by the team 2026-10-08, fix pending`).toBe(true);
+          return r;
+        });
+        await test.step('the customer is reconnected (with the fix: the new attempt; without: the agent cancels the stuck order on screen)', async () => {
+          await finish(db, request, s, ui, testInfo, 'RESUME', stuck, retry,
+            async () => { await new PrepaidSeedHelper(logger).topUp(s.accountId, TOP_UP_AGAIN); });
+          const acc = await poll(() => accountState(db, s), a => a.sub === 'ACTIVE' && a.svc === 'ACTIVE', 90_000, 5_000);
+          expect.soft(`${acc.sub}/${acc.svc}`, 'subscription / service unit at the end - the customer paid').toBe('ACTIVE/ACTIVE');
+        });
+        await endsClean(db, s, ui, 'ACTIVE');
+      } finally {
+        await db.disconnect();
+      }
+    });
+
+  /**
+   * TC-129 (EPDP-517, official since 2026-10-08) - the F7 mirror: a customer out of credit is cut off even after an
+   * earlier cut failed. Same open-order check: once a breach SUSPEND fails at JASEC (PROVISIONING_ERROR, no callback)
+   * the meter is NOT cut, and every later breach is skipped - the customer keeps power, their readings are refused
+   * and held, but the cut is never sent (team 2026-10-08: "also real"). The next breach MUST raise the cut again - a
+   * new SUSPEND, or the stuck one re-sent. EXPECTED TO FAIL until the fix is deployed. Then, as TC-128: with the fix
+   * it completes the new cut; without it the agent cancels the stuck SUSPEND on screen and the next breach must cut.
+   * Ends SUSPENDED (cut, as a customer out of credit should be), nothing open.
+   */
+  test('a customer out of credit is cut off even after an earlier cut failed (F7 mirror) @auto-stuck-suspend @tc-129',
+    async ({ request, page }, testInfo) => {
+      test.skip(!RUN, 'GATED: seeds, drops MDR files and dispatches to the live AMI. Set JASEC_AUTO_PROV_RUN=true.');
+      test.setTimeout(1_800_000);
+      const logger = new TestLogger('auto-suspend-resume-stuck-suspend');
+      const db = new DbHelper(logger);
+      const ui = new AgentScreens(page);
+      try { await db.connect(); } catch (e) { blockedIf(true, `database unreachable (VPN?): ${(e as Error).message}`); }
+      try {
+        const { s, mdr } = await fundedAccount(db, logger, 'QAAUTOF7S');
+        const stuck = await test.step('breach: a SUSPEND is raised and JASEC refuses it (no callback - the meter is not cut)', async () => {
+          const id = await breach(db, mdr, s, testInfo);
+          await waitForDispatch(db, id, 'D');
+          const st = await orderStatus(db, id);
+          blockedIf(st !== 'PROVISIONING_ERROR', `the SUSPEND ${id} ended ${st}, not PROVISIONING_ERROR - no stuck order to test`);
+          const acc = await accountState(db, s);
+          await note(testInfo, 'state after the failed SUSPEND', `${id} PROVISIONING_ERROR; subscription ${acc.sub}, service unit ${acc.svc}`);
+          return id;
+        });
+        await test.step('Core UI: the agent sees the failed SUSPEND waiting on the account', async () => {
+          const sv = await ui.services(s.accountId);
+          const row = sv.incomplete.find(r => r.startsWith(`${stuck} `));
+          expect.soft(row, `In-complete Orders does not list the failed SUSPEND ${stuck}`).toBeTruthy();
+          expect.soft(row ?? '', `In-complete Orders: ${stuck} status`).toContain('PROVISIONING_ERROR');
+        });
+        let reading = WHILE_SUSPENDED_READING;
+        const retry = await test.step(`the next reading breaches again (${reading}): the cut must be attempted again`, async () => {
+          const r = await retriedAfter(db, s, 'SUSPEND', stuck, async () => {
+            const out = await readingOutcome(db, mdr, s, reading);
+            expect(out.row, 'the second reading never appeared - harness problem').toBeTruthy();
+            expect.soft(`${out.row.status}/${out.row.errorcode}`, 'a reading the balance cannot fund must park (Option A)')
+              .toBe('SUSPENDED/CURRENCY_CREDIT_LIMIT_EXCEEDED');
+          });
+          await note(testInfo, 'F7 mirror verdict', r.verdict);
+          expect.soft(r.retried, `F7 mirror - ${r.verdict}. The customer is out of credit and keeps power; the skip is ` +
+            `only logged (EP-5528 open-order check counts PROVISIONING_ERROR as open). Confirmed by the team 2026-10-08, fix pending`).toBe(true);
+          return r;
+        });
+        await test.step('the customer is cut (with the fix: the new attempt; without: the agent cancels the stuck order on screen)', async () => {
+          await finish(db, request, s, ui, testInfo, 'SUSPEND', stuck, retry, async () => {
+            reading += 10;
+            await readingOutcome(db, mdr, s, reading);
+          });
+          const acc = await poll(() => accountState(db, s), a => a.sub === 'SUSPENDED' && a.svc === 'SUSPENDED', 90_000, 5_000);
+          expect.soft(`${acc.sub}/${acc.svc}`, 'subscription / service unit at the end - the customer is out of credit').toBe('SUSPENDED/SUSPENDED');
+        });
+        await endsClean(db, s, ui, 'SUSPENDED');
+      } finally {
+        await db.disconnect();
+      }
+    });
+
+  /**
    * EXPLORATORY - NOT AN OFFICIAL CASE YET (no EPDP-348 sub-task; deliberately no TC tag).
    *
    * A teammate's "gap test" (2026-10-07): the A6 fix covers the two reconnect checks that fire at once (cut
@@ -714,55 +949,6 @@ test.describe('JEPYP-27 - automatic suspend and resume (credit breach / top-up)'
    * MUTATING: moves the tenant clock (restored), runs the DAILY chain on that date (bills whoever is due - dev).
    *   $env:JASEC_AUTO_PROV_RUN='true'; $env:JASEC_HELD_CYCLE_RUN='true'; npx playwright test --project=jasec-provisioning-orders auto-suspend-resume --grep "@auto-held-cycle"
    */
-  /**
-   * EXPLORATORY (2026-10-08) - the SUSPEND side of F7. The engine skips an automatic SUSPEND/RESUME/CANCEL while
-   * the account has another order of that type in any status except FAILED/COMPLETED/CANCELLED
-   * (PGOrderUtilsService.processSubscriptionUpdateOrder, EP-5528). So if the breach SUSPEND fails at JASEC
-   * (PROVISIONING_ERROR - here because the AMI refuses QA meters; in production a comms error), the meter is NOT
-   * cut, and the question is whether the NEXT breach raises a SUSPEND again. No callback is sent on purpose.
-   * Records the answer; asserts only the harness. No clock move.
-   */
-  test('a failed breach SUSPEND does not stop the next breach from suspending (F7 mirror, exploratory) @auto-stuck-suspend',
-    async ({}, testInfo) => {
-      test.skip(!RUN, 'GATED: seeds, drops MDR files and dispatches to the live AMI. Set JASEC_AUTO_PROV_RUN=true.');
-      test.setTimeout(1_200_000);
-      const logger = new TestLogger('auto-suspend-resume-stuck-suspend');
-      const db = new DbHelper(logger);
-      try { await db.connect(); } catch (e) { blockedIf(true, `database unreachable (VPN?): ${(e as Error).message}`); }
-      try {
-        const { s, mdr } = await fundedAccount(db, logger, 'QAAUTOSTK');
-        const first = await test.step('breach: a SUSPEND is raised and JASEC refuses it (no callback)', async () => {
-          const id = await breach(db, mdr, s, testInfo);
-          await waitForDispatch(db, id, 'D');
-          return id;
-        });
-        const stuck = await accountState(db, s);
-        console.log(`  after the failed SUSPEND ${first}: subscription ${stuck.sub}, service unit ${stuck.svc} (meter NOT cut)`);
-        await note(testInfo, 'state after the failed SUSPEND', `${first} PROVISIONING_ERROR; subscription ${stuck.sub}, service unit ${stuck.svc}`);
-
-        await test.step('a further reading breaches again: is a SUSPEND raised?', async () => {
-          const before = (await orders(db, s.accountId)).filter(o => o.type === 'SUSPEND').map(o => o.id);
-          const out = await readingOutcome(db, mdr, s, WHILE_SUSPENDED_READING);
-          await sleep(60_000);
-          const after = (await orders(db, s.accountId)).filter(o => o.type === 'SUSPEND');
-          const fresh = after.filter(o => !before.includes(o.id));
-          const acc = await accountState(db, s);
-          const verdict = fresh.length
-            ? `NOT reproduced: the second breach raised ${fresh.map(o => `${o.id} ${o.status}`).join(', ')}`
-            : `REPRODUCED: the second breach raised NO SUSPEND - the only one is ${first} (PROVISIONING_ERROR); ` +
-              `subscription ${acc.sub}, service unit ${acc.svc} - the customer keeps power`;
-          console.log(`  reading ${WHILE_SUSPENDED_READING}: ${out.row?.where} ${out.row?.status}/${out.row?.errorcode}, balance ` +
-            `${out.before} -> ${out.after}
-  [F7-mirror] ${verdict}`);
-          await note(testInfo, 'F7 mirror verdict', `${verdict}. Second reading ${out.row?.status}/${out.row?.errorcode} ` +
-            `(${out.file}), balance ${out.before} -> ${out.after}. Breach emails: ${await notified(db, s.accountId, 'CREDIT_LIMIT_BREACH')}.`);
-          expect(out.row, 'the second reading never appeared - harness problem').toBeTruthy();
-        });
-      } finally {
-        await db.disconnect();
-      }
-    });
-
   test('a cut account with a held reading stays cut through a daily run days later @auto-held-cycle',
     async ({ request, page, dailySchedulePage }, testInfo) => {
       // Its OWN gate: JASEC_AUTO_PROV_RUN alone runs every test here, and this one also moves the clock and runs

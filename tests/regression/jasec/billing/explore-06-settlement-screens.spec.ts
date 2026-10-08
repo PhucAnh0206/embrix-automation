@@ -1,7 +1,7 @@
 /**
  * EXPLORATORY probe (read-only) - what the Core UI shows for a settled prepaid invoice.
  * Dumps the table headers + rows of: account Bills, account Account Statement, AR Accounts in Collection.
- * Used once to learn the screens before wiring UI steps into TC-143 / TC-142. Not a case.
+ * Used once to learn the screens before wiring UI steps into TC-145 / TC-144. Not a case.
  *   $env:JASEC_PROBE_ACCOUNT='ACT-101205'; npx playwright test --project=jasec-billing-explore --grep "@settlement-screens"
  */
 import { test } from '../../../../fixtures/page-factory';

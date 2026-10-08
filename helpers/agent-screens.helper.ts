@@ -76,6 +76,27 @@ export class AgentScreens {
   }
 
   /**
+   * Services > In-complete Orders > CANCEL ORDER - the agent's way out of a stuck order (F7, verified by hand on
+   * prod 2026-10-08: ORD-386 became `ORD-386-<timestamp>` CANCELLED at once, no confirmation dialog). The rows have
+   * no selection control and the button acts on the account's incomplete order, so this refuses (throws) unless
+   * `orderId` is the ONLY row - it must never cancel an order the test did not mean. The caller checks the result in
+   * the database (the order is renamed, so look for `<orderId>-%` CANCELLED).
+   */
+  async cancelIncompleteOrder(accountId: string, orderId: string): Promise<void> {
+    const before = await this.services(accountId);
+    if (before.incomplete.length !== 1 || !before.incomplete[0].startsWith(`${orderId} `)) {
+      throw new Error(`In-complete Orders on ${accountId} must list only ${orderId} before CANCEL ORDER; it lists: ` +
+        `${before.incomplete.join(' | ') || 'nothing'}`);
+    }
+    const section = this.page.locator('//h5[contains(text(), "In-complete Orders")]/ancestor::*[.//table][1]');
+    await section.locator('tbody tr').filter({ hasText: orderId }).first().locator('td').nth(1).click();
+    this.page.once('dialog', d => d.accept());
+    await section.getByRole('button', { name: 'Cancel Order' }).click();
+    await (this.page as any).waitForLoadingToDisappear?.();
+    console.log(`  UI Services ${accountId}: CANCEL ORDER clicked for ${orderId}`);
+  }
+
+  /**
    * Billing Data > Balances: the CRC amount as the agent sees it. JASEC sign: NEGATIVE = credit.
    * null when the screen shows no CRC row.
    */

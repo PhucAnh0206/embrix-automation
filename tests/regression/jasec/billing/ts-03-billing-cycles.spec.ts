@@ -199,7 +199,7 @@ test.beforeAll(async () => {
 });
 
 test.describe('Prepaid account across two consecutive billed cycles', () => {
-  test('the account ledger balance chain is continuous @jasec @billing @two-cycle @tc-144', async () => {
+  test('the account ledger balance chain is continuous @jasec @billing @two-cycle @tc-146', async () => {
     if (setupNote) { console.log(`\n[two-cycle] BLOCKED, not failed: ${setupNote}\n`); test.skip(true, setupNote); return; }
 
     /**
@@ -264,7 +264,7 @@ test.describe('Prepaid account across two consecutive billed cycles', () => {
     console.log(`[two-cycle] ledger chain verified across ${statement.length} line(s), ${cycles.length} invoice(s)`);
   });
 
-  test('unused included kWh do NOT carry over to the next cycle @jasec @billing @two-cycle @tc-145', async () => {
+  test('unused included kWh do NOT carry over to the next cycle @jasec @billing @two-cycle @tc-147', async () => {
     if (setupNote) { console.log(`\n[two-cycle] BLOCKED, not failed: ${setupNote}\n`); test.skip(true, setupNote); return; }
 
     /**
