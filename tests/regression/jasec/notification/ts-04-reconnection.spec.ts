@@ -239,7 +239,10 @@ async function ensureSuspendedCandidate(): Promise<Candidate | null> {
   const seed = new PrepaidSeedHelper();
   const s = uniqueRunSuffix();
   const meter = assertQaMeter(`M-QARCN-${s}`);
-  const { accountId } = await seed.seed({ meter, customerId: `E2ERCN-${s}`, name: `E2ERCN ${s}` });
+  // JASEC_RCN_PROFILE (optional, 2026-10-08): seed on another credit profile - e.g. "Prepaid Energy E2E No Window" to
+  // see O1 (the partial top-up's second breach SUSPEND) at any hour; the stock profile defers it 20:00-08:00 CR.
+  const profile = (process.env.JASEC_RCN_PROFILE ?? '').trim() || undefined;
+  const { accountId } = await seed.seed({ meter, customerId: `E2ERCN-${s}`, name: `E2ERCN ${s}`, creditProfileName: profile });
 
   // The NEW order completes asynchronously; suspend only once it is ACTIVE.
   for (let i = 0; i < 20 && (await subscriptionStatus(accountId)) !== 'ACTIVE'; i++) {
