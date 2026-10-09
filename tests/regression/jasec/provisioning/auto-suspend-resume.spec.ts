@@ -26,9 +26,10 @@
  *                   "morning after" half (scenario doc TC41) is open finding A8.
  *   @auto-stuck-resume  TC-128 (EPDP-516, F7): a customer who pays after a failed reconnect
  *                   is reconnected. The RESUME fails at JASEC (no callback), the customer
- *                   tops up again: a reconnect must be attempted again. FAILS until the
- *                   EP-5528 open-order fix is deployed; then completes the reconnect - with
- *                   the fix directly, without it via CANCEL ORDER on the Services screen.
+ *                   tops up again: a reconnect must be attempted again. FIXED 2026-10-09
+ *                   (engine 5c5b901 + ccp replaceProvisioningErrorOrders=true): a new RESUME,
+ *                   the failed one CANCELLED + renamed, one AUTO_ORDER_REPLACED_FAILED row.
+ *                   Without the fix it falls back to CANCEL ORDER on the Services screen.
  *   @auto-stuck-suspend TC-129 (EPDP-517, F7 mirror): a customer out of credit is cut off
  *                   even after an earlier cut failed. Same shape on the SUSPEND side.
  *   @auto-held-cycle  EXPLORATORY: a cut account with a held reading stays cut through
@@ -658,7 +659,8 @@ async function retriedAfter(db: DbHelper, s: Seeded, type: 'SUSPEND' | 'RESUME',
     : v.sent > sent
       ? `the stuck ${type} ${stuck} was re-sent (${v.sent - sent} more command(s))`
       : `NO new ${type} in 5 min and ${stuck} not re-sent - the only ${type} is ${stuck} (${await orderStatus(db, stuck)}); ` +
-        `subscription ${acc.sub}, service unit ${acc.svc}`;
+        `subscription ${acc.sub}, service unit ${acc.svc}; ccp replaceProvisioningErrorOrders=` +
+        `${(await db.query<{ v: string }>(`SELECT value AS v FROM core_config.ccp_properties WHERE property = 'replaceProvisioningErrorOrders'`))[0]?.v ?? '<unset>'}`;
   console.log(`  [F7] ${verdict}`);
   return { retried: !!v.fresh || v.sent > sent, fresh: v.fresh?.id, verdict };
 }
@@ -673,6 +675,7 @@ async function finish(
   type: 'SUSPEND' | 'RESUME', stuck: string, retry: { retried: boolean; fresh?: string }, trigger: () => Promise<void>,
 ) {
   let target = retry.fresh ?? (retry.retried ? stuck : '');
+  if (retry.fresh) await replacedAsPromised(db, ui, s, stuck, retry.fresh);
   if (!target) {
     await ui.cancelIncompleteOrder(s.accountId, stuck);
     const gone = await poll(() => db.query<{ id: string; status: string }>(
@@ -695,6 +698,32 @@ async function finish(
   await callback(request, s, target, type);
   const st = await poll(() => orderStatus(db, target), x => x === 'COMPLETED', 60_000, 5_000);
   expect.soft(st, `${type} ${target} after an accepted callback`).toBe('COMPLETED');
+}
+
+/**
+ * What the team's fix promises when it replaces a failed order (engine 5c5b901, ccp replaceProvisioningErrorOrders,
+ * 2026-10-09): the old order is CANCELLED and renamed `<id>-<timestamp>` (as In-complete Orders > Cancel does), and
+ * ONE Customer Activity row AUTO_ORDER_REPLACED_FAILED records it (entity = the old id, response replacedBy = the new
+ * order, cancelledAs = the renamed id) - in the database and on the agent's Customer Activity screen.
+ */
+async function replacedAsPromised(db: DbHelper, ui: AgentScreens, s: Seeded, stuck: string, fresh: string) {
+  const old = await poll(() => db.query<{ id: string; status: string }>(
+    `SELECT id, status FROM core_oms."order" WHERE accountid = $1 AND (id = $2 OR id LIKE $3)`,
+    [s.accountId, stuck, `${stuck}-%`]), r => r.length === 1 && r[0].status === 'CANCELLED', 60_000, 5_000);
+  expect.soft(old.map(r => `${r.id} ${r.status}`).join(', '),
+    `the failed ${stuck} must be CANCELLED and renamed ${stuck}-<timestamp> when ${fresh} replaces it`).toMatch(new RegExp(`^${stuck}-[^ ]+ CANCELLED$`));
+  const rows = await db.query<{ id: string; response: string }>(
+    `SELECT id, response::text AS response FROM core_engine.activity
+      WHERE accountid = $1 AND apiname = 'AUTO_ORDER_REPLACED_FAILED' AND entityid = $2`, [s.accountId, stuck]);
+  expect.soft(rows.length, `exactly one AUTO_ORDER_REPLACED_FAILED row for ${stuck}`).toBe(1);
+  const resp = rows[0] ? JSON.parse(rows[0].response) : {};
+  expect.soft(resp.replacedBy, `AUTO_ORDER_REPLACED_FAILED replacedBy`).toBe(fresh);
+  expect.soft(resp.cancelledAs, `AUTO_ORDER_REPLACED_FAILED cancelledAs = the renamed id`).toBe(old[0]?.id);
+  expect.soft(resp.status, `AUTO_ORDER_REPLACED_FAILED status`).toBe('CANCELLED');
+  await ui.openAccount(s.accountId);
+  expect.soft(await ui.customerActivityRows(stuck, 'AUTO_ORDER_REPLACED_FAILED'),
+    `Customer Activity screen must show the AUTO_ORDER_REPLACED_FAILED row for ${stuck}`).toBe(1);
+  console.log(`  [F7 fix] ${stuck} -> ${old[0]?.id} CANCELLED, replaced by ${fresh}; activity row ${rows[0]?.id ?? 'MISSING'}`);
 }
 
 /** End state, in the database and as the agent sees it: the expected status, no order left open. */
@@ -808,7 +837,9 @@ test.describe('JEPYP-27 - automatic suspend and resume (credit breach / top-up)'
    *
    * Built the production way: real breach -> CreditLimitBreach SUSPEND -> JASEC's suspend callback (the cut) ->
    * covering top-up -> automatic RESUME, which JASEC refuses (no callback). Then the customer pays again: a reconnect
-   * MUST be attempted again - a new RESUME, or the stuck one re-sent. EXPECTED TO FAIL until the fix is deployed.
+   * MUST be attempted again - a new RESUME, or the stuck one re-sent. FIXED 2026-10-09 (engine 5c5b901, ccp replaceProvisioningErrorOrders=true; verified dev + preprod):
+   * the new order replaces the failed one, which is CANCELLED and renamed, with one AUTO_ORDER_REPLACED_FAILED
+   * Customer Activity row (checked in the database and on screen, replacedAsPromised).
    * Either way the test then gets the customer back on, so the account never stays blocked: with the fix it
    * completes the new reconnect; without it, it uses the agent's way out on screen (Services > In-complete Orders >
    * CANCEL ORDER, then one more top-up) - which also proves that workaround every run. Ends ACTIVE, nothing open.
@@ -856,7 +887,7 @@ test.describe('JEPYP-27 - automatic suspend and resume (credit breach / top-up)'
           });
           await note(testInfo, 'F7 verdict', r.verdict);
           expect.soft(r.retried, `F7 - ${r.verdict}. The customer paid twice and stays cut off; the skip is only logged ` +
-            `(EP-5528 open-order check counts PROVISIONING_ERROR as open). Confirmed by the team 2026-10-08, fix pending`).toBe(true);
+            `(EP-5528 open-order check counts PROVISIONING_ERROR as open). Fixed 2026-10-09 by engine 5c5b901 behind ccp replaceProvisioningErrorOrders=true - see the verdict for the switch value`).toBe(true);
           return r;
         });
         await test.step('the customer is reconnected (with the fix: the new attempt; without: the agent cancels the stuck order on screen)', async () => {
@@ -876,7 +907,9 @@ test.describe('JEPYP-27 - automatic suspend and resume (credit breach / top-up)'
    * earlier cut failed. Same open-order check: once a breach SUSPEND fails at JASEC (PROVISIONING_ERROR, no callback)
    * the meter is NOT cut, and every later breach is skipped - the customer keeps power, their readings are refused
    * and held, but the cut is never sent (team 2026-10-08: "also real"). The next breach MUST raise the cut again - a
-   * new SUSPEND, or the stuck one re-sent. EXPECTED TO FAIL until the fix is deployed. Then, as TC-128: with the fix
+   * new SUSPEND, or the stuck one re-sent. FIXED 2026-10-09 (engine 5c5b901, ccp replaceProvisioningErrorOrders=true; verified dev + preprod):
+   * the new order replaces the failed one, which is CANCELLED and renamed, with one AUTO_ORDER_REPLACED_FAILED
+   * Customer Activity row (checked in the database and on screen, replacedAsPromised). Then, as TC-128: with the fix
    * it completes the new cut; without it the agent cancels the stuck SUSPEND on screen and the next breach must cut.
    * Ends SUSPENDED (cut, as a customer out of credit should be), nothing open.
    */
@@ -915,7 +948,7 @@ test.describe('JEPYP-27 - automatic suspend and resume (credit breach / top-up)'
           });
           await note(testInfo, 'F7 mirror verdict', r.verdict);
           expect.soft(r.retried, `F7 mirror - ${r.verdict}. The customer is out of credit and keeps power; the skip is ` +
-            `only logged (EP-5528 open-order check counts PROVISIONING_ERROR as open). Confirmed by the team 2026-10-08, fix pending`).toBe(true);
+            `only logged (EP-5528 open-order check counts PROVISIONING_ERROR as open). Fixed 2026-10-09 by engine 5c5b901 behind ccp replaceProvisioningErrorOrders=true - see the verdict for the switch value`).toBe(true);
           return r;
         });
         await test.step('the customer is cut (with the fix: the new attempt; without: the agent cancels the stuck order on screen)', async () => {

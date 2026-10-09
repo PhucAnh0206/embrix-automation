@@ -134,16 +134,27 @@ export class AgentScreens {
    * dates and Search, as an agent would, then wait for this order's rows before reading.
    */
   async customerActivityDispatches(order: string): Promise<number> {
+    const n = await this.customerActivityRows(order, 'CREATE_UTILITIES_ORDER_TRIGGER');
+    console.log(`  UI Customer Activity: ${n} dispatch row(s) for ${order}`);
+    return n;
+  }
+
+  /**
+   * Customer Activity rows that contain EVERY given text (e.g. an order id and an API name such as
+   * AUTO_ORDER_REPLACED_FAILED, the row the F7 fix writes when it cancels a failed order). Call while the
+   * account is open. Same date widening as customerActivityDispatches.
+   */
+  async customerActivityRows(...needles: string[]): Promise<number> {
     await new AccountInfoPage(this.page).navigateToCustomerActivity();
     await this.page.waitForURL(/\/activities/, { timeout: 30_000 });
     await this.page.locator('input[name="startDate"]').fill('2020-01-01');
     await this.page.locator('input[name="endDate"]').fill('2030-12-31');
     await this.page.getByRole('button', { name: 'Search', exact: true }).click();
     const grid = this.page.locator('table').first().locator('tbody tr');
-    await grid.filter({ hasText: order }).first().waitFor({ state: 'visible', timeout: 30_000 }).catch(() => { });
+    await grid.filter({ hasText: needles[0] }).first().waitFor({ state: 'visible', timeout: 30_000 }).catch(() => { });
     const rows = await grid.allInnerTexts();
-    const n = rows.filter(r => r.includes(order) && r.includes('CREATE_UTILITIES_ORDER_TRIGGER')).length;
-    console.log(`  UI Customer Activity: ${n} dispatch row(s) for ${order} (${rows.length} rows on the page)`);
+    const n = rows.filter(r => needles.every(t => r.includes(t))).length;
+    console.log(`  UI Customer Activity: ${n} row(s) with ${needles.join(' + ')} (${rows.length} rows on the page)`);
     return n;
   }
 
