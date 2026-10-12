@@ -29,6 +29,13 @@ if (!process.env.TEST_WORKER_INDEX && process.env.CLEAN_LOGS_ON_START === 'true'
 // once raised an order on dev.
 const { name: TENANT_NAME, tenant: TENANT } = resolveTenant();
 
+// One saved Core UI login PER TENANT. A single shared user.json let a NetSuite
+// run on coopegsbx2 overwrite the session a JASEC run was using mid-suite
+// (2026-10-12: six top-up cases failed in seconds on a CoopeG menu). Exported so
+// tests/auth.setup.ts writes the same file the projects read.
+const AUTH_FILE = `playwright/.auth/user.${TENANT_NAME}.json`;
+process.env.AUTH_FILE = AUTH_FILE;
+
 const baseURL = TENANT.baseUrl;
 
 // Exposed for helper classes, which read these rather than the registry.
@@ -185,7 +192,7 @@ export default defineConfig({
       dependencies: ['setup'],
       use: {
         ...devices['Desktop Chrome'],
-        storageState: 'playwright/.auth/user.json',
+        storageState: AUTH_FILE,
       },
     },
 
@@ -200,7 +207,7 @@ export default defineConfig({
       dependencies: ['setup'],
       use: {
         ...devices['Desktop Chrome'],
-        storageState: 'playwright/.auth/user.json',
+        storageState: AUTH_FILE,
       },
     },
 
@@ -216,7 +223,7 @@ export default defineConfig({
       dependencies: ['setup'],
       use: {
         ...devices['Desktop Chrome'],
-        storageState: 'playwright/.auth/user.json',
+        storageState: AUTH_FILE,
       },
     },
 
@@ -227,7 +234,7 @@ export default defineConfig({
       dependencies: ['setup'],
       use: {
         ...devices['Desktop Chrome'],
-        storageState: 'playwright/.auth/user.json',
+        storageState: AUTH_FILE,
       },
     },
 
@@ -241,7 +248,7 @@ export default defineConfig({
       dependencies: ['setup'],
       use: {
         ...devices['Desktop Chrome'],
-        storageState: 'playwright/.auth/user.json',
+        storageState: AUTH_FILE,
       },
     },
 
@@ -274,7 +281,7 @@ export default defineConfig({
       dependencies: ['setup'],
       use: {
         ...devices['Desktop Chrome'],
-        storageState: 'playwright/.auth/user.json',
+        storageState: AUTH_FILE,
       },
     },
 
@@ -349,7 +356,7 @@ export default defineConfig({
       dependencies: ['setup'],
       use: {
         ...devices['Desktop Chrome'],
-        storageState: 'playwright/.auth/user.json',
+        storageState: AUTH_FILE,
       },
     },
 
@@ -374,7 +381,7 @@ export default defineConfig({
       dependencies: ['setup'],
       use: {
         ...devices['Desktop Chrome'],
-        storageState: 'playwright/.auth/user.json',
+        storageState: AUTH_FILE,
       },
     },
 
@@ -395,7 +402,7 @@ export default defineConfig({
       dependencies: ['setup'],
       use: {
         ...devices['Desktop Chrome'],
-        storageState: 'playwright/.auth/user.json',
+        storageState: AUTH_FILE,
       },
     },
 
@@ -446,7 +453,7 @@ export default defineConfig({
       dependencies: ['setup'],
       use: {
         ...devices['Desktop Chrome'],
-        storageState: 'playwright/.auth/user.json',
+        storageState: AUTH_FILE,
       },
     },
 
@@ -463,7 +470,7 @@ export default defineConfig({
       dependencies: ['setup'],
       use: {
         ...devices['Desktop Chrome'],
-        storageState: 'playwright/.auth/user.json',
+        storageState: AUTH_FILE,
       },
     },
 
@@ -511,7 +518,7 @@ export default defineConfig({
       dependencies: ['setup'],
       use: {
         ...devices['Desktop Chrome'],
-        storageState: 'playwright/.auth/user.json',
+        storageState: AUTH_FILE,
       },
     },
     // ── JASEC billing: several credit-limit breaches in ONE BILL_CHECK run must not
@@ -530,7 +537,7 @@ export default defineConfig({
       dependencies: ['setup'],
       use: {
         ...devices['Desktop Chrome'],
-        storageState: 'playwright/.auth/user.json',
+        storageState: AUTH_FILE,
       },
     },
     {
@@ -551,7 +558,7 @@ export default defineConfig({
       dependencies: ['setup'],
       use: {
         ...devices['Desktop Chrome'],
-        storageState: 'playwright/.auth/user.json',
+        storageState: AUTH_FILE,
       },
     },
 
@@ -564,7 +571,7 @@ export default defineConfig({
       dependencies: ['setup'],
       use: {
         ...devices['Desktop Chrome'],
-        storageState: 'playwright/.auth/user.json',
+        storageState: AUTH_FILE,
       },
     },
 
@@ -579,7 +586,7 @@ export default defineConfig({
       dependencies: ['setup'],
       use: {
         ...devices['Desktop Chrome'],
-        storageState: 'playwright/.auth/user.json',
+        storageState: AUTH_FILE,
       },
     },
 
@@ -590,7 +597,7 @@ export default defineConfig({
       dependencies: ['setup'],
       use: {
         ...devices['Desktop Chrome'],
-        storageState: 'playwright/.auth/user.json',
+        storageState: AUTH_FILE,
       },
     },
   ].filter(p => isSuiteAllowed(p.name ?? '', TENANT_NAME)),

@@ -277,7 +277,10 @@ async function resumeJourney(
     await shot(page, testInfo, '4-resume-search');
     blockedIf(!listed,
       `${s.accountId} is not listed on the Resume Order screen. It excludes accounts with an order in ` +
-      `CREATED/PENDING, open orders: ${await openOrders(db, s.accountId)}.`);
+      `CREATED/PENDING (open orders: ${await openOrders(db, s.accountId)}) and accounts whose effective date ` +
+      `is after the CCP clock (${(await db.query<{ v: string }>(
+        `SELECT a.effectivedate::date::text || ' vs clock ' || (SELECT ccptime::date::text FROM core_config.ccp_time LIMIT 1) AS v
+           FROM core_engine.account a WHERE a.id = $1`, [s.accountId]))[0]?.v ?? '?'}).`);
     await ui.selectAccount(s.accountId);
     if (UNTICK_PARTIAL) await ui.tickOrderOption('Allow Partial Provisioning');
     resumeOrder = await ui.create();

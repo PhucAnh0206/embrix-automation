@@ -128,6 +128,11 @@ test('several credit-limit breaches in one BILL_CHECK run do not freeze it', asy
     if (blockedIf(OWN_DATA_ONLY && (others[0]?.n ?? 0) > 0,
       `${others[0]?.n} account(s) that are not ours are due on ${billDate} - on ${process.env.TEST_ENV} we bill our own ` +
       `accounts only. Pick another JASEC_BREACH_BDOM.`)) return;
+    // createJobSchedule refuses a date that already holds a schedule (SCHEDULE_EXISTS). Check first, as
+    // ts-10 and ts-12 do, so a busy date is BLOCKED and not a FAIL (dev 2026-10-12: BDOM 20 -> 08-28, taken).
+    const slot = await db.query<{ n: number }>(
+      `SELECT count(*)::int n FROM core_engine.job_schedule WHERE scheduledate::date = $1::date`, [billDate]);
+    if (blockedIf((slot[0]?.n ?? 0) > 0, `${billDate} already holds a job schedule - set JASEC_BREACH_BDOM to another day`)) return;
 
     // 3. Clock to the bill date (setCcpDate clears a stranded future-order pin first), BILL_CHECK alone.
     await seed.setCcpDate(billDate);

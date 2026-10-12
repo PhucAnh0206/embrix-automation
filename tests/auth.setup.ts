@@ -13,7 +13,8 @@ import * as path from 'path';
 import * as fs from 'fs';
 import * as Timeouts from '../helpers/timeouts.helper';
 
-const authFile = path.join('playwright', '.auth', 'user.json');
+// Per-tenant file set by playwright.config.ts; user.json only if run outside it.
+const authFile = process.env.AUTH_FILE ?? path.join('playwright', '.auth', 'user.json');
 
 /**
  * Reuse a still-valid session instead of paying a full browser login.

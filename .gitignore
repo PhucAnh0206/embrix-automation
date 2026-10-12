@@ -46,3 +46,7 @@ tests/examples/
 *.bak-*
 *.orig
 .env.congero-oci
+test-results-*/
+
+# per-tenant Chrome disk cache (PW_DISK_CACHE, run-projects.ps1)
+.pw-cache/

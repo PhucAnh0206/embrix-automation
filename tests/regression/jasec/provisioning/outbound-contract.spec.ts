@@ -332,7 +332,7 @@ test.describe('JASEC provisioning - outbound contract and config', () => {
     //
     // Known offenders at the time of writing: ORD-1371, parked there by
     // reSubmitOrder without a dispatch (see reprocess.spec.ts).
-    const rows = await db.query<{ id: string; answer: string }>(
+    const stuckQuery = () => db.query<{ id: string; answer: string }>(
       `SELECT o.id,
               coalesce((SELECT coalesce(substring(a.response::text from 'CodRespuesta>([^<]*)'),'no response')
                           FROM core_engine.activity a
@@ -348,6 +348,20 @@ test.describe('JASEC provisioning - outbound contract and config', () => {
                          ORDER BY a.id DESC LIMIT 1),'') <> '00'
         ORDER BY o.id`,
     );
+    const stuckExpected = Number(process.env.JASEC_STUCK_EXPECTED ?? 1);
+    let rows = await stuckQuery();
+
+    // IN FLIGHT IS NOT STUCK (2026-10-13). An order the previous stage just dispatched (G 2.12, H1
+    // reconnect) sits in PROVISIONING_INITIATED with no answer for a few minutes - on preprod 10-12
+    // ORD-786 failed this check and was PROVISIONING_ERROR minutes later. core_engine.activity has
+    // only a DATE column, so age cannot be measured: over the baseline, look once more after 3 min.
+    // A refused dispatch never gets an answer, so a genuinely stuck order is still here.
+    if (rows.length > stuckExpected) {
+      test.setTimeout(420_000);
+      console.log(`  ${rows.length} unanswered order(s) (${rows.map(r => r.id).join(', ')}) - re-checking in 3 min in case they are in flight`);
+      await new Promise(res => setTimeout(res, 180_000));
+      rows = await stuckQuery();
+    }
 
     const detail = rows.map(r => `${r.id} (last AMI answer: ${r.answer})`).join(', ');
 
@@ -360,7 +374,6 @@ test.describe('JASEC provisioning - outbound contract and config', () => {
     // FAIL. Matches the dial and the `-gt` comparison that
     // _scripts/provisioning/provisioning-preflight.sh has always used, so the
     // shell and Playwright halves can no longer disagree.
-    const stuckExpected = Number(process.env.JASEC_STUCK_EXPECTED ?? 1);
     expect(
       rows.length,
       `${rows.length} order(s) sitting in PROVISIONING_INITIATED whose dispatch ` +

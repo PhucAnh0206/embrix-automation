@@ -51,6 +51,14 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { test, expect } from '../../../../fixtures/jasec-fixtures';
 import { attachToAccountInSelfCare } from '../../../../fixtures/create-prepaid-account.helper';
+import { PrepaidSeedHelper } from '../../../../helpers/prepaid-seed.helper';
+
+// THE SPEC OWNS THE CLOCK (2026-10-13). The fixture's default reset to the 07-15 baseline put the
+// top-up OUTSIDE the cycle about to be billed (preprod: ACT-100258's open cycle was 10-12..11-11), so
+// the invoice could not summarise it and Self Care's history - current period only - showed no row.
+// The test now moves the clock inside the account's OPEN cycle itself; an explicit JASEC_CCP_BASELINE
+// (run-suite.ps1 -Dates Ts08Baseline) still wins.
+test.use({ ccpBaseline: null });
 
 const RUN = process.env.JASEC_TOPUP_RUN === 'true';
 const AMOUNT = Number(process.env.JASEC_TOPUP_AMOUNT ?? 5000);
@@ -108,6 +116,23 @@ test.describe('B4 precondition — a real top-up inside the billed cycle', () =>
         'No account to top up. Pass JASEC_TOPUP_ACCOUNT, or run this straight ' +
         'after a seed so test-results/jasec-latest-meter.json still exists.',
       ).not.toBeNull();
+
+      // ── Put the clock INSIDE the cycle that will be billed ──────────────
+      const cyc = await dbHelper.query<{ s: string; e: string }>(
+        `SELECT bu.startdate::date::text AS s, bu.enddate::date::text AS e
+           FROM core_engine.billing_profile bp JOIN core_engine.bill_unit bu ON bu.id = bp.nextbillunitid
+          WHERE bp.accountid = $1`, [accountId!]);
+      expect(cyc.length, `${accountId} has no open bill unit - nothing will be billed`).toBe(1);
+      const { s: cycStart, e: cycEnd } = cyc[0];
+      const seed = new PrepaidSeedHelper(testLogger);
+      const explicit = (process.env.JASEC_CCP_BASELINE ?? '').trim();
+      const now = await seed.ccpDate();
+      let target = explicit || now;
+      if (!explicit && !(now >= cycStart && now < cycEnd)) target = cycStart;
+      expect(target >= cycStart && target < cycEnd,
+        `${target} is outside ${accountId}'s open cycle ${cycStart}..${cycEnd}: the top-up would not be on the invoice`).toBe(true);
+      if (target !== now) await seed.setCcpDate(target);
+      testLogger.log(`[B4] open cycle ${cycStart}..${cycEnd}; clock ${now} -> ${target}`);
 
       testLogger.log(`[B4] topping up ${accountId} with ${AMOUNT} CRC`);
 

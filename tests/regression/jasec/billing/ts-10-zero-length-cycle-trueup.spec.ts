@@ -244,8 +244,11 @@ test.describe('JASEC billing — 0-30 kWh true-up and cycle length (MUTATING)', 
 
       // The cycle is read after creation - nothing is billed and the clock does not move. The first REGULAR
       // bill unit appears a few seconds after the seed returns (it is not linked yet at +0s), so poll for it.
+      // 180 s, not 60 s: on dev 2026-10-12 ACT-101332's unit appeared ~2-3 min after the seed (ids 5638-5641
+      // skipped), and was then correct (10-20 -> 11-20). The wait is logged so a slow unit stays visible.
       let r: { s: string; e: string; want: string }[] = [];
-      for (let i = 0; i < 30 && !r.length; i++) {
+      const t0 = Date.now();
+      for (let i = 0; i < 90 && !r.length; i++) {
         r = await db.query<{ s: string; e: string; want: string }>(
           `SELECT bu.startdate::date::text s, bu.enddate::date::text e,
                   ($2::date + interval '1 month')::date::text want
@@ -254,8 +257,8 @@ test.describe('JASEC billing — 0-30 kWh true-up and cycle length (MUTATING)', 
             ORDER BY bu.id LIMIT 1`, [accountId, today]);
         if (!r.length) await new Promise((res) => setTimeout(res, 2000));
       }
-      expect(r[0], `${accountId} has no REGULAR bill unit 60 s after creation`).toBeTruthy();
-      console.log(`  first cycle ${r[0].s} -> ${r[0].e} (expected ${today} -> ${r[0].want})`);
+      expect(r[0], `${accountId} has no REGULAR bill unit 180 s after creation`).toBeTruthy();
+      console.log(`  first cycle ${r[0].s} -> ${r[0].e} (expected ${today} -> ${r[0].want}); bill unit seen after ${Math.round((Date.now() - t0) / 1000)} s`);
       expect(r[0].e, `${accountId}: a zero-length first cycle (${r[0].s} -> ${r[0].e}) - JEPYP-319 Q2 says it cannot occur`)
         .not.toBe(r[0].s);
       expect(`${r[0].s} -> ${r[0].e}`, `${accountId}: created on its billing day, the first cycle must be one full month`)

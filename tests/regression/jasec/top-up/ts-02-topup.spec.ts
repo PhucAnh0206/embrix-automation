@@ -135,6 +135,30 @@ async function waitForSuspendedShape(
 }
 
 /**
+ * Wait until a freshly seeded order leaves the open states. The product refuses a
+ * second order while one is PENDING/CREATED/APPROVED (OPEN_ORDER_ALREADY_EXISTS).
+ * Where provisioningEnabled=true (jasec-dev) the seeded NEW order is still open
+ * for a while after submit; on prod build 2 (provisioning off) it completed at
+ * once, which is why 2.12 passed there and was refused on dev (2026-10-12,
+ * ACT-101271 / ORD-2559). Returns the last status seen.
+ */
+async function waitForOrderSettled(db: DbHelper, orderId: string, maxSeconds = 180): Promise<string> {
+  // Wait for a TERMINAL status. PROVISIONING_INITIATED is not enough: the open-order
+  // check also counts an order waiting on its AMI callback, although its message names
+  // only PENDING/CREATED/APPROVED (preprod 2026-10-12, ACT-100377 / ORD-742: refused at
+  // +3s while PROVISIONING_INITIATED, COMPLETED moments later).
+  const TERMINAL = ['COMPLETED', 'PROVISIONING_ERROR', 'CANCELLED', 'CLOSED', 'FAILED', 'REJECTED'];
+  let status = '(none)';
+  for (let waited = 0; waited <= maxSeconds; waited += 3) {
+    status = (await db.query<{ status: string }>(
+      `SELECT status FROM core_oms."order" WHERE id = $1`, [orderId]))[0]?.status ?? '(none)';
+    if (TERMINAL.includes(status)) return status;
+    await new Promise((res) => setTimeout(res, 3_000));
+  }
+  return status;
+}
+
+/**
  * TC 2.6-2.10 exercise the Top-Up receipt feature, which is behind the
  * `topupReceiptsEnabled` flag on the Self Care frontend. The flag is not
  * exposed via GraphQL, so it cannot be probed at runtime — it has to be
@@ -1498,11 +1522,15 @@ test.describe(
             'with a billing-only SUSPEND order (never a borrowed account).',
           );
           const suffix212 = uniqueRunSuffix();
-          const { accountId } = await new PrepaidSeedHelper(testLogger).seed({
+          const { accountId, orderId: newOrder } = await new PrepaidSeedHelper(testLogger).seed({
             meter: assertQaMeter(`M-QASUS-${suffix212}`),
             customerId: `E2ESUSP-${suffix212}`,
             name: `E2ESUSP ${suffix212}`,
           });
+          // The SUSPEND below is refused OPEN_ORDER_ALREADY_EXISTS while the NEW
+          // order is still open (dev: provisioning on). Let it settle first.
+          const newStatus = await waitForOrderSettled(dbHelper, newOrder);
+          testLogger.log(`2.12: seeded NEW ${newOrder} on ${accountId} settled as ${newStatus}`);
           // DIAGNOSTIC CONTROL (2026-09-30, JASEC prod): JASEC_212_CONTROL_ACTIVE=true
           // keeps everything else identical - same gateway-created account, same
           // probe - but leaves the subscription ACTIVE. It separates "the gateway

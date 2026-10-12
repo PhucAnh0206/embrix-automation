@@ -110,7 +110,36 @@ test.afterAll(async () => {
 test.describe('TS-03 — rendered notification content (replay)', () => {
   for (const [type, template] of Object.entries(TEMPLATES)) {
     test(`${type} — body renders per template`, async () => {
-      const rows = await notifyDb.getNotifications({ type });
+      let rows = await notifyDb.getNotifications({ type });
+
+      // BALANCE_TOPUP: the seeding helpers (PrepaidSeedHelper.topUp) top up over the
+      // subscriptionTopUp API with no payment source and no reference, so their
+      // confirmation mail has a blank "ID Transacción" by construction. Since the
+      // 2026-10-08 provisioning runs those are the newest rows on dev, and judging
+      // one reads as a template defect. Replay customer-channel top-ups only:
+      // drop subscriptions whose top-ups are ALL source-less and reference-less. A
+      // customer top-up that loses its reference still carries a payment source,
+      // so it is still judged.
+      if (type === 'BALANCE_TOPUP' && rows.length) {
+        const seededOnly = new Set(
+          (
+            await db.query<{ s: string }>(
+              `SELECT subscriptionid AS s FROM core_engine.subscription_topup
+                GROUP BY subscriptionid
+               HAVING bool_and(paymentsource IS NULL AND coalesce(paymentrefid, '') = '')`,
+            )
+          ).map((r) => r.s),
+        );
+        const customer = rows.filter((r) => !r.entityId || !seededOnly.has(r.entityId));
+        const dropped = rows.length - customer.length;
+        if (dropped) {
+          test.info().annotations.push({
+            type: 'seeded-topups-excluded',
+            description: `${dropped} BALANCE_TOPUP row(s) from API-seeded subscriptions (no payment source, no reference) not replayed`,
+          });
+        }
+        rows = customer;
+      }
 
       if (!rows.length) {
         const reason = EXPECTED_MISSING[type];
