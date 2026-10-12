@@ -334,7 +334,11 @@ test.describe('JASEC provisioning - outbound contract and config', () => {
     // reSubmitOrder without a dispatch (see reprocess.spec.ts).
     const stuckQuery = () => db.query<{ id: string; answer: string }>(
       `SELECT o.id,
-              coalesce((SELECT coalesce(substring(a.response::text from 'CodRespuesta>([^<]*)'),'no response')
+              -- the AMI answers in XML (CodRespuesta) or JSON (errorMsg, e.g. "El Medidor No existe");
+              -- before 2026-10-13 a JSON refusal was reported as "no response"
+              coalesce((SELECT coalesce(substring(a.response::text from 'CodRespuesta>([^<]*)'),
+                                        'refused: ' || substring(a.response::text from '"errorMsg": "([^"]*)"'),
+                                        'no response')
                           FROM core_engine.activity a
                          WHERE a.apiname ILIKE '%UTILITIES%'
                            AND a.request::text LIKE '%>' || o.id || '<%'
