@@ -116,6 +116,18 @@ export const TENANTS: Record<string, Tenant> = {
     suites: ['embrix-platform', 'coopeg-lifecycle'],
   },
 
+  // CoopeG NetSuite reconciliation environment (EFT-88, Jeremy Hynes, from 2026-10-07).
+  // Invoices and credit notes created here are synced to CoopeG's NetSuite
+  // SANDBOX (8754760-sb1), so only the netsuite suite runs here. Its config DB
+  // is NOT the coopegsbx3 snapshot shared with QA (Bug_006), hence no dbName.
+  coopegsbx2: {
+    baseUrl: 'https://core-ui.coopegsbx2.embrix.org/',
+    graphqlUrl: 'https://service-transactional.coopegsbx2.embrix.org/graphql',
+    crmGatewayUrl: 'https://crm-gateway.coopegsbx2.embrix.org',
+    suites: ['netsuite'],
+    note: 'NetSuite regression (EFT-88). Writes reach the CoopeG NetSuite sandbox; clock moves need NS_ALLOW_CLOCK=true.',
+  },
+
   'congero-oci': {
     baseUrl: 'https://core-ui.congero.embrix.org/',
     graphqlUrl: 'https://service-transactional.congero.embrix.org/graphql',

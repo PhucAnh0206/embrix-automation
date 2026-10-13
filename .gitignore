@@ -17,6 +17,7 @@ playwright/.auth/
 .env.bak
 .env.coopeg
 .env.congero
+.env.coopegsbx2
 
 # Test output
 test-results/
@@ -50,3 +51,6 @@ test-results-*/
 
 # per-tenant Chrome disk cache (PW_DISK_CACHE, run-projects.ps1)
 .pw-cache/
+
+# run-projects.ps1: one run per tenant
+.run-lock.*

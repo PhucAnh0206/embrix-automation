@@ -27,7 +27,8 @@
     "test:smoke:headed": "playwright test --project=smoke --headed",
     "test:embrix-platform": "playwright test --project=embrix-platform",
     "test:embrix-platform:headed": "playwright test --project=embrix-platform --headed",
-    "test:coopeg-lifecycle": "playwright test --project=coopeg-lifecycle"
+    "test:coopeg-lifecycle": "playwright test --project=coopeg-lifecycle",
+    "test:netsuite": "playwright test --project=netsuite"
   },
   "devDependencies": {
     "@playwright/test": "^1.49.0",

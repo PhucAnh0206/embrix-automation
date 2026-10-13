@@ -36,6 +36,11 @@ const { name: TENANT_NAME, tenant: TENANT } = resolveTenant();
 const AUTH_FILE = `playwright/.auth/user.${TENANT_NAME}.json`;
 process.env.AUTH_FILE = AUTH_FILE;
 
+// One id per `playwright test` invocation, inherited by every worker. The
+// NetSuite specs key the data they create on it, so a worker restarted after a
+// failed case reuses this run's invoices instead of creating new ones.
+process.env.NS_RUN_ID ??= new Date().toISOString().replace(/\D/g, '').slice(4, 12);
+
 const baseURL = TENANT.baseUrl;
 
 // Exposed for helper classes, which read these rather than the registry.
@@ -96,6 +101,8 @@ export default defineConfig({
     ['html', { outputFolder: 'playwright-report', open: 'never' }],
     ['junit', { outputFile: 'test-results/junit.xml' }],
     ['list'],
+    // Acts only on tests under regression/netsuite; a no-op for every other suite.
+    ['./reporters/netsuite-csv.reporter.ts'],
   ],
 
   /* Shared settings for all projects */
@@ -204,6 +211,19 @@ export default defineConfig({
       // clock moves.
       name: 'coopeg-lifecycle',
       testMatch: ['**/regression/coopeguanacaste/*.spec.ts'],
+      dependencies: ['setup'],
+      use: {
+        ...devices['Desktop Chrome'],
+        storageState: AUTH_FILE,
+      },
+    },
+
+    // ── NetSuite regression (coopegsbx2 only) ──────────────────────────
+    // Suite: D:\Dev\products\embrix\test-cases\netsuite (94 cases). Each test
+    // title starts with its Case ID so results map back to the CSV.
+    {
+      name: 'netsuite',
+      testMatch: ['**/regression/netsuite/*.spec.ts'],
       dependencies: ['setup'],
       use: {
         ...devices['Desktop Chrome'],
