@@ -106,6 +106,8 @@ async function createAccountWithOrder(f: AccountFixtures): Promise<string> {
     await page.waitForTimeout(SHORT_WAIT);
 
     await customerManagementPage.clickCreateButton();
+    if (data.account.currency) await customerManagementPage.ensureCurrency(data.account.currency);
+    if (data.account.paymentMethod) await customerManagementPage.ensurePaymentMethod(data.account.paymentMethod);
 
     await page.locator('.panel__title', { hasText: 'Create Contact' }).click();
 
@@ -187,6 +189,60 @@ const platformAccount = new SharedAccount<AccountFixtures>({
 });
 
 
+/** Subscriptions the account has, asked of the API. */
+async function subscriptionCount(page: any, accountId: string): Promise<number> {
+  const res = await page.request.post(process.env.GRAPH_URLS!, {
+    headers: {
+      'content-type': 'application/json',
+      'X-Auth-Username': process.env.EMBRIX_USER ?? '',
+      'X-Auth-Password': process.env.EMBRIX_PASSWORD ?? '',
+    },
+    data: { query: `{ getSubscriptionByAccountId(input: {id: "${accountId}"}) { id } }` },
+  });
+  const body = await res.json();
+  return (body?.data?.getSubscriptionByAccountId ?? []).length;
+}
+
+/**
+ * Make sure the shared account's order has been submitted, so it has a
+ * subscription.
+ *
+ * Only TC-20 submits the order, and it runs once. When a failure restarts the
+ * worker, the next case creates a fresh account + order that nobody submits:
+ * on congero (2026-10-13) that left TC-47/48/49/53 skipped on ACT-100006 while
+ * ACT-100002, whose order TC-20 did submit, had an ACTIVE subscription. TC-18
+ * and TC-20 are left alone so TC-20 still tests the submit itself.
+ */
+async function ensureOrderSubmitted(f: AccountFixtures, accountId: string): Promise<void> {
+  const { page, testLogger, orderManagementPage, screenshotHelper } = f;
+  if (/TC-18:|TC-20:/.test(base.info().title)) return;
+  if (await subscriptionCount(page, accountId) > 0) return;
+  if (!state.orderId) {
+    testLogger.log(`No order id known for ${accountId} — cannot submit it`);
+    return;
+  }
+
+  testLogger.log(`${accountId} has no subscription — submitting ${state.orderId} (TC-20 steps)`);
+  await page.navigateToHome();
+  await orderManagementPage.navigateViaNav();
+  await orderManagementPage.searchOrderId(state.orderId);
+  await page.waitForTimeout(SHORT_WAIT);
+  await page.locator('a', { hasText: state.orderId }).click();
+  await page.waitForTimeout(SHORT_WAIT);
+  await orderManagementPage.clickSubmitOrderButton();
+  await page.waitForTimeout(SHORT_WAIT);
+  await orderManagementPage.isUpdateOrderSuccesfully(screenshotHelper);
+
+  // The subscription is created after the order completes, not instantly.
+  await expect.poll(() => subscriptionCount(page, accountId), {
+    message: `${accountId} still has no subscription after submitting ${state.orderId}`,
+    timeout: 120_000,
+    intervals: [5_000],
+  }).toBeGreaterThan(0);
+  await page.goto(accountUrl(accountId));
+  await page.waitForLoadState('networkidle');
+}
+
 /**
  * `embrixAccount` — declare this fixture in any case that needs the shared
  * account; omit it and the case pays nothing.
@@ -201,12 +257,14 @@ const test = base.extend<{ embrixAccount: string }>({
       createOrderPage, screenshotHelper, servicesPage },
     use,
   ) => {
-    const accountId = await platformAccount.ensure({
+    const f = {
       page, testLogger, customerManagementPage, orderManagementPage,
       createOrderPage, screenshotHelper, servicesPage,
-    });
+    };
+    const accountId = await platformAccount.ensure(f);
     state.accountId = accountId;
     state.quickAccUrl = state.quickAccUrl ?? accountUrl(accountId);
+    await ensureOrderSubmitted(f, accountId);
     await use(accountId);
   },
 });
@@ -520,6 +578,8 @@ test.describe('REGRESSION: Test Suite - 02', () => {
     await page.mouse.click(10, 10);
     await page.waitForTimeout(SHORT_WAIT);
     await customerManagementPage.clickCreateButton();
+    if (data.account.currency) await customerManagementPage.ensureCurrency(data.account.currency);
+    if (data.account.paymentMethod) await customerManagementPage.ensurePaymentMethod(data.account.paymentMethod);
 
     await page.locator('.panel__title', { hasText: 'Create Contact' }).click();
 
@@ -767,8 +827,10 @@ test.describe('REGRESSION: Test Suite - 02', () => {
     await billsPage.navigateToBalance();
     await page.waitForLoadState('networkidle');
 
-    // PRECONDITION: subscription balances require a subscription.
-    test.skip(await gridIsEmpty(page.locator('table.center-aligned-table.mb-0').first()), 'BLOCKED: account has no subscription — order never provisioned (billingOnlyFlag does not persist)');
+    // PRECONDITION: a subscription balance, which needs a subscription AND some
+    // billing on it. On congero (2026-10-13) the account had an ACTIVE
+    // subscription and this grid was still empty — billing needs the CCP time.
+    test.skip(await gridIsEmpty(page.locator('table.center-aligned-table.mb-0').first()), 'BLOCKED: no subscription balance yet — needs a subscription and a billing run (CCP time)');
 
     const firstTable = page.locator('table.center-aligned-table.mb-0').first();
     const amountValue = await firstTable.locator('tbody tr').nth(0).locator('td').nth(1).innerText();
@@ -1697,6 +1759,8 @@ test.describe('REGRESSION: Test Suite - 02', () => {
     await page.waitForTimeout(SHORT_WAIT);
 
     await customerManagementPage.clickCreateButton();
+    if (data.account.currency) await customerManagementPage.ensureCurrency(data.account.currency);
+    if (data.account.paymentMethod) await customerManagementPage.ensurePaymentMethod(data.account.paymentMethod);
     await page.locator('.panel__title', { hasText: 'Create Contact' }).click();
     await customerManagementPage.quickCreateAccount(data.account.email, data.account.firstName, data.account.lastName);
     await page.locator('.panel__title', { hasText: 'Create Address' }).click();

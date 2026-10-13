@@ -113,6 +113,50 @@ export class CustomerManagementPage extends BasePage {
 
   }
 
+  /**
+   * Set the mandatory Currency on the create form, but only when it is blank.
+   *
+   * Some tenants pre-fill it (coopeg-sandbox), others leave it empty (congero on
+   * OCI). Relying on the pre-fill made Create Account fail on congero with
+   * "Mandatory inputs are missing or invalid" before any request was sent.
+   */
+  async ensureCurrency(currency: string): Promise<void> {
+    const group = this.page.locator('div.form-group.select-group', { has: this.page.getByText(/^Currency/) }).first();
+    await group.waitFor({ state: 'visible', timeout: MEDIUM_WAIT });
+    const current = group.locator('.custom-react-select__single-value');
+    if (await current.count() > 0 && (await current.first().innerText()).trim()) return;
+
+    await group.locator('.custom-react-select__control').first().click();
+    await this.page.locator('.custom-react-select__option')
+      .filter({ hasText: currency })
+      .first()
+      .click();
+    await expect(current.first(), `Currency did not take '${currency}'`).toContainText(currency);
+  }
+
+  /**
+   * Set the Payment Method in the Create Payment Profile section.
+   *
+   * On congero it defaults to CREDIT_CARD, which makes Credit Card Token,
+   * Expiry and CVV mandatory. With the section collapsed, Create Account then
+   * does nothing visible (only a console error), so choose a method that needs
+   * no card, e.g. CHECK.
+   */
+  async ensurePaymentMethod(method: string): Promise<void> {
+    await this.page.locator('.panel__title', { hasText: 'Create Payment Profile' }).click();
+    const group = this.page.locator('div.form-group.select-group', { has: this.page.getByText(/^Payment Method/) }).first();
+    await group.waitFor({ state: 'visible', timeout: MEDIUM_WAIT });
+    const current = group.locator('.custom-react-select__single-value');
+    if (await current.count() > 0 && (await current.first().innerText()).trim() === method) return;
+
+    await group.locator('.custom-react-select__control').first().click();
+    await this.page.locator('.custom-react-select__option')
+      .filter({ hasText: new RegExp(`^${method}$`) })
+      .first()
+      .click();
+    await expect(current.first(), `Payment Method did not take '${method}'`).toHaveText(method);
+  }
+
   async addressDetails(street: string, state: string,
     city: string,
     postalCode: string): Promise<void> {

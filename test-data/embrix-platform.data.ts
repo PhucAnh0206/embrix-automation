@@ -60,6 +60,17 @@ export interface EmbrixPlatformData {
     state: string;
     city: string;
     postalCode: string;
+    /**
+     * Account currency as the Currency dropdown shows it (the currency's name,
+     * e.g. 'US Dollar'), set only if the create form leaves it blank. Omit for
+     * tenants that pre-fill it.
+     */
+    currency?: string;
+    /**
+     * Payment Method for the account's payment profile, set when the tenant's
+     * default needs card details the suite does not have (CREDIT_CARD).
+     */
+    paymentMethod?: string;
   };
   /**
    * Lower bound for the date-range filters (TC-35, TC-50, TC-57, TC-63, TC-31).
@@ -117,8 +128,9 @@ export const EMBRIX_PLATFORM_DATA: Record<string, EmbrixPlatformData> = {
     searchFromDate: '2024-01-01',
   },
 
-  // Alka's original target. Preserved for the record — the box was reseeded in
-  // August 2026 and no longer holds these, so this block will not run as-is.
+  // Alka's original target, now congero on OCI. The August 2026 reseed lost
+  // PO_FR and TelconectService; Jeremy's Demo Catalog Pack brought both back
+  // (verified SELLABLE, PO_FR non-provisionable, 2026-10-13).
   'congero-sandbox': {
     alaCarteOffer: 'PO_FR',
     bundleId: 'TelconectService',
@@ -161,6 +173,11 @@ export const EMBRIX_PLATFORM_DATA: Record<string, EmbrixPlatformData> = {
       state: 'Alajuela',
       city: 'Grecia',
       postalCode: '102333',
+      // The create form leaves Currency blank here. USD is the tenant's base
+      // currency; the dropdown lists currencies by name, so 'US Dollar'.
+      currency: 'US Dollar',
+      // Defaults to CREDIT_CARD here, which demands a card token, expiry and CVV.
+      paymentMethod: 'CHECK',
     },
     searchFromDate: '2024-01-01',
   },
