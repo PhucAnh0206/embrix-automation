@@ -13,6 +13,7 @@
     "contact": {
       "firstName": "Anh",
       "lastName": "Tran",
+      "identityDocument": "CÉDULA DE IDENTIDAD",
       "email": "anh.tran@congerotechnology.com",
       "useAsBilling": true
     },
@@ -21,6 +22,7 @@
       "country": "Costa Rica",
       "state": "Cartago",
       "city": "Cartago",
+      "district": "Oriental",
       "postalCode": "30101",
       "useAsBilling": true
     },

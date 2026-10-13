@@ -406,6 +406,20 @@ export default defineConfig({
       },
     },
 
+    // ── JASEC customer form EXPLORATORY (JEPYP-316): Create Contact / Create Address as the ticket defines them.
+    // NOT PART OF THE OFFICIAL SUITE: no TC numbers, not in INDEX. Charter + evidence live in
+    // Regression testing\EPDP-348_JASEC-Test\EXPLORE_JEPYP-316_customer-form\. Creates own QA316/E2E316 accounts;
+    // 02 (tax) and 03 (receipt) also order, top up and bill on a free date - dev / preprod only, the specs refuse prod.
+    {
+      name: 'jasec-customer-form-explore',
+      testMatch: ['**/regression/jasec/customer-form/explore-*.spec.ts'],
+      dependencies: ['setup'],
+      use: {
+        ...devices['Desktop Chrome'],
+        storageState: AUTH_FILE,
+      },
+    },
+
     // ── JASEC billing READ: the invoice and the account statement as records,
     // read over GraphQL. Shares the `billing/` folder with the explore spike and
     // is separated by the `read-` filename prefix, NOT by directory.

@@ -41,18 +41,37 @@ export interface PrepaidAccountPayload {
      *  by the account-ID validation case - the value is filled EXACTLY, control chars included. */
     accountId?: string;
   };
+  /**
+   * JEPYP-316 (on jasec-dev/preprod/prod 2026-10-13) relabelled this section. Probed on jasec-dev 2026-10-13:
+   * the build maps by MEANING, not by the mock-up's box positions —
+   *   firstName  "Nombre" / "First name"
+   *   lastName   "Primer Apellido" / "First surname"     (NOT middleName)
+   *   middleName "Segundo Apellido" / "Second surname"
+   *   identityDocument  dropdown "Tipo de documento" / "Document type" (was free text)
+   * The contact id and Saludo are hidden.
+   */
   contact: {
     firstName: string;
     lastName: string;
+    middleName?: string;
+    /** The STORED value (e.g. 'CÉDULA DE IDENTIDAD'), not the option text - see DOCUMENT_TYPE_OPTIONS. */
+    identityDocument?: string;
     email: string;
     useAsBilling: boolean;   // pre-checked in the form; field kept for parity
   };
+  /**
+   * JEPYP-316: no address field is mandatory any more. country "País" (default Costa Rica) and state
+   * "Provincia" (default Cartago) are dropdowns, city "Cantón" is a dropdown filtered by Provincia, district
+   * "Distrito" was a TEXT box on jasec-dev 2026-10-13 (the ticket asks for a dropdown), street is "Otras señas"
+   * / "Address details". Unset fields are left as the form shows them.
+   */
   address: {
-    street: string;          // textarea
+    street?: string;         // textarea
     country: string;
-    state: string;
-    city: string;
-    postalCode: string;
+    state?: string;
+    city?: string;
+    district?: string;
+    postalCode?: string;
     useAsBilling: boolean;   // pre-checked in the form
   };
   paymentProfile: {
@@ -217,8 +236,10 @@ export class CreateAccountPage extends BasePage {
    * reason.
    */
   private async selectByFieldName(
-    fieldName: string, optionText: string, expectedValue: string,
+    fieldName: string, optionText: string | string[], expectedValue: string,
   ): Promise<void> {
+    // Alternatives span the ES and EN option text, as formGroupByLabel does for labels.
+    const texts = Array.isArray(optionText) ? optionText : [optionText];
     const group = this.formGroupByFieldName(fieldName);
     await group.waitFor({ state: 'visible', timeout: MEDIUM_WAIT });
     const control = group.locator('.custom-react-select__control').first();
@@ -229,10 +250,10 @@ export class CreateAccountPage extends BasePage {
     await menu.waitFor({ state: 'visible', timeout: SHORT_WAIT });
     const options = await menu.locator('.custom-react-select__option').allTextContents();
     const exact = menu.locator('.custom-react-select__option')
-      .filter({ hasText: new RegExp(`^\\s*${escapeRe(optionText)}\\s*$`, 'i') }).first();
+      .filter({ hasText: new RegExp(`^\\s*(${texts.map(escapeRe).join('|')})\\s*$`, 'i') }).first();
     if (!(await exact.count())) {
       throw new Error(
-        `Create Account: "${optionText}" is not offered by the ${fieldName} dropdown. ` +
+        `Create Account: "${texts.join('" / "')}" is not offered by the ${fieldName} dropdown. ` +
         `Available: [${options.join(' | ')}]. JEPYP-231 repopulated these lists, so a ` +
         `missing option is a data-vs-form mismatch, not a flake.`,
       );
@@ -348,6 +369,10 @@ export class CreateAccountPage extends BasePage {
   private async typeAndSelectByLabel(label: string, optionText: string): Promise<void> {
     const group = this.formGroupByLabel(label);
     await group.waitFor({ state: 'visible', timeout: MEDIUM_WAIT });
+    await this.typeAndSelectInGroup(group, optionText);
+  }
+
+  private async typeAndSelectInGroup(group: Locator, optionText: string): Promise<void> {
     const control = group.locator('.custom-react-select__control').first();
     await control.scrollIntoViewIfNeeded().catch(() => { });
     await control.click();
@@ -509,21 +534,84 @@ export class CreateAccountPage extends BasePage {
     await this.selectByFieldName('type', option, info.accountType);
   }
 
+  /**
+   * "Tipo de documento" (name="identityDocument", JEPYP-316): stored value -> the option text it shows,
+   * ES then EN. EN options probed on jasec-dev 2026-10-13: National ID card | Corporate ID | Passport |
+   * Residence card. The stored values are the strings the stamping parser recognises (note CÉDULA JURIDICA has
+   * no accent on the I); selectByFieldName proves each one when it is picked.
+   */
+  private static readonly DOCUMENT_TYPE_OPTIONS: Record<string, string[]> = {
+    'CÉDULA DE IDENTIDAD': ['Cédula Física', 'National ID card'],
+    'CÉDULA JURIDICA': ['Cédula Jurídica', 'Corporate ID'],
+    'PASAPORTE': ['Pasaporte', 'Passport'],
+    'CÉDULA DE RESIDENCIA': ['Cédula de Residencia', 'Residence card'],
+  };
+
   async fillContact(contact: PrepaidAccountPayload['contact']): Promise<void> {
     await this.expandSection('Create Contact');
-    await this.fillInputByName('firstName', contact.firstName);
-    await this.fillInputByName('lastName', contact.lastName);
+    await this.fillInputByName('firstName', contact.firstName);    // "Nombre"
+    await this.fillInputByName('lastName', contact.lastName);      // "Primer Apellido" since JEPYP-316
+    if (contact.middleName !== undefined) {
+      await this.fillInputByName('middleName', contact.middleName); // "Segundo Apellido"
+    }
+    if (contact.identityDocument) {
+      const option = CreateAccountPage.DOCUMENT_TYPE_OPTIONS[contact.identityDocument];
+      if (!option) {
+        throw new Error(
+          `Create Account: no "Tipo de documento" option is mapped to "${contact.identityDocument}". ` +
+          `Use a stored value: ${Object.keys(CreateAccountPage.DOCUMENT_TYPE_OPTIONS).join(' | ')}.`,
+        );
+      }
+      await this.selectByFieldName('identityDocument', option, contact.identityDocument);
+    }
     await this.fillInputByName('email', contact.email);
     // "Use As Billing" is pre-checked readonly — no click needed.
   }
 
+  /**
+   * Parent before child: picking a Provincia clears Cantón (and Distrito), so the order is fixed. A field the
+   * caller leaves unset keeps what the form shows - JEPYP-316 pre-selects Costa Rica and Cartago.
+   */
   async fillAddress(address: PrepaidAccountPayload['address']): Promise<void> {
     await this.expandSection('Create Address');
-    await this.fillTextareaByName('street', address.street);
-    await this.typeAndSelectByLabel('Country', address.country);
-    await this.fillInputByName('state', address.state);
-    await this.fillInputByName('city', address.city);
-    await this.fillInputByName('postalCode', address.postalCode);
+    await this.setAddressField('country', address.country);
+    await this.setAddressField('state', address.state);
+    await this.setAddressField('city', address.city);
+    await this.setAddressField('district', address.district);
+    if (address.street !== undefined) await this.fillTextareaByName('street', address.street);
+    if (address.postalCode !== undefined) await this.fillInputByName('postalCode', address.postalCode);
+  }
+
+  /**
+   * One address field, by its `name`, whether the tenant renders it as a dropdown (JEPYP-316's País /
+   * Provincia / Cantón) or a text box. A dropdown is typed into, picked, and then READ BACK: the option must
+   * be the one shown afterwards, or this throws naming what is shown. A dropdown waiting on its parent (a
+   * disabled Cantón) is waited for rather than skipped - skipping would create an account without that field.
+   */
+  private async setAddressField(name: string, value?: string): Promise<void> {
+    if (value === undefined || value === '') return;
+    const group = this.formGroupByFieldName(name);
+    await group.waitFor({ state: 'visible', timeout: MEDIUM_WAIT }).catch(() => {
+      throw new Error(`Create Address: no field named "${name}" is on the form.`);
+    });
+    const control = group.locator('.custom-react-select__control').first();
+    if (!(await control.count())) {
+      await this.fillInputByName(name, value);
+      return;
+    }
+    const shown = async () =>
+      ((await group.locator('.custom-react-select__single-value').first().textContent().catch(() => '')) ?? '').trim();
+    if ((await shown()) === value) return;
+
+    const deadline = Date.now() + MEDIUM_WAIT;
+    while ((((await control.getAttribute('class').catch(() => '')) ?? '').includes('is-disabled')) && Date.now() < deadline) {
+      await this.page.waitForTimeout(250);
+    }
+    await this.typeAndSelectInGroup(group, value);
+    const now = await shown();
+    if (now !== value) {
+      throw new Error(`Create Address: picked "${value}" in ${name} but the form shows "${now}".`);
+    }
   }
 
   async fillPaymentProfile(profile: PrepaidAccountPayload['paymentProfile']): Promise<void> {

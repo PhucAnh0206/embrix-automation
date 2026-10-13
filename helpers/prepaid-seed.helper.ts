@@ -66,6 +66,12 @@ export interface SeedPrepaidOptions {
    */
   clientId?: string;
   /**
+   * Billing address override (JEPYP-316: every address field is optional). Each key given replaces the default
+   * Avenida 2 Occidental / Cartago / Cartago / CRI / 30101; pass '' for a field the clerk left blank, which is what
+   * the Create Account form sends. Omitted = today's default address.
+   */
+  address?: Partial<Record<'street' | 'city' | 'state' | 'country' | 'postalCode' | 'district', string>>;
+  /**
    * Account and subscription category. Defaults to PREPAID, which is Phase 1.
    *
    * POSTPAID is here to mirror an account shape without touching the original:
@@ -143,14 +149,20 @@ export class PrepaidSeedHelper {
   /** Create the account. Returns the account id. */
   private async createAccount(o: SeedPrepaidOptions): Promise<string> {
     const email = o.email ?? 'anh.tran@congerotechnology.com';
+    const adr: Record<string, string> = {
+      street: 'Avenida 2 Occidental', city: 'Cartago', state: 'Cartago', country: 'CRI', postalCode: '30101', ...o.address,
+    };
+    // Every field is a quoted string, country included ("CRI"): a bare enum literal (country:CRI) gets an empty
+    // HTTP 400 from service-transactional. country is required by AddressInput and "" is refused ("not a valid
+    // 'Country'"), so for a blank País pass 'CRI' - the Create Account form sends the tenant default too.
+    const address = Object.entries(adr).map(([k, v]) => `${k}:${JSON.stringify(v)}`).join(', ');
     // NOTE: no `userId` field — see trap 1.
     const d = await this.post(`mutation { createAccount(input:{
       currency:"CRC", type: RESIDENTIAL, accountCategory: ${o.category ?? 'PREPAID'},
       customerSegment: B2C, salesChannel: NONE, marketSegment: NONE, subType: NONE,
       name:"${o.name}", customerId:"${o.customerId}",${o.id !== undefined ? ` id:${JSON.stringify(o.id)},` : ''}${o.clientId ? ` clientId:"${o.clientId}",` : ''}
       contacts:[{roles:[BILLING], firstName:"QA", lastName:"${o.customerId}", email:"${email}"}],
-      addresses:[{roles:[BILLING], street:"Avenida 2 Occidental", city:"Cartago",
-                  state:"Cartago", country:"CRI", postalCode:"30101"}],
+      addresses:[{roles:[BILLING], ${address}}],
       billingProfiles:[{billingDom:${o.billingDom ?? 1}, billingFrequency: MONTHLY, invoiceType: SUMMARY,
                         invoiceDelivery: EMAIL, paymentProfileId:"PRIMARY"}],
       paymentProfiles:[{paymentMethod: CHECK, paymentTerm:"NET_30"}]
@@ -195,6 +207,12 @@ export class PrepaidSeedHelper {
     }){ id status } }`);
 
     return orderId;
+  }
+
+  /** NEW order + meter on an account that already exists (e.g. one created through the Core UI). Returns the order id. */
+  async orderExisting(accountId: string, meter: string, effectiveDate?: string): Promise<string> {
+    const date = effectiveDate ?? (await this.ccpDate());
+    return this.createAndSubmitOrder(accountId, { meter, customerId: '', name: '' }, date);
   }
 
   /**

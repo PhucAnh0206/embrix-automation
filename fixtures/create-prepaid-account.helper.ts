@@ -390,7 +390,7 @@ export async function createPrepaidAccountViaGateway(
     country: 'Costa Rica',
     state: 'Cartago',
     city: 'Cartago',
-    district: 'Cartago',
+    district: 'Oriental',   // Cartago / Cartago / 30101 is the district Oriental; "Cartago" is not a district (JEPYP-316)
     neighbourhood: 'Centro',
     street: 'Colon 111',
     postalCode: '30101',
