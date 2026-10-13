@@ -158,6 +158,20 @@ export class AgentScreens {
     return n;
   }
 
+  /** The text of the Customer Activity rows containing every needle (whitespace collapsed) - to read what a row shows. */
+  async customerActivityTexts(...needles: string[]): Promise<string[]> {
+    await new AccountInfoPage(this.page).navigateToCustomerActivity();
+    await this.page.waitForURL(/\/activities/, { timeout: 30_000 });
+    await this.page.locator('input[name="startDate"]').fill('2020-01-01');
+    await this.page.locator('input[name="endDate"]').fill('2030-12-31');
+    await this.page.getByRole('button', { name: 'Search', exact: true }).click();
+    const grid = this.page.locator('table').first().locator('tbody tr');
+    await grid.filter({ hasText: needles[0] }).first().waitFor({ state: 'visible', timeout: 30_000 }).catch(() => { });
+    const rows = (await grid.allInnerTexts()).map(r => r.replace(/\s+/g, ' ').trim()).filter(r => needles.every(t => r.includes(t)));
+    for (const r of rows) console.log(`  UI Customer Activity row: ${r}`);
+    return rows;
+  }
+
   /** Order detail header fields (Type, Status, Reason, User Id ...). */
   async order(orderId: string, labels = ['Type', 'Status', 'Reason', 'User Id']): Promise<Record<string, string>> {
     const f = await new SuspendResumeOrderPage(this.page).readOrderFields(orderId, labels);
