@@ -223,7 +223,7 @@ test.describe('Invoice document format vs JEPYP-125 and JEPYP-266 (both shipped)
         continue;
       }
       const [, acct, invNo] = m;
-      // Optional: aim at ONE invoice (TC-143 needs the one whose cycle had top-ups,
+      // Optional: aim at ONE invoice (TC-144 needs the one whose cycle had top-ups,
       // which is rarely the newest). Unset = newest invoice of this tenant, as before.
       const want = (process.env.JASEC_FORMAT_INVOICE ?? '').trim();
       if (want && invNo !== want) continue;

@@ -1,12 +1,12 @@
 /**
- * TC-144 (EPDP-442) - A customer who saved a card in Self Care and topped up with it is still invoiced.
+ * TC-145 (EPDP-442) - A customer who saved a card in Self Care and topped up with it is still invoiced.
  *
  * Why: JEPYP-326 (Wanda, 2026-10-02). Saving a card switches the payment method CHECK -> CREDIT_CARD,
  * and the JASEC DAILY job schedule has BILL_CHECK / INVOICE_CHECK but no BILL_CC / INVOICE_CC, so the
  * account is silently never billed again. Preprod had 61 such accounts (fixed by hand 2026-10-03).
  * FIXED ON PREPROD 2026-10-05: DAILY gained BILL_CC + INVOICE_CC - the method still flips, but the
- * account is invoiced (TC-144 PASS there). Updated 2026-10-08: JEPYP-326 is now FIXED on dev, preprod
- * and prod (TC-144 PASS on preprod and prod; dev proven via TC-142's run, ACT-101205).
+ * account is invoiced (TC-145 PASS there). Updated 2026-10-08: JEPYP-326 is now FIXED on dev, preprod
+ * and prod (TC-145 PASS on preprod and prod; dev proven via TC-143's run, ACT-101205).
  * dev 2026-10-05: of 545 accounts that topped up by card, the 257 with a STORED card are all
  * CREDIT_CARD, the 288 without are all CHECK.
  *
@@ -16,7 +16,7 @@
  * hard-coded: a hard-coded BILL_CHECK/INVOICE_CHECK run would miss a BILL_CC fix and report a false FAIL.
  *
  * CONTROL: JASEC_SAVEDCARD_CONTROL=true runs the same journey but pays PlaceToPay directly without
- * saving a card (the TC-143 / ts-08 path). That account stays CHECK and MUST be invoiced - if the
+ * saving a card (the TC-144 / ts-08 path). That account stays CHECK and MUST be invoiced - if the
  * control does not pass, the harness is wrong and the main verdict means nothing.
  *
  * MUTATING: seeds an account, pays with the PlaceToPay TEST card, moves the CCP clock to the bill date
@@ -39,7 +39,7 @@ const BDOM = Number(process.env.JASEC_SAVEDCARD_BDOM ?? 22);
 const TOP_UP = 5000;
 const FINAL = ['COMPLETED', 'ERROR'];
 
-test('a customer who saved a card and topped up with it is still invoiced @tc-144 @saved-card-invoiced', async ({
+test('a customer who saved a card and topped up with it is still invoiced @tc-145 @saved-card-invoiced', async ({
   request, testLogger, selfcareLoginPage, selfcareAccountSearchPage, selfcareActivityPage,
   selfcareTopupPage, placeToPayCheckoutPage, page, customerManagementPage, billsPage, dailySchedulePage, accountInfoPage,
 }) => {
@@ -136,7 +136,7 @@ test('a customer who saved a card and topped up with it is still invoiced @tc-14
     console.log(`  bill date ${billDate}; DAILY billing jobs: ${jobNames.join(' -> ')}`);
 
     // 5. Bill it the way an operator does: Operations Hub > Job Management > Daily Schedule > Create Job
-    //    Schedule > Process (the same steps as TC-142). Until 2026-10-06 this was a JobScheduleHelper API call
+    //    Schedule > Process (the same steps as TC-143). Until 2026-10-06 this was a JobScheduleHelper API call
     //    on a SCHEDULED slot. Process enables only while the clock equals the date - wait for it; re-set once.
     await seed.setCcpDate(billDate);
     const uiChain = await dailySchedulePage.createAndProcess(billDate, () => seed.setCcpDate(billDate).then(() => undefined), testLogger);

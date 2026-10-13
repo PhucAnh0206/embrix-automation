@@ -59,7 +59,7 @@ import { AgentScreens, uiAmount } from '../../../../helpers/agent-screens.helper
 import * as fs from 'fs';
 import * as path from 'path';
 
-/** The invoices this run produced, for TC-145 (billing/ts-13) to judge. Same path there. */
+/** The invoices this run produced, for TC-146 (billing/ts-13) to judge. Same path there. */
 const BILLING_RUN_FILE = path.resolve(__dirname, '../../../../artifacts/billing-run-invoices.json');
 
 /**
@@ -409,9 +409,9 @@ test.describe('Billing via the Core UI Daily Schedule', () => {
       testLogger.data('CRC balance BEFORE', Object.fromEntries(balanceBefore));
       testLogger.data('cycle kWh BEFORE', Object.fromEntries(kwhBefore));
 
-      // A SCHEDULED run on the same date (another case's, e.g. TC-144) is not ours to clear,
+      // A SCHEDULED run on the same date (another case's, e.g. TC-145) is not ours to clear,
       // and the Daily Schedule screen then shows THAT finished schedule after Create, so
-      // Process never enables (prod 2026-10-06, 2026-12-18 held TC-144's JS-100197). Refuse - BEFORE the clock moves,
+      // Process never enables (prod 2026-10-06, 2026-12-18 held TC-145's JS-100197). Refuse - BEFORE the clock moves,
       // so a refusal leaves the tenant untouched.
       const otherKind = [...new Set((await db.query(SCHEDULES_ON_DATE_SQL, [date]))
         .filter((s: any) => s.schedulefrequency && s.schedulefrequency !== 'DAILY')
@@ -589,8 +589,8 @@ test.describe('Billing via the Core UI Daily Schedule', () => {
       );
 
       // Record the invoices this run produced, BEFORE any assertion below can stop the test:
-      // TC-145 (billing/ts-13) judges whether they were settled from the balance. Kept out of
-      // this case on purpose - an unsettled invoice is TC-145's failure, not TC-142's.
+      // TC-146 (billing/ts-13) judges whether they were settled from the balance. Kept out of
+      // this case on purpose - an unsettled invoice is TC-146's failure, not TC-143's.
       const produced: { accountId: string; invoiceId: string }[] = [];
       for (const row of gained) {
         const inv = (await db.query(NEWEST_INVOICE_SQL, [row.accountid]))[0];
@@ -599,7 +599,7 @@ test.describe('Billing via the Core UI Daily Schedule', () => {
       fs.mkdirSync(path.dirname(BILLING_RUN_FILE), { recursive: true });
       fs.writeFileSync(BILLING_RUN_FILE, JSON.stringify(
         { tenant: process.env.TEST_ENV, date, recordedAt: new Date().toISOString(), invoices: produced }, null, 2));
-      testLogger.log(`recorded ${produced.length} invoice(s) for TC-145: ${produced.map(p => p.invoiceId).join(', ') || 'none'}`);
+      testLogger.log(`recorded ${produced.length} invoice(s) for TC-146: ${produced.map(p => p.invoiceId).join(', ') || 'none'}`);
 
       // Separate "refused for insufficient credit" (expected) from "silently not
       // billed" (a real problem) before deciding this run failed.

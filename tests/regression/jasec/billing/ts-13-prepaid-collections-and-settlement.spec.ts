@@ -1,5 +1,5 @@
 /**
- * TC-145 - A prepaid invoice is settled from the balance and never goes to collections.
+ * TC-146 - A prepaid invoice is settled from the balance and never goes to collections.
  *
  * READ-ONLY. Safe on any environment, including the final customer build.
  *
@@ -20,7 +20,7 @@
  *   1. every prepaid invoice with a charge is settled                       (whole tenant)
  *   2. no prepaid account holds an open collection unit                      (whole tenant)
  *   3. the invoices the LATEST billing run produced are settled              (prospective - the fresh evidence)
- *      Reads artifacts/billing-run-invoices.json, written by ts-06 (TC-142). BLOCKED if there is none for
+ *      Reads artifacts/billing-run-invoices.json, written by ts-06 (TC-143). BLOCKED if there is none for
  *      this tenant. In run-suite this runs AFTER the billing runs, so it judges that run's invoices.
  *      Checked on the CORE UI first, as an agent sees it, then in the DATABASE (the record behind the screen):
  *        - Bills > Open/Closed Bills: Invoice Status CLOSED, Due 0
@@ -48,7 +48,7 @@ const BILLING_RUN_FILE = path.resolve(__dirname, '../../../../artifacts/billing-
 /** An invoice is OPEN (unsettled) when anything is due or its status is ACTIVE / COLLECTION. */
 const OPEN = `(iu.due <> 0 OR iu.status IN ('ACTIVE', 'COLLECTION'))`;
 
-test.describe('TC-145 prepaid invoice settled, never in collections @tc-145 @prepaid-collections', () => {
+test.describe('TC-146 prepaid invoice settled, never in collections @tc-146 @prepaid-collections', () => {
   // Read-only: never move the clock (the JASEC fixtures would otherwise rewind it to the baseline).
   test.use({ ccpBaseline: null });
   let db: DbHelper;
@@ -59,7 +59,7 @@ test.describe('TC-145 prepaid invoice settled, never in collections @tc-145 @pre
   });
   test.afterAll(async () => { if (db) await db.disconnect(); });
 
-  test('every prepaid invoice charged from the balance is settled - nothing due, not open @tc-145', async () => {
+  test('every prepaid invoice charged from the balance is settled - nothing due, not open @tc-146', async () => {
     if (blockedIf(!hasDbConfig(), 'needs DB access')) return;
     if (blockedIf(BAD_SINCE, `JASEC_SETTLEMENT_SINCE='${SINCE}' is not YYYY-MM-DD`)) return;
 
@@ -89,7 +89,7 @@ test.describe('TC-145 prepaid invoice settled, never in collections @tc-145 @pre
       open.map(o => `${o.id} ${o.accountid} ${o.status} due ${o.due}`).join('; ')).toBe(0);
   });
 
-  test('no prepaid account is put into collections @tc-145', async () => {
+  test('no prepaid account is put into collections @tc-146', async () => {
     if (blockedIf(!hasDbConfig(), 'needs DB access')) return;
     if (blockedIf(BAD_SINCE, `JASEC_SETTLEMENT_SINCE='${SINCE}' is not YYYY-MM-DD`)) return;
 
@@ -111,7 +111,7 @@ test.describe('TC-145 prepaid invoice settled, never in collections @tc-145 @pre
       `taken on prepaid. Latest: ${sample.map(s => `${s.accountid}/${s.invoiceid}`).join(', ')}`).toBe(0);
   });
 
-  test('the invoices from the latest billing run are settled - database and Core UI @tc-145', async ({
+  test('the invoices from the latest billing run are settled - database and Core UI @tc-146', async ({
     page, customerManagementPage, billsPage, collectionPage,
     selfcareLoginPage, selfcareAccountSearchPage, selfcareActivityPage, selfcareMakePaymentPage,
   }) => {
@@ -119,9 +119,9 @@ test.describe('TC-145 prepaid invoice settled, never in collections @tc-145 @pre
     test.setTimeout(300_000);
     let run: { tenant: string; date: string; invoices: { accountId: string; invoiceId: string }[] } | null = null;
     try { run = JSON.parse(fs.readFileSync(BILLING_RUN_FILE, 'utf8')); } catch { run = null; }
-    if (blockedIf(!run, `no ${path.basename(BILLING_RUN_FILE)} - run TC-142 (billing/ts-06) first; it records the invoices it produced`)) return;
+    if (blockedIf(!run, `no ${path.basename(BILLING_RUN_FILE)} - run TC-143 (billing/ts-06) first; it records the invoices it produced`)) return;
     if (blockedIf(run!.tenant !== process.env.TEST_ENV,
-      `the recorded billing run is from ${run!.tenant}, not ${process.env.TEST_ENV} - run TC-142 on this tenant first`)) return;
+      `the recorded billing run is from ${run!.tenant}, not ${process.env.TEST_ENV} - run TC-143 on this tenant first`)) return;
     if (blockedIf(run!.invoices.length === 0, `the billing run of ${run!.date} produced no invoice - nothing to judge`)) return;
 
     const rows = await db.query<{ id: string; accountid: string; status: string; total: number; due: number }>(

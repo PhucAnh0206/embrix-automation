@@ -843,17 +843,27 @@ test.describe('JEPYP-27 - automatic suspend and resume (credit breach / top-up)'
    * Either way the test then gets the customer back on, so the account never stays blocked: with the fix it
    * completes the new reconnect; without it, it uses the agent's way out on screen (Services > In-complete Orders >
    * CANCEL ORDER, then one more top-up) - which also proves that workaround every run. Ends ACTIVE, nothing open.
+   * With the fix it also proves (team release note 2026-10-13; added to EPDP-516 as checks 5-6):
+   *   - the replacement REPEATS: JASEC refuses the replacement too, the next top-up replaces it again - a chain where
+   *     every older RESUME is CANCELLED + renamed, one AUTO_ORDER_REPLACED_FAILED row per replacement (entity type
+   *     ORDER in the database; the screen row names ORDER - the note says ORDEN), only the newest keeps its id
+   *   - only the SAME type on the SAME account is touched: this account's earlier non-RESUME orders and other
+   *     accounts' PROVISIONING_ERROR orders keep their id and status (a parallel session replacing its own failed
+   *     orders on the same tenant would show here - read the list before calling it a defect)
+   * The skip / manual-refusal side of the same fix is TC-130.
    */
   test('a customer who pays after a failed reconnect is reconnected (F7) @auto-stuck-resume @tc-128',
     async ({ request, page }, testInfo) => {
       test.skip(!RUN, 'GATED: seeds, drops MDR files and dispatches to the live AMI. Set JASEC_AUTO_PROV_RUN=true.');
-      test.setTimeout(1_800_000);
+      test.setTimeout(2_700_000);
       const logger = new TestLogger('auto-suspend-resume-stuck-resume');
       const db = new DbHelper(logger);
       const ui = new AgentScreens(page);
       try { await db.connect(); } catch (e) { blockedIf(true, `database unreachable (VPN?): ${(e as Error).message}`); }
       try {
         const { s, mdr } = await fundedAccount(db, logger, 'QAAUTOF7R');
+        const othersSql = `SELECT id, status FROM core_oms."order" WHERE accountid <> $1 AND status = 'PROVISIONING_ERROR' ORDER BY id`;
+        const othersBefore = await db.query<{ id: string; status: string }>(othersSql, [s.accountId]);
         await test.step('breach -> automatic SUSPEND -> JASEC confirm the cut', async () => {
           const susp = await breach(db, mdr, s, testInfo);
           await waitForDispatch(db, susp, 'D');
@@ -861,6 +871,8 @@ test.describe('JEPYP-27 - automatic suspend and resume (credit breach / top-up)'
           const acc = await poll(() => accountState(db, s), a => a.sub === 'SUSPENDED' && a.svc === 'SUSPENDED', 60_000, 5_000);
           blockedIf(acc.sub !== 'SUSPENDED', `${s.accountId} is ${acc.sub}/${acc.svc} after the suspend callback - no cut account to test`);
         });
+        const notResume = async () => (await orders(db, s.accountId)).filter(o => o.type !== 'RESUME').map(o => `${o.id} ${o.type} ${o.status}`);
+        const othersMine = await notResume();
         const stuck = await test.step(`the customer pays (${RECOVERY_TOPUP}): the automatic RESUME fails at JASEC`, async () => {
           await new PrepaidSeedHelper(logger).topUp(s.accountId, RECOVERY_TOPUP);
           const res = await poll(() => newest(db, s.accountId, 'RESUME', []), o => !!o, 120_000, 5_000);
@@ -890,11 +902,57 @@ test.describe('JEPYP-27 - automatic suspend and resume (credit breach / top-up)'
             `(EP-5528 open-order check counts PROVISIONING_ERROR as open). Fixed 2026-10-09 by engine 5c5b901 behind ccp replaceProvisioningErrorOrders=true - see the verdict for the switch value`).toBe(true);
           return r;
         });
+        // With the fix: the replacement fails too, and the next top-up must replace IT - a chain stuck -> 2nd -> 3rd.
+        // finish() then checks the last replacement (replacedAsPromised) and completes the newest RESUME.
+        const chain = [stuck];
+        let last = { stuck, retry };
+        if (retry.fresh) {
+          const second = retry.fresh;
+          await test.step(`(F7 fix) ${stuck} replaced by ${second}; JASEC refuses ${second} too: the next top-up replaces it again`, async () => {
+            await replacedAsPromised(db, ui, s, stuck, second);
+            await waitForDispatch(db, second, 'C');
+            const again = await retriedAfter(db, s, 'RESUME', second, async () => {
+              await new PrepaidSeedHelper(logger).topUp(s.accountId, TOP_UP_AGAIN);
+            });
+            await note(testInfo, 'F7 chain', `${stuck} -> ${second} -> ${again.fresh ?? '(none)'}: ${again.verdict}`);
+            expect(again.fresh, `no new RESUME replaced the failed ${second} - ${again.verdict}`).toBeTruthy();
+            chain.push(second, again.fresh!);
+            last = { stuck: second, retry: again };
+          });
+        }
         await test.step('the customer is reconnected (with the fix: the new attempt; without: the agent cancels the stuck order on screen)', async () => {
-          await finish(db, request, s, ui, testInfo, 'RESUME', stuck, retry,
+          await finish(db, request, s, ui, testInfo, 'RESUME', last.stuck, last.retry,
             async () => { await new PrepaidSeedHelper(logger).topUp(s.accountId, TOP_UP_AGAIN); });
           const acc = await poll(() => accountState(db, s), a => a.sub === 'ACTIVE' && a.svc === 'ACTIVE', 90_000, 5_000);
           expect.soft(`${acc.sub}/${acc.svc}`, 'subscription / service unit at the end - the customer paid').toBe('ACTIVE/ACTIVE');
+        });
+        if (chain.length > 1) {
+          const newestId = chain[chain.length - 1];
+          await test.step('(F7 fix) the chain: every older RESUME CANCELLED + renamed, one replacement row each, only the newest left', async () => {
+            const rs = (await orders(db, s.accountId)).filter(o => o.type === 'RESUME');
+            expect.soft(rs.filter(o => !renamedByCancel(o.id)).map(o => o.id), 'only the newest RESUME keeps its id').toEqual([newestId]);
+            for (const id of chain.slice(0, -1)) {
+              expect.soft(rs.filter(o => o.id.startsWith(`${id}-`) && o.status === 'CANCELLED').map(o => o.id),
+                `${id} CANCELLED and renamed ${id}-<timestamp>`).toHaveLength(1);
+            }
+            const rep = await db.query<{ entitytype: string }>(
+              `SELECT entitytype FROM core_engine.activity WHERE accountid = $1 AND apiname = 'AUTO_ORDER_REPLACED_FAILED'`, [s.accountId]);
+            expect.soft(rep.length, 'one AUTO_ORDER_REPLACED_FAILED row per replacement').toBe(chain.length - 1);
+            expect.soft([...new Set(rep.map(r => r.entitytype))], 'activity entitytype in the database').toEqual(['ORDER']);
+            await ui.openAccount(s.accountId);
+            // The release note says "Customer Activity (entity ORDEN)"; the database stores ORDER. Read what the agent sees.
+            const shown = await ui.customerActivityTexts(chain[0], 'AUTO_ORDER_REPLACED_FAILED');
+            await note(testInfo, 'Customer Activity replacement row as shown', shown.join(' | ') || '<none>');
+            expect.soft(shown[0] ?? '', 'the replacement row names its entity (release note: ORDEN)').toMatch(/\bORDEN\b|\bORDER\b/);
+          });
+        }
+        await test.step('only RESUME orders on this account changed: its other orders and other accounts\' failed orders untouched', async () => {
+          // Every top-up adds a RENEW order (normal) - so judge only the orders that existed before: same id, same status.
+          const now = await notResume();
+          expect.soft(othersMine.filter(o => !now.includes(o)), `${s.accountId}: its earlier non-RESUME orders must keep id and status`).toEqual([]);
+          const after = await db.query<{ id: string; status: string }>(othersSql, [s.accountId]);
+          const touched = othersBefore.filter(o => !after.some(a => a.id === o.id && a.status === o.status));
+          expect.soft(touched.map(o => `${o.id} ${o.status}`), 'other accounts\' PROVISIONING_ERROR orders must be untouched').toEqual([]);
         });
         await endsClean(db, s, ui, 'ACTIVE');
       } finally {
@@ -966,27 +1024,22 @@ test.describe('JEPYP-27 - automatic suspend and resume (credit breach / top-up)'
     });
 
   /**
-   * EXPLORATORY (2026-10-13; no EPDP-348 sub-task yet, so no TC tag) - the rest of the team's F7 release note
-   * ("After a reconnect order fails at JASEC, later top-ups never raise a new RESUME" - engine 5c5b901, ccp
-   * replaceProvisioningErrorOrders). TC-128/129 prove ONE replacement. This proves the other promises, on one
-   * seeded account, RESUME side:
-   *   (a) AUTO_ORDER_SKIPPED - a top-up while a RESUME is still in progress creates NO new RESUME and writes one
-   *       AUTO_ORDER_SKIPPED row (status SKIPPED, openOrders names the in-progress order)
-   *   (b) JASEC keeps refusing - every new trigger replaces the previous failed RESUME: a chain where every older
-   *       RESUME is CANCELLED + renamed, one AUTO_ORDER_REPLACED_FAILED row per replacement, only the newest left
-   *   (c) a MANUAL order is refused while a failed order is open
-   *   (d) only the SAME type on the SAME account is touched - this account's SUSPEND/NEW orders and other accounts'
-   *       PROVISIONING_ERROR orders keep their id and status
-   *   (e) the activity rows are entitytype ORDER in the database and read ORDEN on the Customer Activity screen
+   * TC-130 (EPDP-518, official since 2026-10-13) - no new order while another of its type is open or failed. The
+   * other side of the F7 fix (engine 5c5b901, ccp replaceProvisioningErrorOrders; team release note 2026-10-13):
+   *   - a top-up while a RESUME is still IN PROGRESS creates NO new RESUME and writes one AUTO_ORDER_SKIPPED
+   *     Customer Activity row (status SKIPPED, openOrders and entity = the in-progress order, entity type ORDER)
+   *   - once that RESUME has FAILED (PROVISIONING_ERROR), an agent cannot raise a RESUME by hand on top of it
+   *     (createOrder / submit refused) - only the automatic trigger replaces it (that replacement is TC-128)
+   * The release note says the entity reads ORDEN; the database and the screen show ORDER - both are accepted.
    * NOT covered (no way to produce them on demand - asked the team): automatic CANCEL orders, and "BILLING_ERROR
-   * orders still block". About 16 refused AMI commands (QA meter). Ends ACTIVE with nothing open.
-   *   $env:JASEC_AUTO_PROV_RUN='true'; npx playwright test --project=jasec-provisioning-orders auto-suspend-resume --grep "@f7-release-checks"
+   * orders still block". Ends ACTIVE with nothing open (the failed RESUME is replaced and completed, as TC-128).
+   *   $env:JASEC_AUTO_PROV_RUN='true'; npx playwright test --project=jasec-provisioning-orders auto-suspend-resume --grep "@tc-130"
    */
-  test('F7 release note: skip, replacement chain, manual refusal, same type only @f7-release-checks',
+  test('no new order while another of its type is open or failed (skip, manual refusal) @auto-skip-and-refuse @tc-130',
     async ({ request, page }, testInfo) => {
       test.skip(!RUN, 'GATED: seeds, drops MDR files and dispatches to the live AMI. Set JASEC_AUTO_PROV_RUN=true.');
-      test.setTimeout(3_600_000);
-      const logger = new TestLogger('auto-suspend-resume-f7-release');
+      test.setTimeout(2_400_000);
+      const logger = new TestLogger('auto-suspend-resume-skip-refuse');
       const db = new DbHelper(logger);
       const ui = new AgentScreens(page);
       try { await db.connect(); } catch (e) { blockedIf(true, `database unreachable (VPN?): ${(e as Error).message}`); }
@@ -994,9 +1047,7 @@ test.describe('JEPYP-27 - automatic suspend and resume (credit breach / top-up)'
         const sw = await db.query<{ v: string }>(
           `SELECT value AS v FROM core_config.ccp_properties WHERE property = 'replaceProvisioningErrorOrders'`);
         blockedIf(sw[0]?.v !== 'true', `replaceProvisioningErrorOrders is '${sw[0]?.v ?? '<unset>'}' on ${TENANT} - the fix under test is off`);
-        const { s, mdr } = await fundedAccount(db, logger, 'QAAUTOF7X');
-        const othersSql = `SELECT id, status FROM core_oms."order" WHERE accountid <> $1 AND status = 'PROVISIONING_ERROR' ORDER BY id`;
-        const othersBefore = await db.query<{ id: string; status: string }>(othersSql, [s.accountId]);
+        const { s, mdr } = await fundedAccount(db, logger, 'QAAUTOF7K');
 
         await test.step('breach -> automatic SUSPEND -> JASEC confirm the cut', async () => {
           const susp = await breach(db, mdr, s, testInfo);
@@ -1005,11 +1056,8 @@ test.describe('JEPYP-27 - automatic suspend and resume (credit breach / top-up)'
           const acc = await poll(() => accountState(db, s), a => a.sub === 'SUSPENDED' && a.svc === 'SUSPENDED', 60_000, 5_000);
           blockedIf(acc.sub !== 'SUSPENDED', `${s.accountId} is ${acc.sub}/${acc.svc} after the suspend callback - no cut account to test`);
         });
-        const notResume = async () => (await orders(db, s.accountId)).filter(o => o.type !== 'RESUME').map(o => `${o.id} ${o.type} ${o.status}`);
-        const othersMine = await notResume();
 
-        // (a) AUTO_ORDER_SKIPPED
-        const first = await test.step(`(a) top-up ${RECOVERY_TOPUP} raises a RESUME; a top-up while it is in progress is SKIPPED`, async () => {
+        const first = await test.step(`top-up ${RECOVERY_TOPUP} raises a RESUME; a top-up while it is in progress is SKIPPED`, async () => {
           await new PrepaidSeedHelper(logger).topUp(s.accountId, RECOVERY_TOPUP);
           const res = await poll(() => newest(db, s.accountId, 'RESUME', []), o => !!o, 120_000, 3_000);
           expect(res, 'the covering top-up raised no RESUME').toBeTruthy();
@@ -1028,49 +1076,30 @@ test.describe('JEPYP-27 - automatic suspend and resume (credit breach / top-up)'
           expect.soft(resp.status, 'AUTO_ORDER_SKIPPED status').toBe('SKIPPED');
           expect.soft(String(resp.openOrders ?? ''), 'AUTO_ORDER_SKIPPED openOrders names the in-progress RESUME').toContain(res!.id);
           expect.soft(skip[0]?.entityid, 'AUTO_ORDER_SKIPPED entity = the in-progress order').toBe(res!.id);
+          expect.soft(skip[0]?.entitytype, 'AUTO_ORDER_SKIPPED entitytype in the database').toBe('ORDER');
           await note(testInfo, 'AUTO_ORDER_SKIPPED', resp.message ?? JSON.stringify(resp));
           return res!.id;
         });
-        await test.step(`${first} fails at JASEC (QA meter)`, async () => { await waitForDispatch(db, first, 'C'); });
 
-        // (b) the replacement chain
-        const chain = [first];
-        for (const n of [2, 3]) {
-          const prev = chain[chain.length - 1];
-          const fresh = await test.step(`(b) top-up ${TOP_UP_AGAIN}: RESUME #${n} must replace the failed ${prev}`, async () => {
-            const retry = await retriedAfter(db, s, 'RESUME', prev, async () => {
-              await new PrepaidSeedHelper(logger).topUp(s.accountId, TOP_UP_AGAIN);
-            });
-            expect(retry.fresh, `no new RESUME replaced ${prev} - ${retry.verdict}`).toBeTruthy();
-            await replacedAsPromised(db, ui, s, prev, retry.fresh!);
-            await waitForDispatch(db, retry.fresh!, 'C');
-            return retry.fresh!;
-          });
-          chain.push(fresh);
-        }
-        const last = chain[chain.length - 1];
-        await test.step('(b) the chain: every older RESUME CANCELLED + renamed, one replacement row each, only the newest left', async () => {
-          const rs = (await orders(db, s.accountId)).filter(o => o.type === 'RESUME');
-          expect.soft(rs.filter(o => !renamedByCancel(o.id)).map(o => o.id), 'only the newest RESUME keeps its id').toEqual([last]);
-          for (const id of chain.slice(0, -1)) {
-            expect.soft(rs.filter(o => o.id.startsWith(`${id}-`) && o.status === 'CANCELLED').map(o => o.id),
-              `${id} CANCELLED and renamed ${id}-<timestamp>`).toHaveLength(1);
-          }
-          const rep = await db.query<{ entitytype: string }>(
-            `SELECT entitytype FROM core_engine.activity WHERE accountid = $1 AND apiname = 'AUTO_ORDER_REPLACED_FAILED'`, [s.accountId]);
-          expect.soft(rep.length, 'one AUTO_ORDER_REPLACED_FAILED row per replacement').toBe(chain.length - 1);
-          // (e) the entity type, in the database and as the agent reads it
-          expect.soft([...new Set(rep.map(r => r.entitytype))], 'activity entitytype in the database').toEqual(['ORDER']);
+        await test.step(`Core UI: Customer Activity shows the AUTO_ORDER_SKIPPED row for ${first}`, async () => {
           await ui.openAccount(s.accountId);
           // The release note says "Customer Activity (entity ORDEN)"; the database stores ORDER. Read what the agent sees.
-          const shown = await ui.customerActivityTexts(chain[0], 'AUTO_ORDER_REPLACED_FAILED');
-          await note(testInfo, 'Customer Activity replacement row as shown', shown.join(' | ') || '<none>');
-          expect.soft(shown.length, `Customer Activity must show the replacement row for ${chain[0]}`).toBe(1);
-          expect.soft(shown[0] ?? '', 'the replacement row names its entity (release note: ORDEN)').toMatch(/\bORDEN\b|\bORDER\b/);
+          const shown = await ui.customerActivityTexts(first, 'AUTO_ORDER_SKIPPED');
+          await note(testInfo, 'Customer Activity skip row as shown', shown.join(' | ') || '<none>');
+          expect.soft(shown.length, `Customer Activity must show the AUTO_ORDER_SKIPPED row for ${first}`).toBe(1);
+          expect.soft(shown[0] ?? '', 'the skip row names its entity (release note: ORDEN)').toMatch(/\bORDEN\b|\bORDER\b/);
         });
 
-        // (c) a manual order while the failed one is open
-        await test.step(`(c) a MANUAL RESUME is refused while ${last} is PROVISIONING_ERROR`, async () => {
+        await test.step(`${first} fails at JASEC (QA meter): PROVISIONING_ERROR, listed in In-complete Orders`, async () => {
+          await waitForDispatch(db, first, 'C');
+          const st = await poll(() => orderStatus(db, first), x => x === 'PROVISIONING_ERROR' || CLOSED.includes(x), 120_000, 5_000);
+          blockedIf(st !== 'PROVISIONING_ERROR', `the RESUME ${first} ended ${st}, not PROVISIONING_ERROR - no failed order to test the manual refusal`);
+          const sv = await ui.services(s.accountId);
+          const row = sv.incomplete.find(r => r.startsWith(`${first} `));
+          expect.soft(row ?? '', `In-complete Orders: ${first} status`).toContain('PROVISIONING_ERROR');
+        });
+
+        await test.step(`a MANUAL RESUME is refused while ${first} is PROVISIONING_ERROR`, async () => {
           const user = process.env.EMBRIX_USER ?? 'congeroadmin';
           const pass = process.env.EMBRIX_PASSWORD ?? '';
           blockedIf(!pass, 'EMBRIX_PASSWORD is not set - the manual order needs a sign-in');
@@ -1088,7 +1117,7 @@ test.describe('JEPYP-27 - automatic suspend and resume (credit breach / top-up)'
           const refused = !manual || /"errors"/.test(submitted);
           await note(testInfo, 'manual RESUME while a failed RESUME is open',
             `createOrder -> ${created.slice(0, 220)}${manual ? ` | submit -> ${submitted.slice(0, 220)}` : ''}`);
-          expect.soft(refused, `a manual RESUME must be refused while ${last} is open in PROVISIONING_ERROR`).toBe(true);
+          expect.soft(refused, `a manual RESUME must be refused while ${first} is open in PROVISIONING_ERROR`).toBe(true);
           if (manual) {   // never leave it open: an open RESUME would block the account's next automatic one
             await gql(`mutation { updateOrderStatus(input:{ id:"${manual}", status: CANCELLED, userId:"${user}" }){ id status } }`);
             const left = await orderStatus(db, manual);
@@ -1097,20 +1126,12 @@ test.describe('JEPYP-27 - automatic suspend and resume (credit breach / top-up)'
           }
         });
 
-        // (d) nothing else touched
-        await test.step('(d) only RESUME orders on this account changed', async () => {
-          // Every top-up adds a RENEW order (normal) - so judge only the orders that existed before: same id, same status.
-          const now = await notResume();
-          expect.soft(othersMine.filter(o => !now.includes(o)), `${s.accountId}: its earlier non-RESUME orders must keep id and status`).toEqual([]);
-          const after = await db.query<{ id: string; status: string }>(othersSql, [s.accountId]);
-          const touched = othersBefore.filter(o => !after.some(a => a.id === o.id && a.status === o.status));
-          expect.soft(touched.map(o => `${o.id} ${o.status}`), 'other accounts\' PROVISIONING_ERROR orders must be untouched').toEqual([]);
-        });
-
-        await test.step(`JASEC accepts ${last}: the customer is reconnected`, async () => {
-          await callback(request, s, last, 'RESUME');
-          const st = await poll(() => orderStatus(db, last), x => x === 'COMPLETED', 60_000, 5_000);
-          expect.soft(st, `${last} after an accepted callback`).toBe('COMPLETED');
+        await test.step(`the customer pays again (${TOP_UP_AGAIN}) and is reconnected (the failed ${first} is replaced, as TC-128)`, async () => {
+          const retry = await retriedAfter(db, s, 'RESUME', first, async () => {
+            await new PrepaidSeedHelper(logger).topUp(s.accountId, TOP_UP_AGAIN);
+          });
+          await finish(db, request, s, ui, testInfo, 'RESUME', first, retry,
+            async () => { await new PrepaidSeedHelper(logger).topUp(s.accountId, TOP_UP_AGAIN); });
           const acc = await poll(() => accountState(db, s), a => a.sub === 'ACTIVE' && a.svc === 'ACTIVE', 90_000, 5_000);
           expect.soft(`${acc.sub}/${acc.svc}`, 'subscription / service unit at the end').toBe('ACTIVE/ACTIVE');
         });

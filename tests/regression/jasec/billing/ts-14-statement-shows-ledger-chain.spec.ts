@@ -1,8 +1,8 @@
 /**
- * TC-146, the AGENT's side: the Account Statement screen shows the same unbroken balance chain the
+ * TC-147, the AGENT's side: the Account Statement screen shows the same unbroken balance chain the
  * ledger holds.
  *
- * ts-03 @tc-146 proves the ledger itself is continuous across two billed cycles (each line's closing
+ * ts-03 @tc-147 proves the ledger itself is continuous across two billed cycles (each line's closing
  * balance = the next line's opening). That is the stored record. What a customer disputes is what the
  * agent reads to them: account > Billing Data > Account Statement. This case holds that screen to the
  * ledger, line for line - same document type, invoice, total, opening and closing balance, nothing
@@ -26,8 +26,8 @@ import { blockedIf } from '../../../../helpers/blocked.helper';
 const ACCOUNT = (process.env.JASEC_TWO_CYCLE_ACCOUNT ?? '').trim();
 const near = (a: number | null, b: number) => a !== null && Math.abs(a - b) <= 0.02;
 
-test.describe('TC-146 on screen - the Account Statement shows the ledger chain @tc-146', () => {
-  test('every ledger line appears on the Account Statement screen with the same balances @tc-146', async ({ page, billsPage }) => {
+test.describe('TC-147 on screen - the Account Statement shows the ledger chain @tc-147', () => {
+  test('every ledger line appears on the Account Statement screen with the same balances @tc-147', async ({ page, billsPage }) => {
     blockedIf(!ACCOUNT, 'no JASEC_TWO_CYCLE_ACCOUNT given - seed one with _scripts/billing/seed-two-cycle-account.ps1');
 
     const ledger = await new BillingGqlHelper().getAccountStatement(ACCOUNT);

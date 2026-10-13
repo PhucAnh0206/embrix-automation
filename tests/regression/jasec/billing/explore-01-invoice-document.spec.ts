@@ -222,7 +222,7 @@ test.describe('EXPLORE — invoice document in Core UI', () => {
   /**
    * Diagnostics, kept permanently.
    *
-   * The dialog's DOM is documented nowhere and TC-139 addresses it only by button
+   * The dialog's DOM is documented nowhere and TC-140 addresses it only by button
    * name. This prints what is actually rendered and attaches it to the report, so
    * when the UI is restyled THIS is the test that tells you how, instead of five
    * assertions failing with no context.
