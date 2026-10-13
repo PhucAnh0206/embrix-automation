@@ -28,7 +28,7 @@ const near = (a: number | null, b: number) => a !== null && Math.abs(a - b) <= 0
 
 test.describe('TC-147 on screen - the Account Statement shows the ledger chain @tc-147', () => {
   test('every ledger line appears on the Account Statement screen with the same balances @tc-147', async ({ page, billsPage }) => {
-    blockedIf(!ACCOUNT, 'no JASEC_TWO_CYCLE_ACCOUNT given - seed one with _scripts/billing/seed-two-cycle-account.ps1');
+    blockedIf(!ACCOUNT, 'no JASEC_TWO_CYCLE_ACCOUNT given - seed one with _scripts/billing/seed-two-cycle-account.ps1 -Tenant <dev|preprod>');
 
     const ledger = await new BillingGqlHelper().getAccountStatement(ACCOUNT);
     blockedIf(!ledger.length, `${ACCOUNT} has no ledger lines`);

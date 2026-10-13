@@ -9,7 +9,7 @@
  * red result would not say which broke.
  *
  * SELF-SEEDING. The account is produced by
- * `_scripts/billing/seed-two-cycle-account.ps1`, which provisions on a free
+ * `_scripts/billing/seed-two-cycle-account.ps1 -Tenant <t>`, which provisions on a free
  * BDOM, then rates and bills two cycles. Pass the result in
  * `JASEC_TWO_CYCLE_ACCOUNT`. With no account given the spec SKIPS with the exact
  * command printed, never fails — an absent precondition is BLOCKED, not a defect.
@@ -143,9 +143,9 @@ const FIRST_POST_FIX_INVOICE = Number(
 );
 
 const HOW_TO_SEED =
-  'Seed one with:  .\\_scripts\\billing\\seed-two-cycle-account.ps1 -Bdom <free>  '
-  + 'then re-run with JASEC_TWO_CYCLE_ACCOUNT=<accountId>. '
-  + 'Free BDOMs: query core_engine.billing_profile for unused values 1-28.';
+  'Seed one with:  .\\_scripts\\billing\\seed-two-cycle-account.ps1 -Tenant <dev|preprod>  '
+  + '(it picks its own billing day and restores the clock), '
+  + 'then re-run with JASEC_TWO_CYCLE_ACCOUNT=<accountId>.';
 
 const gql = new BillingGqlHelper();
 
