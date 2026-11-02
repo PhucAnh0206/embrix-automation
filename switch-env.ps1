@@ -36,5 +36,5 @@ if (-not (Test-Path $source)) {
 }
 
 Copy-Item $source "$root\.env" -Force
-Write-Host ("Switched to jasec-" + $Env + ". Copied " + $source + " to .env.") -ForegroundColor Green
+Write-Host ("Switched to " + $Env + ". Copied " + $source + " to .env.") -ForegroundColor Green
 Show-Active

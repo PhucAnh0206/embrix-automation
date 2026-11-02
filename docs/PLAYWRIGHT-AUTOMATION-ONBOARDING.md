@@ -1,7 +1,11 @@
 # Playwright automation onboarding
 
-The onboarding guide to our Playwright test automation. It covers every environment ("tenant") this repo tests. The first part is common to all of them. After that, each tenant has its own
-part, with everything you need to run its cases.
+The onboarding guide to our Playwright test automation. It covers every environment ("tenant") this repo tests. The
+first part is common to all of them. After that, each tenant has its own part, with everything you need to run its
+cases.
+
+**How to read it:** Parts 1–5 once, in order. Then the part of the tenant you will work on (start with Part 6, JASEC
+preprod). Parts 10–12 are for later reference. Commands are for **Windows + PowerShell**.
 
 When you finish, you will be able to:
 
@@ -159,7 +163,7 @@ You get **your own** access. Credentials are never shared and never committed. A
 
 | What | Needed for |
 |---|---|
-| the **VPN** profile for JASEC dev/preprod | JASEC dev/preprod, and the database steps of coopegsbx2 |
+| the **VPN** profile for JASEC dev/preprod, and which VPN client to install | JASEC dev/preprod, and the database steps of coopegsbx2 |
 | a **Core UI user** on each tenant you will test | all |
 | **database read access** per tenant | JASEC tenants, coopegsbx2 |
 | a **test mailbox** + its app password | JASEC e-mail tests, coopegsbx2 |
@@ -191,8 +195,8 @@ No access request is needed to clone it.
 cd D:\Work                                   # any folder you like
 git clone https://github.com/PhucAnh0206/embrix-automation.git
 cd embrix-automation
-npm ci                                        # installs the libraries
-npx playwright install chromium               # downloads the browser Playwright drives
+npm ci                                        # installs the libraries, then downloads Playwright's browsers (a few minutes)
+npx playwright install chromium               # makes sure Chromium, the browser our tests use, is there
 ```
 
 To get the latest changes later: `git pull` in the same folder, then `npm ci` again if `package-lock.json` changed.
@@ -214,8 +218,14 @@ The tests read their settings (which tenant, your logins) from a file called **`
 How to create a settings file:
 
 1. Copy the example: `.env.example` for JASEC tenants and Congero, `.env.coopegsbx2.example` for coopegsbx2.
-2. Rename the copy `.env.<name>` (the name you'll pass to `switch-env`).
-3. Fill in the values. **Each tenant part says which keys** and what goes in them.
+   Name the copy `.env.<name>` (the name you'll pass to `switch-env`), e.g.
+   `Copy-Item .env.example .env.preprod`.
+2. Fill in the values. **Each tenant part says which keys** and what goes in them (6.2, 7.1, 8.2, 9.2).
+3. **Make the addresses and database match the tenant.** `.env.example` is written for JASEC **dev**: its
+   `EMBRIX_BASE_URL`, `SELFCARE_BASE_URL`, `GRAPHQL_URL` and `DB_NAME` point at dev. **Delete those three URL lines**
+   (`TEST_ENV` picks the right addresses by itself) and set `DB_NAME` to your tenant's database, or delete the `DB_`
+   lines for a tenant without one. If they disagree with `TEST_ENV`, every run stops at once with
+   *"TEST_ENV and EMBRIX_BASE_URL disagree"* or *"TEST_ENV and DB_NAME disagree"*. That's a safety check, not a bug.
 
 `.env*` files are ignored by Git. Never paste their contents into chats or tickets.
 
@@ -233,7 +243,8 @@ The tenant parts say where it is used.
 
 ### 3.6 Check it works
 
-Connect the VPN, then (here for JASEC preprod; use your tenant's name):
+Do this once your first settings file is filled in (for JASEC preprod: 6.2). Connect the VPN, then (use your tenant's
+name):
 
 ```powershell
 .\switch-env.ps1 preprod
@@ -338,8 +349,8 @@ Only the active tenant's projects are listed.
 
 1. Type the tag or a word of the test name in the **filter box** at the top left, e.g. `@tc-11`.
 2. In the **Projects** filter, tick `setup` and the project of your test (see your tenant's part).
-3. Press **▶** next to the test. UI mode runs headless by default. Turn on **Show browser** in the UI mode settings
-   to also see a live browser.
+3. Press **▶** next to the test. UI mode runs the browser hidden: what you watch is the recording. To also see the
+   live browser, open UI mode with `npx playwright test --ui --headed`.
 4. When it finishes, click any line in the **Actions** list:
    - the big screenshot shows the page **before / during / after** that action, with the clicked element highlighted
    - **Source** shows the line of the test that did it
@@ -402,8 +413,10 @@ Create `.env.dev` and `.env.preprod` from `.env.example`:
 | Key | What to put |
 |---|---|
 | `TEST_ENV` | `jasec-dev` / `jasec-preprod`. This picks the web addresses for you (`config/tenants.ts`). |
+| `EMBRIX_BASE_URL` `SELFCARE_BASE_URL` `GRAPHQL_URL` | **delete these lines** (3.4) |
 | `EMBRIX_USER` / `EMBRIX_PASSWORD` | your Core UI login for that environment |
-| `DB_HOST` `DB_PORT` `DB_NAME` `DB_USER` `DB_PASSWORD` `DB_SSL` | the database details you were given |
+| `DB_NAME` | `coredb-jasec-dev` / `coredb-jasec-preprod` (must match `TEST_ENV`) |
+| `DB_HOST` `DB_PORT` `DB_USER` `DB_PASSWORD` `DB_SSL` | the database details you were given (`DB_SSL=require`) |
 | `NOTIFY_IMAP_HOST` `NOTIFY_IMAP_PORT` `NOTIFY_IMAP_USER` `NOTIFY_IMAP_PASSWORD` | the test mailbox. Gmail: `imap.gmail.com`, `993`, and an **app password** (Google Account → Security → 2-Step Verification → App passwords). |
 | `NOTIFY_EMAIL_TO` | the same mailbox address |
 | the rest | as in `.env.example` |
@@ -442,13 +455,16 @@ Then `npx playwright show-report`, click the test, and read its steps and log li
 
 ### 6.4 Learning path: watch these in UI mode, in order
 
-| # | Case | Filter | What it teaches |
-|---|---|---|---|
-| 1 | Customer created by an agent | `@tc-01\b` | Core UI: the customer form, order, meter |
-| 2 | Customer tops up | `@tc-11\b` | Self Care + PlaceToPay + agent check |
-| 3 | Invoice as an agent sees it | `@tc-144` | Core UI billing screens, read-only |
-| 4 | Billing run from the Daily Schedule screen | `@tc-147` (switch `JASEC_BILL_RUN`) | the clock, a billing run, an invoice made and checked line by line |
-| 5 | Top-up confirmation e-mail | `@tc-69\b` | the e-mails the customer receives |
+| # | Case | Filter | What it teaches | Needs |
+|---|---|---|---|---|
+| 1 | Customer created by an agent | `@tc-01\b` | Core UI: the customer form, order, meter | VPN, database |
+| 2 | Customer tops up | `@tc-11\b` | Self Care + PlaceToPay + agent check | VPN, database |
+| 3 | Invoice as an agent sees it | `@tc-144\b` | Core UI billing screens, read-only | VPN |
+| 4 | Billing run from the Daily Schedule screen | `@tc-147\b` | the clock, a billing run, an invoice made and checked line by line | VPN, database, **SSH** (6.2), switch `JASEC_BILL_RUN` |
+| 5 | Top-up confirmation e-mail | `@tc-69\b` | the e-mails the customer receives | VPN, database, **mailbox** |
+
+In UI mode, a switch is set the same way: `$env:JASEC_BILL_RUN='true'` in the window, **then**
+`npx playwright test --ui`.
 
 ### 6.5 What each functionality needs
 
@@ -638,8 +654,9 @@ npx playwright test --project=jasec-accounting          # read again: now an ext
 There is no single "run all" button. Run the functionalities **one after another, in this order**. Later ones use what
 earlier ones create, and some must not overlap.
 
-Before you start: **preprod**, VPN on, **tell the team nobody else runs on preprod meanwhile**, **Costa Rica weekday
-daytime** for steps 6 and 8. It takes most of a day. Use a fresh PowerShell window per step so switches don't leak.
+Before you start: **preprod**, VPN on, SSH working, **tell the team nobody else runs on preprod meanwhile**, **Costa
+Rica weekday daytime** for steps 6–8. It takes most of a day. Use a fresh PowerShell window per step so switches don't
+leak.
 
 | # | Step | What to run | Notes |
 |---|---|---|---|
@@ -647,7 +664,8 @@ daytime** for steps 6 and 8. It takes most of a day. Use a fresh PowerShell wind
 | 1 | Customers | `jasec-regression --grep-invert "@tc-64x"`, then `@tc-04` | |
 | 2 | Top-up | `jasec-top-up` | |
 | 3 | Meter-reading files | control server: `./run-all-mdr.sh` (6.8) | SSH |
-| 4 | Usage and rating | `jasec-usage-charges`, `jasec-usage-run`, `jasec-usage-screens`, `jasec-billing-trueup` | SSH for usage-run |
+| 3b | Tariff calculations | control server, **with your lead** (6.8) | they write the results file `jasec-usage-charges` reads |
+| 4 | Usage and rating | `jasec-usage-charges`, `jasec-usage-run`, `jasec-usage-screens`, `jasec-billing-trueup` | without step 3b, `jasec-usage-charges` is BLOCKED |
 | 5 | Meter-reading error e-mails | control-server scripts, with your lead (6.8) | |
 | 6 | Provisioning | `jasec-provisioning`, then `jasec-provisioning-orders` tag by tag | CR daytime. **Before** step 7. |
 | 7 | Notifications | `jasec-notification-content`, `jasec-notification`, `jasec-notification-reconnect`, `jasec-billing-breach`, seed + `jasec-notification-live`, seed + `jasec-notification-tiers` | |
@@ -678,6 +696,10 @@ ls *.sh calc/*.sh            # the scripts; each starts with a comment explainin
 The error-e-mail scripts temporarily change a shared setting (who receives the error e-mails). **Run those with your
 lead** the first time.
 
+The **tariff calculations** (`calc/run-mdr-tarif.sh`, `calc/run-mdr-fixedcharge.sh`, `calc/run-mdr-initial-reading.sh`)
+each need a freshly created test customer and its meter, and their results feed `jasec-usage-charges`. Run them **with
+your lead**.
+
 ---
 
 ## Part 7 — JASEC dev on OCI
@@ -698,8 +720,8 @@ This part only lists what is different.
 
 ### 7.1 Settings file and access
 
-Create `.env.oci-dev` from `.env.example` with `TEST_ENV=jasec-oci-dev`, your OCI Core UI login and the test mailbox,
-as in 6.2. Then:
+Create `.env.oci-dev` from `.env.example` as in 6.2, with `TEST_ENV=jasec-oci-dev`, `DB_NAME=coredb-jasec-oci-dev`,
+the three URL lines deleted, your OCI Core UI login and the test mailbox. The database keys are in 7.2. Then:
 
 ```powershell
 .\switch-env.ps1 oci-dev
@@ -741,8 +763,9 @@ sftp -i ~/.ssh/<your OCI key> <your SFTP user>@<OCI SFTP server>
 #   sftp> ls /jasec/energymdr/error        rejected (+ .error.txt)
 ```
 
-The Playwright tests that drop readings (`jasec-usage-run`) and the meter-reading file cases need tooling for OCI that
-is **not in this repo yet**. Run those with your lead.
+On OCI, every Playwright test that **sends meter readings** (the ones with ✔ under "SSH control server" in 6.5: usage,
+billing run `ts-06`, breach, balance transfer, automatic cut/reconnect) and the meter-reading file cases need tooling
+for OCI that is **not in this repo yet**. Run those with your lead. The rest of Part 6 runs as it is.
 
 ### 7.4 Things to know on OCI
 
@@ -784,10 +807,13 @@ Cases have IDs like `INV-003` (invoices), `CRM-001` (customers), `PAY-001` (paym
 
 | File | Copy from | Holds |
 |---|---|---|
-| `.env.coopegsbx2` | `.env.coopegsbx2.example` | `TEST_ENV=coopegsbx2`, your Core UI login, database, test mailbox, NetSuite sandbox tester login (`NS_SANDBOX_*`), `NS_ALLOW_CLOCK` |
+| `.env.coopegsbx2` | `.env.coopegsbx2.example` | `TEST_ENV=coopegsbx2`, your Core UI login, database (if you were given one), test mailbox, NetSuite sandbox tester login (`NS_SANDBOX_URL` / `_USER` / `_PASSWORD`) and its security-question answers (`NS_SANDBOX_QA`, from your lead: without them the NetSuite login stops at the security question) |
 | `netsuite-suite\tools\.pg-coopegsbx-dev.json` | `netsuite-suite\tools\pg-config.example.json` | the database connection the tools use |
 
 The **VPN** (the same as JASEC dev/preprod) must be on for the cases that read the database and for the billing cycle.
+
+`NS_ALLOW_CLOCK` stays `false`. Set it to `true` only for a run that must move the clock, and only when your lead has
+agreed the time slot: the clock is shared with the CoopeG team.
 
 ### 8.3 Before every run
 
@@ -844,8 +870,8 @@ The first time, run it **with your lead**. It moves the clock a lot and uses the
 ### 8.6 Every other case, and order
 
 The runbook **`netsuite-suite\docs\NEXT-RUN.md`** lists every case, its command and its prerequisites, in the order to
-run them (build check → `ns.ps1` → `ns-cycle.ps1` → cases on existing contracts → NetSuite sandbox check). Some paths in
-it are written from another folder layout: `tools\` there is `netsuite-suite\tools\` here.
+run them (build check → `ns.ps1` → `ns-cycle.ps1` → cases on existing contracts → NetSuite sandbox check). In it,
+`tools\` means `netsuite-suite\tools\`, and commands run from the repo folder.
 
 ### 8.7 Results
 
@@ -881,7 +907,9 @@ create a customer and order, run billing over several months, invoices, payments
 ### 9.2 Settings file
 
 Create `.env.congero-oci` from `.env.example` with `TEST_ENV=congero-oci` and your Congero Core UI login
-(`EMBRIX_USER` / `EMBRIX_PASSWORD`). No database or mailbox keys are needed. No VPN.
+(`EMBRIX_USER` / `EMBRIX_PASSWORD`). **Delete** the three URL lines and every `DB_` and `NOTIFY_` line: Congero has no
+database access, and a leftover `DB_NAME=coredb-jasec-dev` stops every run (3.4). Optional: `QA_EMAIL=<a mailbox>` is
+the e-mail address test customers get (a placeholder is used otherwise). No VPN.
 
 ```powershell
 .\switch-env.ps1 congero-oci
@@ -941,6 +969,8 @@ npx playwright test --project=embrix-platform --grep "TC-00:|TC-54:"   # one cas
 | You see | Cause | Fix |
 |---|---|---|
 | `No tests found` / 0 tests | wrong folder casing (3.3), a filter that matches nothing, or **the project belongs to another tenant** | exact casing. Check with `--list`. `.\switch-env.ps1` to check the tenant. |
+| `TEST_ENV and EMBRIX_BASE_URL disagree` / `TEST_ENV and DB_NAME disagree` | a URL or `DB_NAME` copied from `.env.example` (dev) | delete the URL lines, fix `DB_NAME` (3.4), then `.\switch-env.ps1 <tenant>` again |
+| `TEST_ENV is not set` | no active `.env` | `.\switch-env.ps1 <tenant>` |
 | `setup` fails at login | VPN off, wrong password, wrong tenant | VPN, `.env.<tenant>`, `.\switch-env.ps1` |
 | `Executable doesn't exist … chromium` | browser not installed | `npx playwright install chromium` |
 | everything **skipped** | the switch isn't on in **this** window | `$env:<SWITCH>='true'` in the same window |
