@@ -1,0 +1,296 @@
+import { APIRequestContext, expect } from '@playwright/test';
+import { TestLogger } from './test-logger';
+
+/**
+ * ServerHelper — A helper class for orchestrating server-level operations.
+ * Coordinates backend API actions such as date generation and CCP server time updates via GraphQL.
+ */
+export class ServerHelper {
+    private request: APIRequestContext;
+    // No fallback host: playwright.config sets GRAPH_URLS from config/tenants.ts,
+    // and a default here once pointed runs at CoopeG. Read at use, so building
+    // the helper for a test that never calls it cannot fail.
+    private get graphqlUrl(): string {
+        const url = process.env.GRAPH_URLS;
+        if (!url) throw new Error('ServerHelper: GRAPH_URLS is not set - run through playwright.config (TEST_ENV)');
+        return url;
+    }
+    private logger?: TestLogger;
+    private static cachedToken: string | null = null;
+    /**
+     * Which auth scheme this endpoint actually wants. Resolved once, on the
+     * first userLogin, and cached per-process alongside the token.
+     *
+     * - 'bearer' — post-2026-07 builds (JASEC dev/preprod): userLogin returns a
+     *   token and every call must carry `Authorization: Bearer`.
+     * - 'legacy' — older builds still deployed for CoopeG / the Embrix platform
+     *   tenants: `userLogin` returns `UserDetails`, which has NO `token` field,
+     *   and these endpoints do not require a token at all. Demanding one here
+     *   threw `userLogin returned no token` and killed the whole suite at TC-00.
+     */
+    private static authMode: 'bearer' | 'legacy' | null = null;
+
+    /**
+     * @param request - Playwright's APIRequestContext for making API requests.
+     * @param logger - Optional TestLogger instance for recording operation history.
+     */
+    constructor(request: APIRequestContext, logger?: TestLogger) {
+        this.request = request;
+        this.logger = logger;
+    }
+
+    /**
+     * Get (and cache) a Bearer token by calling the userLogin GraphQL mutation.
+     * Since 2026-07 the core GraphQL endpoint requires authentication for every
+     * call — including previously-anonymous ones like setCcpTime. Credentials
+     * come from EMBRIX_USER / EMBRIX_PASSWORD (same as the browser login).
+     * Token is cached per-process; the sandbox session lives long enough for
+     * a full test run.
+     */
+    private async getToken(): Promise<string> {
+        if (ServerHelper.cachedToken) return ServerHelper.cachedToken;
+
+        const username = process.env.EMBRIX_USER;
+        const password = process.env.EMBRIX_PASSWORD;
+        if (!username || !password) {
+            throw new Error('EMBRIX_USER / EMBRIX_PASSWORD env vars are required for API auth.');
+        }
+
+        // Mirror the shape the Core UI sends: plain `{ userLogin(input: {...}) { ... } }`
+        // query (not a mutation), input field is `userName` (not `userId`), values inlined.
+        const response = await this.request.post(this.graphqlUrl, {
+            headers: { 'content-type': 'application/json' },
+            data: {
+                query: `{ userLogin(input: {userName: ${JSON.stringify(username)}, password: ${JSON.stringify(password)}}) { token } }`,
+            },
+        });
+
+        if (!response.ok()) {
+            throw new Error(`userLogin failed with HTTP ${response.status()}: ${await response.text()}`);
+        }
+        const body = await response.json();
+        const token = body?.data?.userLogin?.token;
+        if (!token) {
+            throw new Error(`userLogin returned no token: ${JSON.stringify(body.errors || body)}`);
+        }
+        ServerHelper.cachedToken = token;
+        ServerHelper.authMode = 'bearer';
+        this.logger?.log('ServerHelper: acquired Bearer token via userLogin');
+        return token;
+    }
+
+    private async authHeaders(): Promise<Record<string, string>> {
+        if (ServerHelper.authMode === null) await this.resolveAuthMode();
+        if (ServerHelper.authMode === 'legacy') {
+            // Older backends authenticate off these headers (the Core UI's own
+            // adapter sets them); they also accept the call unauthenticated.
+            return {
+                'X-Auth-Username': process.env.EMBRIX_USER ?? '',
+                'X-Auth-Password': process.env.EMBRIX_PASSWORD ?? '',
+            };
+        }
+        return { Authorization: `Bearer ${await this.getToken()}` };
+    }
+
+    /**
+     * Decide once whether this endpoint issues Bearer tokens. A backend whose
+     * schema has no `UserDetails.token` field answers with a ValidationError
+     * rather than a token — that is a definitive "legacy", not a failure, so we
+     * record it and carry on instead of throwing.
+     */
+    private async resolveAuthMode(): Promise<void> {
+        try {
+            await this.getToken();
+        } catch (err) {
+            if (!/no token|token'? in type/i.test(String(err))) throw err;
+            ServerHelper.authMode = 'legacy';
+            this.logger?.log('ServerHelper: endpoint issues no token — using legacy header auth');
+        }
+    }
+
+    /**
+     * Generates a random future testing date and computes target date offsets.
+     * Useful for time-travel verification scenarios without causing instant password expiry.
+     * 
+     * @returns Object containing the start date, first date of next month, and first date of next two months.
+     */
+    async generateRandomFutureDate(): Promise<{ startDate: string; nextMonthFirstDate: string; nextTwoMonthsFirstDate: string; nextThreeMonthsFirstDate: string; nextFourMonthsFirstDate: string; nextFiveMonthsFirstDate: string; }> {
+        // 1. Get new random year (from next year to next 4 years) to avoid testing in December of the current year
+        const nextYear = new Date().getFullYear() + 1;
+        const randomYear = nextYear + Math.floor(Math.random() * 3);
+        const randomMonth = Math.floor(Math.random() * 12); // 0 - 11
+        const randomDay = Math.floor(Math.random() * 28) + 1; // 1 - 28 (apply for all month)
+        const startDate = new Date(randomYear, randomMonth, randomDay);
+
+        // 2. Get 1st date of the next month
+        const nextMonth = new Date(startDate.getFullYear(), startDate.getMonth() + 1, 1);
+
+        // 3. Get 1st date of the next 2 months
+        const nextTwoMonths = new Date(startDate.getFullYear(), startDate.getMonth() + 2, 1);
+
+        // 3. Get 1st date of the next 3 months
+        const nextThreeMonths = new Date(startDate.getFullYear(), startDate.getMonth() + 3, 1);
+
+        // 3. Get 1st date of the next 4 months
+        const nextFourMonths = new Date(startDate.getFullYear(), startDate.getMonth() + 4, 1);
+
+        // 3. Get 1st date of the next 5 months
+        const nextFiveMonths = new Date(startDate.getFullYear(), startDate.getMonth() + 5, 1);
+
+        // 4. Helper function to format date as yyyy-mm-dd
+        const formatDate = (date: Date): string => {
+            const yyyy = date.getFullYear();
+            const mm = String(date.getMonth() + 1).padStart(2, '0');
+            const dd = String(date.getDate()).padStart(2, '0');
+            return `${yyyy}-${mm}-${dd}`;
+        };
+
+        // 5. Return the results
+        const result = {
+            startDate: formatDate(startDate),
+            nextMonthFirstDate: formatDate(nextMonth),
+            nextTwoMonthsFirstDate: formatDate(nextTwoMonths),
+            nextThreeMonthsFirstDate: formatDate(nextThreeMonths),
+            nextFourMonthsFirstDate: formatDate(nextFourMonths),
+            nextFiveMonthsFirstDate: formatDate(nextFiveMonths)
+        };
+
+        this.logger?.data('Generated Testing Dates', result);
+        return result;
+    }
+
+    /**
+     * Get current CCP time
+     */
+    async getCcpTime(): Promise<string> {
+        this.logger?.api('POST', this.graphqlUrl);
+        this.logger?.log('GraphQL query: getCcpDateTime');
+
+        const response = await this.request.post(this.graphqlUrl, {
+            headers: await this.authHeaders(),
+            data: {
+                query: `
+          query {
+            getCcpDateTime(dummy: "Hello") {
+              ccpTime
+            }
+          }
+        `
+            }
+        });
+
+        expect(response.ok()).toBeTruthy();
+        const resBody = await response.json();
+        if (!resBody.data || !resBody.data.getCcpDateTime) {
+            this.logger?.error('GraphQL Response Error', resBody);
+            throw new Error(`GraphQL query returned null data: ${JSON.stringify(resBody.errors || resBody)}`);
+        }
+
+        const ccpTime = resBody.data.getCcpDateTime.ccpTime;
+        this.logger?.api('POST', this.graphqlUrl, response.status());
+        this.logger?.data('CCP Time (get)', ccpTime);
+        return ccpTime;
+    }
+
+    /**
+     * Clear a stranded future-order clock pin. Called before every clock move.
+     *
+     * Orders run with `executeFutureOrderNow` set `futureOrderDateSystemTime` to
+     * their effective date and reset it at the end of the same method - not in a
+     * `finally` - so a throw in between leaves the whole tenant's clock pinned.
+     * The pin wins over `ccp_time`, so `setCcpTime` "succeeds" and then reverts
+     * within seconds (JASEC prod build 2, 2026-10-02: hours lost to it). The pin
+     * lives in Redis - the table can read '' while it is active - so the only
+     * reliable clear is the product's own `setCcpProperties` with an empty value.
+     *
+     * Failure here is logged, not thrown: the verify step after the clock move
+     * still catches a clock that did not take.
+     */
+    async clearFutureOrderPin(): Promise<void> {
+        try {
+            const response = await this.request.post(this.graphqlUrl, {
+                headers: await this.authHeaders(),
+                data: {
+                    query: `mutation { setCcpProperties(input: { ccpPropertyList: [
+                        { property: "futureOrderDateSystemTime", value: "" } ] }) { ccpPropertyList { property } } }`,
+                },
+            });
+            const body = await response.json().catch(() => ({}));
+            if (!response.ok() || body?.errors?.length) {
+                this.logger?.log(`clearFutureOrderPin: not cleared (${response.status()}) ${JSON.stringify(body?.errors ?? '').slice(0, 200)}`);
+            }
+        } catch (e) {
+            this.logger?.log(`clearFutureOrderPin: request failed - ${String((e as Error)?.message ?? e)}`);
+        }
+    }
+
+    /**
+     * Set CCP time. Clears the future-order pin first - see clearFutureOrderPin.
+     */
+    async setCcpTime(targetDate: string): Promise<string> {
+        await this.clearFutureOrderPin();
+        this.logger?.api('POST', this.graphqlUrl);
+        this.logger?.log(`GraphQL mutation: setCcpTime → ${targetDate}`);
+
+        const response = await this.request.post(this.graphqlUrl, {
+            headers: await this.authHeaders(),
+            data: {
+                query: `
+          mutation {
+            setCcpTime(input: { ccpTime: "${targetDate}" }) {
+              ccpTime
+            }
+          }
+        `
+            }
+        });
+
+        expect(response.ok()).toBeTruthy();
+        const resBody = await response.json();
+        if (!resBody.data || !resBody.data.setCcpTime) {
+            this.logger?.error('GraphQL Response Error', resBody);
+            throw new Error(`GraphQL mutation returned null data: ${JSON.stringify(resBody.errors || resBody)}`);
+        }
+
+        const ccpTime = resBody.data.setCcpTime.ccpTime;
+        this.logger?.api('POST', this.graphqlUrl, response.status());
+        this.logger?.data('CCP Time (set)', ccpTime);
+        return ccpTime;
+    }
+
+    /**
+     * Set new CCP time and verify it matches
+     * @param targetDate String format "YYYY-MM-DD"
+     */
+    async setAndVerifyCcpTime(targetDate: string): Promise<void> {
+        // 1. Call API to set new CCP time for server
+        const setTimeResult = await this.setCcpTime(targetDate);
+        expect(setTimeResult).toBe(targetDate);
+
+        // 2. Verify with a small retry loop.
+        // Post-security-patch (2026-07), jasec-dev's setCcpTime is occasionally
+        // eventually-consistent: the mutation returns the target date but a
+        // very-quick follow-up getCcpDateTime can return a stale value for
+        // ~1-2 seconds before stabilizing. Retry a few times before failing.
+        const maxAttempts = 5;
+        for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+            const currentServerTime = await this.getCcpTime();
+            if (currentServerTime === setTimeResult) {
+                this.logger?.log(
+                    `CCP time verified: ${currentServerTime}` +
+                    (attempt > 1 ? ` (attempt ${attempt}/${maxAttempts})` : '')
+                );
+                return;
+            }
+            if (attempt === maxAttempts) {
+                // Final attempt — let expect throw with full mismatch details
+                expect(currentServerTime).toBe(setTimeResult);
+            }
+            this.logger?.log(
+                `CCP time not yet consistent (got ${currentServerTime}, want ${setTimeResult}); ` +
+                `retrying (attempt ${attempt}/${maxAttempts - 1})…`
+            );
+            await new Promise(resolve => setTimeout(resolve, 500));
+        }
+    }
+}

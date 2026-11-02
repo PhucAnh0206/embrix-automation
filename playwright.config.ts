@@ -1,0 +1,697 @@
+import { defineConfig, devices } from '@playwright/test';
+import * as dotenv from 'dotenv';
+import * as fs from 'fs';
+import * as path from 'path';
+import * as Timeouts from './helpers/timeouts.helper';
+import { resolveTenant, assertSuiteAllowed, isSuiteAllowed, requestedProjects } from './config/tenants';
+
+// Which env file. run-projects.ps1 (every regression runner) sets EMBRIX_ENV_FILE=.env.<tenant>, and ONLY that
+// file is read. Reading the shared .env as well back-filled whatever a tenant file leaves out or blank with the
+// active tenant's values (2026-10-14: .env.congero-oci and .env.oci-dev picked up jasec-dev's DB). Without
+// EMBRIX_ENV_FILE (a manual `npx playwright test` after switch-env.ps1) the active .env is used, as before.
+dotenv.config({ path: process.env.EMBRIX_ENV_FILE || '.env' });
+
+// Clear logs if configured, and ensure we only run this once in the main test runner process
+if (!process.env.TEST_WORKER_INDEX && process.env.CLEAN_LOGS_ON_START === 'true') {
+  const dir = path.join(process.cwd(), 'test-results', 'logs');
+  if (fs.existsSync(dir)) {
+    const files = fs.readdirSync(dir);
+    for (const file of files) {
+      try {
+        fs.unlinkSync(path.join(dir, file));
+      } catch (err) {
+        console.error(`Failed to delete log file ${file}:`, err);
+      }
+    }
+  }
+}
+
+// ── Tenant resolution ──────────────────────────────────────────────────────
+// One tenant per run, named by TEST_ENV and validated against the registry in
+// config/tenants.ts. There is no fallback: the old resolution silently used
+// CoopeG when it could not work out the target, which is how a preprod run
+// once raised an order on dev.
+const { name: TENANT_NAME, tenant: TENANT } = resolveTenant();
+
+// One saved Core UI login PER TENANT. A single shared user.json let a NetSuite
+// run on coopegsbx2 overwrite the session a JASEC run was using mid-suite
+// (2026-10-12: six top-up cases failed in seconds on a CoopeG menu). Exported so
+// tests/auth.setup.ts writes the same file the projects read.
+const AUTH_FILE = `playwright/.auth/user.${TENANT_NAME}.json`;
+process.env.AUTH_FILE = AUTH_FILE;
+
+// One id per `playwright test` invocation, inherited by every worker. The
+// NetSuite specs key the data they create on it, so a worker restarted after a
+// failed case reuses this run's invoices instead of creating new ones.
+process.env.NS_RUN_ID ??= new Date().toISOString().replace(/\D/g, '').slice(4, 12);
+
+const baseURL = TENANT.baseUrl;
+
+// Exposed for helper classes, which read these rather than the registry.
+process.env.TEST_ENV = TENANT_NAME;
+process.env.EMBRIX_BASE_URL = TENANT.baseUrl;
+process.env.GRAPH_URLS = TENANT.graphqlUrl;
+process.env.EMBRIX_GRAPHQL_URL = TENANT.graphqlUrl;
+if (TENANT.selfcareUrl) process.env.SELFCARE_BASE_URL = TENANT.selfcareUrl;
+if (TENANT.crmGatewayUrl) process.env.CRM_GATEWAY_URL = TENANT.crmGatewayUrl;
+
+// Refuse a suite that does not belong to this tenant, before a browser opens.
+// Both `--project=X` and `--project X` are read - the space form used to slip
+// past this check entirely.
+for (const project of requestedProjects(process.argv)) {
+  assertSuiteAllowed(project, TENANT_NAME);
+}
+
+// Workers re-evaluate this file, so print once from the runner only.
+if (!process.env.TEST_WORKER_INDEX) {
+  console.log(`[tenant] ${TENANT_NAME} -> ${TENANT.baseUrl}`);
+  if (TENANT.note) console.log(`[tenant] note: ${TENANT.note}`);
+}
+
+// jasec-notification-live / -tiers used to switch their own gate on whenever the project name appeared on the
+// command line, so naming the project was enough to start a billing run. Removed 2026-10-18: set
+// JEPYP230_LIVE_RUN=true / JEPYP230_TIER_RUN=true explicitly.
+
+export default defineConfig({
+  testDir: './tests',
+
+  /* Run tests in each file sequentially — Embrix tests share state (billing cycles, accounts) */
+  fullyParallel: false,
+  forbidOnly: !!process.env.CI,
+  /**
+   * PW_RETRIES lets a long local sweep survive the known Core UI load timeout
+   * without turning retries on for ordinary runs.
+   *
+   * `page.goto` to the Core UI root times out at 180s under repeated loads —
+   * ~17.7MB of uncompressed bundle per load, gzip off, documented and not a
+   * product defect. It costs nothing in a single run, but the rating cases invoke ts-01
+   * sixteen times back to back and on 2026-09-24 that timeout blocked ten
+   * rating cases that had nothing wrong with them.
+   *
+   * Default is unchanged (0 locally, 2 on CI), so this is inert unless set.
+   */
+  retries: Number(process.env.PW_RETRIES ?? (process.env.CI ? 2 : 0)),
+  workers: 1,
+
+  /* Timeouts */
+  timeout: 600_000,
+  expect: { timeout: Timeouts.LONG_WAIT },
+
+  /* Reporters */
+  reporter: [
+    ['html', { outputFolder: 'playwright-report', open: 'never' }],
+    ['junit', { outputFile: 'test-results/junit.xml' }],
+    ['list'],
+    // Acts only on tests under regression/netsuite; a no-op for every other suite.
+    ['./reporters/netsuite-csv.reporter.ts'],
+  ],
+
+  /* Shared settings for all projects */
+  use: {
+    baseURL,
+    trace: 'retain-on-failure',
+    screenshot: 'only-on-failure',
+    video: 'retain-on-failure',
+    actionTimeout: Timeouts.LONG_WAIT,
+    /**
+     * PW_NAV_TIMEOUT raises the navigation budget for a run over a degraded
+     * link, without changing it for anyone else.
+     *
+     * The first page.goto of a test pulls the whole Core UI bundle; later
+     * navigations in the same context are served from the browser cache, so it
+     * is only ever the first one that is at risk. On a healthy link that is
+     * seconds. On 2026-09-24 the VPN degraded to ~93 KB/s, which puts one load
+     * at roughly 190s against this 180s ceiling - marginal, and it lost, taking
+     * the account cases down at navigation before it reached a single assertion.
+     *
+     * Raising the ceiling is the honest accommodation here, unlike retries,
+     * which multiply the download instead of allowing for it. Default unchanged.
+     */
+    navigationTimeout: Number(process.env.PW_NAV_TIMEOUT ?? Timeouts.EXTRA_LONG_WAIT),
+    /**
+     * PW_DISK_CACHE gives the browser a persistent HTTP cache for the run.
+     *
+     * Playwright makes a fresh CONTEXT per test, and a fresh context has an
+     * empty cache — so every invocation of ts-01 re-downloads the whole Core UI
+     * bundle. The rating cases run ts-01 sixteen times, which on 2026-09-24's degraded
+     * link (~93 KB/s, one chunk alone 6.19MB = 67s) was most of the wall clock
+     * and the direct cause of cases blocking at navigation.
+     *
+     * The browser PROCESS is reused across tests in a worker, and
+     * --disk-cache-dir is a launch flag, so the cache outlives the context:
+     * download once per run instead of once per test.
+     *
+     * THIS IS NOT A SHORTCUT — it honours what the server already asks for:
+     *
+     *   /                          no-store, no-cache, must-revalidate
+     *   /env-config.js             no-store, no-cache, must-revalidate
+     *   /static/js/*.chunk.js      public, max-age=31536000, immutable
+     *
+     * The bundles are declared immutable and cacheable for a year, and the HTML
+     * and runtime config are declared never-cacheable. A real user's browser
+     * behaves exactly this way; a cold cache on every test is the unrealistic
+     * setting. Staleness cannot hide a deploy either: the bundles are
+     * content-hashed, so a new build is a new URL and misses the cache, and
+     * env-config.js is never served from it.
+     *
+     * Off by default so ordinary runs are untouched.
+     */
+    launchOptions: {
+      args: [
+        '--disable-web-security',
+        // A directory. 'false'/'0'/'no' mean OFF and 'true'/'1' mean the default folder - a raw 'false' once
+        // became a cache folder literally named false/ in the repo (2026-10-15).
+        ...((() => {
+          const v = (process.env.PW_DISK_CACHE ?? '').trim();
+          if (!v || /^(false|0|no|off)$/i.test(v)) return [];
+          const dir = /^(true|1|yes|on)$/i.test(v) ? `.pw-cache/${process.env.TEST_ENV ?? 'default'}` : v;
+          return [`--disk-cache-dir=${dir}`, '--disk-cache-size=536870912'];
+        })()),
+      ],
+      // PW_SLOWMO (ms between actions) - set by run-projects.ps1 -SlowMo to watch a -Headed run. 0 = full speed.
+      slowMo: Number(process.env.PW_SLOWMO ?? 0),
+    },
+  },
+
+  // A run with no --project (`npm test`, `--ui`, a bare spec path) used to get
+  // EVERY project, so the JASEC suites ran against CoopeG and vice versa. Such
+  // runs are legitimate, so they are not refused; the projects that do not
+  // belong to this tenant are simply not offered.
+  projects: [
+    // ── Auth Setup: Login once, save storageState ──────────────────────
+    {
+      name: 'setup',
+      testMatch: '**/auth.setup.ts',
+      use: { ...devices['Desktop Chrome'] },
+    },
+
+    // ── Unit: pure helper logic, no browser / VPN / mailbox ───────────
+    {
+      name: 'unit',
+      testMatch: '**/unit/*.spec.ts',
+    },
+
+    // ── Smoke Tests: Quick health-check (no auth dependency) ───────────
+    {
+      name: 'smoke',
+      testMatch: '**/smoke/*.spec.ts',
+      use: { ...devices['Desktop Chrome'] },
+    },
+
+    // ── Regression: (reuse saved session) ─────────────
+    {
+      // ts-02 — the 41-case Embrix platform suite. Runs on any tenant that
+      // carries a normal catalog.
+      name: 'embrix-platform',
+      testMatch: ['**/regression/embrixPlatform/*.spec.ts'],
+      dependencies: ['setup'],
+      use: {
+        ...devices['Desktop Chrome'],
+        storageState: AUTH_FILE,
+      },
+    },
+
+    {
+      // ts-01 — the CoopeG full-lifecycle suite (account -> provisioning ->
+      // billing -> collections). Split out of the old single `regression`
+      // project: both lived under one name, so `--project=regression` without a
+      // spec path silently ran this one too, with its billing jobs and extra
+      // clock moves.
+      name: 'coopeg-lifecycle',
+      testMatch: ['**/regression/coopeguanacaste/*.spec.ts'],
+      dependencies: ['setup'],
+      use: {
+        ...devices['Desktop Chrome'],
+        storageState: AUTH_FILE,
+      },
+    },
+
+    // ── NetSuite regression (coopegsbx2 only) ──────────────────────────
+    // Suite: <Embrix>\test-cases\netsuite (94 cases). Each test
+    // title starts with its Case ID so results map back to the CSV.
+    {
+      name: 'netsuite',
+      testMatch: ['**/regression/netsuite/*.spec.ts'],
+      dependencies: ['setup'],
+      use: {
+        ...devices['Desktop Chrome'],
+        storageState: AUTH_FILE,
+      },
+    },
+
+    // ── EFT-106 escalation (coopegsbx2): client issues (EFT-107), process results (EFT-108), integration evidence
+    // (EFT-109). Plan and coverage: docs\NetSuite\EFT-106-COVERAGE.md. Results: test-cases\netsuite\eft-106\.
+    {
+      name: 'eft106',
+      testMatch: ['**/eft-106/*.spec.ts'],
+      dependencies: ['setup'],
+      use: {
+        ...devices['Desktop Chrome'],
+        storageState: AUTH_FILE,
+      },
+    },
+
+    // ── Dev: documentation / scratch specs. NOT part of regression ────
+    // `read-context.spec.ts` demonstrates the test-context helper by writing
+    // placeholder ids (INV-FIXTURE-67890, INV-DIRECT-12345). While it lived
+    // under regression/coopeguanacaste it ran on every regression pass and
+    // wrote those fakes into the then-shared context file, which other suites
+    // read back as real data. Keep demo specs out of `regression`.
+    {
+      name: 'dev',
+      testMatch: ['**/dev/*.spec.ts'],
+      dependencies: ['setup'],
+      use: {
+        ...devices['Desktop Chrome'],
+        storageState: AUTH_FILE,
+      },
+    },
+
+    // ── JASEC regression: prepaid account creation + JASEC-specific flows
+    {
+      name: 'jasec-regression',
+      testMatch: ['**/regression/jasec/*.spec.ts'],
+      dependencies: ['setup'],
+      use: {
+        ...devices['Desktop Chrome'],
+        storageState: AUTH_FILE,
+      },
+    },
+
+    // ── JASEC notification: JEPYP-230 email template content checks.
+    // Separate project because these wait on real mail delivery (slow) and
+    // need NOTIFY_* env the other suites do not.
+    {
+      name: 'jasec-notification',
+      // ts-01 only. Its siblings in this folder are separate projects — see below.
+      testMatch: ['**/regression/jasec/notification/ts-01-*.spec.ts'],
+      dependencies: ['setup'],
+      use: {
+        ...devices['Desktop Chrome'],
+        storageState: AUTH_FILE,
+      },
+    },
+
+    // ── JASEC notification content: replays rendered bodies out of
+    // core_engine.email_notification and asserts them against the templates.
+    // DB only — no browser, no mailbox, no `setup` dependency, so it needs
+    // neither UI auth nor a billing run and is safe to run at any time.
+    {
+      name: 'jasec-notification-content',
+      testMatch: ['**/regression/jasec/notification/ts-03-*.spec.ts'],
+    },
+
+    // ── JASEC notification live run: stages balance bands, fires a billing
+    // schedule, asserts all seven events. IRREVERSIBLE — moves the tenant CCP
+    // clock forward and spends a job_schedule slot. Gated behind
+    // JEPYP230_LIVE_RUN=true inside the spec; skips without it.
+    {
+      name: 'jasec-notification-live',
+      testMatch: ['**/regression/jasec/notification/ts-02-*.spec.ts'],
+    },
+
+    // ── JASEC notification reconnection: Event 6 (report cases 5.2 / 5.3).
+    // Needs a browser because there is no top-up API — top-up is Selfcare UI only.
+    // Consumes one suspended account per run (leaves it ACTIVE and in credit,
+    // which is the correct end state), so it is its own project rather than part
+    // of the read-only content suite.
+    {
+      name: 'jasec-notification-reconnect',
+      testMatch: ['**/regression/jasec/notification/ts-04-*.spec.ts'],
+      dependencies: ['setup'],
+      use: {
+        ...devices['Desktop Chrome'],
+        storageState: AUTH_FILE,
+      },
+    },
+
+    // ── JASEC notification tier boundaries: JEPYP-230 cases 3.7 / 3.8 / 3.9.
+    // No browser — DB staging plus a GraphQL billing run. It DOES move the CCP
+    // clock and DOES write to the DB, so it is deliberately its own project
+    // rather than part of the read-only content suite.
+    {
+      name: 'jasec-notification-tiers',
+      testMatch: ['**/regression/jasec/notification/ts-05-*.spec.ts'],
+    },
+
+    // ── JASEC provisioning (JEPYP-27): suspend/reconnect, both directions plus
+    // the config they depend on. One project so the whole flow runs from one
+    // command instead of half here and half over ssh.
+    //
+    //   inbound-contract   our updateProvisioningRequest endpoint. Every case is
+    //                      a REFUSAL, so it needs no fixture and touches
+    //                      nothing: each payload names either an order id that
+    //                      cannot exist or ORD-960, which is COMPLETED and
+    //                      terminal. No browser, no DB, no auth, no VPN.
+    //   outbound-contract  the payload contract, the template, the gateway
+    //                      config and the current order state. Read only, every
+    //                      statement a SELECT. NEEDS THE VPN - if the database
+    //                      is unreachable every case SKIPS with the reason
+    //                      printed, because a dropped VPN is an unmet
+    //                      precondition and not a defect.
+    //   dispatch           builds and sends a real command: the reconnect
+    //                      payload, the retry interval and the batch size.
+    //                      REACHES JASEC'S LIVE AMI, so it is gated behind
+    //                      JASEC_DISPATCH_RUN and skips on a normal run. Its
+    //                      guard excludes any meter JASEC has ever answered 00
+    //                      for, so it cannot consume an order staged for a
+    //                      session.
+    //
+    // The happy paths are NOT here and cannot be: closing an order needs one in
+    // PROVISIONING_INITIATED, which only exists once JASEC accept a dispatched
+    // command on a meter they recognise, and dispatching consumes the single
+    // meter they have released.
+    // suspend-resume-orders, reprocess-failed-step and auto-suspend-resume are excluded here and run in
+    // jasec-provisioning-orders below, because they need a browser and a logged-in session and these do not.
+    {
+      name: 'jasec-provisioning',
+      testMatch: ['**/regression/jasec/provisioning/*.spec.ts'],
+      testIgnore: ['**/regression/jasec/provisioning/suspend-resume-orders.spec.ts', '**/regression/jasec/provisioning/reprocess-failed-step.spec.ts', '**/regression/jasec/provisioning/auto-suspend-resume.spec.ts'],
+    },
+
+    // ── JASEC provisioning through the Core UI.
+    //
+    // reprocess-failed-step: the "Submit order" button on the order detail page, which is
+    // the manual reprocess the ticket asks for ("the UI need to be able to
+    // reprocess manually"). The UI path is a strict superset of the API one -
+    // button, mutation, OMS queue, sequence re-run, dispatch - so this is the
+    // only test for that requirement rather than one of a pair.
+    //
+    // auto-suspend-resume: the AUTOMATIC suspend/resume (breach / top-up), checked on the
+    // Services, order detail and Customer Activity screens as well as in the database.
+    //
+    // suspend-resume-orders: SUSPEND and RESUME raised from the Suspend Order /
+    // Resume Order screens - the order shape production creates (no service
+    // line) - plus an API-built control. Gated behind JASEC_SUSPEND_ORDERS_RUN;
+    // run one tag at a time (@order-journey, @resume-billing-only-suspend, @resume-existing-suspension, @api-control).
+    //
+    // Needs a browser, a session and therefore the VPN. Each spec carries its OWN
+    // run gate on top of that, because they dispatch to JASEC's live AMI:
+    // suspend-resume-orders JASEC_SUSPEND_ORDERS_RUN, reprocess-failed-step
+    // JASEC_REPROCESS_RUN, auto-suspend-resume JASEC_AUTO_PROV_RUN (plus
+    // JASEC_HELD_CYCLE_RUN for @auto-held-cycle).
+    {
+      name: 'jasec-provisioning-orders',
+      testMatch: ['**/regression/jasec/provisioning/suspend-resume-orders.spec.ts', '**/regression/jasec/provisioning/reprocess-failed-step.spec.ts', '**/regression/jasec/provisioning/auto-suspend-resume.spec.ts'],
+      dependencies: ['setup'],
+      use: {
+        ...devices['Desktop Chrome'],
+        storageState: AUTH_FILE,
+      },
+    },
+
+    // ── JASEC billing via the Core UI Daily Schedule screen.
+    // Proves the UI can run a billing cycle. The GraphQL path in ts-02 / ts-05
+    // stays the one the suite relies on; this is an addition so a UI regression
+    // cannot stop the regression suite from billing.
+    //
+    // IRREVERSIBLE: moves the tenant CCP clock, spends a job_schedule slot, and
+    // bills real accounts (advancing their cycle). Gates live inside each spec
+    // and differ: ts-06 needs JASEC_BILL_RUN=true and refuses to start without an
+    // explicit JASEC_BILL_DATE; ts-08 is gated on JASEC_TOPUP_RUN; ts-07 has NO
+    // run gate - naming this project runs it.
+    // Needs a browser and the DB, therefore the VPN.
+    {
+      name: 'jasec-billing-run',
+      testMatch: [
+        '**/regression/jasec/billing/ts-06-*.spec.ts',
+        '**/regression/jasec/billing/ts-07-*.spec.ts',
+        '**/regression/jasec/billing/ts-08-*.spec.ts',
+      ],
+      dependencies: ['setup'],
+      use: {
+        ...devices['Desktop Chrome'],
+        storageState: AUTH_FILE,
+      },
+    },
+
+    // ── JASEC billing EXPLORATORY: the invoice as a DOCUMENT, read through Core UI.
+    // NOT PART OF THE OFFICIAL SUITE. There is no EPDP sub-task for billing or
+    // invoicing; this project exists to find out whether the area is worth
+    // covering. Its specs are named `explore-*`, carry no TC numbers, and are not
+    // listed as official cases.
+    // Background: JEPYP-230 report case 7.3 — "matches what Core UI shows" needs
+    // the UI to be the other half of the comparison, so it needs a browser.
+    // READ-ONLY: opens an existing invoice. No clock move, no billing run, no
+    // job_schedule slot, so unlike the -live project it is safe at any time.
+    {
+      // One folder, two projects, split by filename prefix: `explore-*` needs a
+      // browser and the VPN, `read-*` needs neither. Keep the prefixes.
+      name: 'jasec-billing-explore',
+      testMatch: ['**/regression/jasec/billing/explore-*.spec.ts'],
+      dependencies: ['setup'],
+      use: {
+        ...devices['Desktop Chrome'],
+        storageState: AUTH_FILE,
+      },
+    },
+
+    {
+      // TC-153 (2026-10-15): a month-end bill the balance cannot cover is billed into debt, the customer is cut, a
+      // top-up reconnects (the F8 fix). Gated JASEC_REFUSED_BILL_RUN=true; runs only in Costa Rica weekday daytime.
+      name: 'jasec-billing-refused',
+      testMatch: ['**/regression/jasec/billing/ts-15-*.spec.ts'],
+      dependencies: ['setup'],
+      use: {
+        ...devices['Desktop Chrome'],
+        storageState: AUTH_FILE,
+      },
+    },
+
+    {
+      // Evidence videos for the team: one happy case per ticket, captions on screen, video always kept.
+      // Gate: JASEC_EVIDENCE_RUN=true. Not official coverage.
+      name: 'jasec-evidence-video',
+      testMatch: ['**/regression/jasec/evidence/*.spec.ts'],
+      dependencies: ['setup'],
+      fullyParallel: false,
+      use: {
+        ...devices['Desktop Chrome'],
+        storageState: AUTH_FILE,
+        viewport: { width: 1440, height: 900 },
+        video: { mode: 'on' as const, size: { width: 1440, height: 900 } },  // no action labels: they print typed values (the Self Care password, 10-19)
+        launchOptions: { slowMo: 300 },
+      },
+    },
+
+    {
+      // JEPYP-475 (prepared 2026-10-17, fix not deployed yet): the balance of a cancelled subscription moves to the new
+      // one (credit and debt). Gated JASEC_BALANCE_TRANSFER_RUN=true; BLOCKED "fix not deployed" until
+      // JASEC_JEPYP475_DEPLOYED=true. Account cases.
+      name: 'jasec-balance-transfer',
+      testMatch: ['**/regression/jasec/account/ts-04-*.spec.ts'],
+      dependencies: ['setup'],
+      fullyParallel: false,
+      use: {
+        ...devices['Desktop Chrome'],
+        storageState: AUTH_FILE,
+      },
+    },
+
+    // ── JASEC customer form EXPLORATORY (JEPYP-316): Create Contact / Create Address as the ticket defines them.
+    // NOT PART OF THE OFFICIAL SUITE: no TC numbers, not in INDEX. Charter + evidence live in
+    // the JEPYP-316 customer-form exploration. Creates own QA316/E2E316 accounts;
+    // 02 (tax) and 03 (receipt) also order, top up and bill on a free date - dev / preprod only, the specs refuse prod.
+    {
+      name: 'jasec-customer-form-explore',
+      testMatch: ['**/regression/jasec/customer-form/explore-*.spec.ts'],
+      dependencies: ['setup'],
+      use: {
+        ...devices['Desktop Chrome'],
+        storageState: AUTH_FILE,
+      },
+    },
+
+    // ── JASEC billing READ: the invoice and the account statement as records,
+    // read over GraphQL. Shares the `billing/` folder with the explore spike and
+    // is separated by the `read-` filename prefix, NOT by directory.
+    //
+    // No browser, no `setup` dependency, no DB and therefore NO VPN — unlike
+    // `jasec-billing-explore` (needs a browser to compare against Core UI) and
+    // unlike `jasec-notification-content` (reads the database). Entirely
+    // read-only: no clock move, no job_schedule slot, no staged account, so it is
+    // safe to run at any time and from CI.
+    // Cases here carry no TC number on purpose — numbering is assigned from the
+    // official case list once a proposal is accepted.
+    {
+    // ── WHICH BILLING SPECS CHANGE DATA (the file number does NOT tell you) ──
+    // Checked 2026-10-18. Each mutating spec has its own *_RUN switch and its own project:
+    //
+    //   read-only   ts-01..05, ts-09 (this project), ts-07 (jasec-billing-run, reads an invoice),
+    //               ts-13 (settlement), ts-14 (statement)
+    //   MUTATING    ts-06 JASEC_BILL_RUN, ts-08 JASEC_TOPUP_RUN (jasec-billing-run),
+    //               ts-10 JASEC_TRUEUP_RUN, ts-11 JASEC_BREACH_RUN, ts-12 JASEC_SAVEDCARD_RUN,
+    //               ts-15 JASEC_REFUSED_BILL_RUN - bill real accounts irreversibly on a free billing day
+    //   explore-NN  spike, not official coverage (jasec-billing-explore; some move the clock and bill)
+    //
+    // A new billing spec that changes data needs its own gate and its own project - never add it to
+    // this read-only project.
+      name: 'jasec-billing-read',
+      testMatch: [
+        '**/regression/jasec/billing/ts-01-*.spec.ts',
+        '**/regression/jasec/billing/ts-02-*.spec.ts',
+        '**/regression/jasec/billing/ts-03-*.spec.ts',
+        '**/regression/jasec/billing/ts-04-*.spec.ts',
+        '**/regression/jasec/billing/ts-05-*.spec.ts',
+        '**/regression/jasec/billing/ts-09-*.spec.ts',
+      ],
+    },
+
+    // ── JASEC TC-151 on screen (read-only): the Account Statement screen shows the same ledger chain
+    // ts-03 proves in the data. Browser + session, so not in jasec-billing-read ("no browser").
+    //   $env:JASEC_TWO_CYCLE_ACCOUNT='<acct>'; npx playwright test --project=jasec-billing-statement
+    {
+      name: 'jasec-billing-statement',
+      testMatch: ['**/regression/jasec/billing/ts-14-*.spec.ts'],
+      dependencies: ['setup'],
+      use: {
+        ...devices['Desktop Chrome'],
+        storageState: AUTH_FILE,
+      },
+    },
+
+    // ── JASEC TC-150 (read-only): a prepaid invoice is settled from the balance and never goes
+    // to collections (Luis, 2026-10-05). Its OWN project, run AFTER the billing runs: its third
+    // test judges the invoices the latest TC-146 run recorded (artifacts/billing-run-invoices.json).
+    // In jasec-billing-read it would run BEFORE them and judge a stale run.
+    //   npx playwright test --project=jasec-billing-settlement
+    // Tests 1-2 read the database only; test 3 also opens Core UI (Bills, Account Statement), so it
+    // needs the browser and the logged-in session.
+    {
+      name: 'jasec-billing-settlement',
+      testMatch: ['**/regression/jasec/billing/ts-13-*.spec.ts'],
+      dependencies: ['setup'],
+      use: {
+        ...devices['Desktop Chrome'],
+        storageState: AUTH_FILE,
+      },
+    },
+
+    // ── JASEC ACCOUNTING: the EBS / ERP extract (point 10 of the E2E guide).
+    //
+    // ACCOUNTING FILE NUMBERS ARE LOAD-BEARING, exactly as in billing/:
+    //
+    //   ts-01 .. ts-05   READ-ONLY   no clock move, no extract run. ts-01 and
+    //                                ts-02 need no browser and no VPN either;
+    //                                ts-03 reads the DB, so it needs the VPN.
+    //   ts-06 .. ts-08   MUTATING    RESERVED. Runs `ebsExtract`, which CONSUMES
+    //                                a day's journals, flips them to POSTED and
+    //                                stamps them with a batch id. There is no
+    //                                un-extract. Do not reuse this band.
+    //
+    // A mutating spec numbered ts-04 would land silently in the read-only
+    // project, which is safe to run at any time — and would then run itself.
+    {
+      name: 'jasec-accounting',
+      testMatch: [
+        '**/regression/jasec/accounting/ts-01-*.spec.ts',
+        '**/regression/jasec/accounting/ts-02-*.spec.ts',
+        '**/regression/jasec/accounting/ts-03-*.spec.ts',
+        '**/regression/jasec/accounting/ts-04-*.spec.ts',   // net tie-out, read-only (2026-10-08)
+      ],
+    },
+
+    // MUTATING half. Gated inside the spec behind JASEC_EBS_RUN=true and it
+    // refuses to start without one, so a broad run can never trigger an extract.
+    // Needs the DB, therefore the VPN. No browser.
+    {
+      name: 'jasec-accounting-run',
+      testMatch: ['**/regression/jasec/accounting/ts-06-*.spec.ts'],
+    },
+
+    // ── JASEC billing TRUE-UP: the 0-30 kWh fixed charge and the cycle length
+    // it depends on. MUTATING and it MOVES THE TENANT-GLOBAL CCP CLOCK, so it is
+    // its own project rather than part of the ts-06..08 billing band — a clock
+    // move is a heavier conflict than billing one account, and it must never be
+    // picked up by a broad run. Gated inside the spec behind JASEC_TRUEUP_RUN=true.
+    // Bills and invoices through the Core UI Bill Pending screen since 2026-10-06 - needs the browser + session.
+    {
+      name: 'jasec-billing-trueup',
+      testMatch: ['**/regression/jasec/billing/ts-10-*.spec.ts'],
+      dependencies: ['setup'],
+      use: {
+        ...devices['Desktop Chrome'],
+        storageState: AUTH_FILE,
+      },
+    },
+    // ── JASEC billing: several credit-limit breaches in ONE BILL_CHECK run must not
+    // freeze it (preprod 2026-10-03). MUTATING, moves the CCP clock, dev only.
+    // Gated inside the spec behind JASEC_BREACH_RUN=true.
+    {
+      name: 'jasec-billing-breach',
+      testMatch: ['**/regression/jasec/billing/ts-11-*.spec.ts'],
+    },
+    // ── JASEC billing: a customer who saved a card and topped up with it is still
+    // invoiced (JEPYP-326). MUTATING: pays with the PlaceToPay test card, moves the
+    // CCP clock, bills. Gated inside the spec behind JASEC_SAVEDCARD_RUN=true.
+    {
+      name: 'jasec-billing-savedcard',
+      testMatch: ['**/regression/jasec/billing/ts-12-*.spec.ts'],
+      dependencies: ['setup'],
+      use: {
+        ...devices['Desktop Chrome'],
+        storageState: AUTH_FILE,
+      },
+    },
+    {
+      // Seeding only (gated JASEC_SEED_RUN): zero-usage invoices over GraphQL.
+      name: 'jasec-seed',
+      testMatch: ['**/regression/jasec/seed/*.spec.ts'],
+    },
+
+    // ── JASEC USAGE: the credit breach billed into debt and recovered by a top-up (TC-60).
+    // MUTATING — seeds an account, drops real MDR files through the loader and
+    // moves balances. Gated inside the spec behind JASEC_USAGE_RUN=true. Needs
+    // SSH to the control server and the DB, therefore the VPN. Checks the Core UI
+    // Suspended/Failed Batches and Rated Usage screens, so it needs a session.
+    // ts-06+ is the mutating band here too; keep read-only usage specs at ts-01..05.
+    {
+      name: 'jasec-usage-run',
+      testMatch: ['**/regression/jasec/usage/ts-06-*.spec.ts'],
+      dependencies: ['setup'],
+      use: {
+        ...devices['Desktop Chrome'],
+        storageState: AUTH_FILE,
+      },
+    },
+
+    // ── JASEC rating results on screen (READ-ONLY): the charges the tarification scenarios rated are shown
+    // on Rated Usage with the same amounts. Reads artifacts/block-e-results.json (run-block-E.ps1 writes
+    // it); runs after the tariff calculation cases.
+    {
+      name: 'jasec-usage-charges',
+      testMatch: ['**/regression/jasec/usage/ts-01-*.spec.ts'],
+      dependencies: ['setup'],
+      use: {
+        ...devices['Desktop Chrome'],
+        storageState: AUTH_FILE,
+      },
+    },
+
+    // ── JASEC USAGE, through the UI: rated usage must reach the two Core UI
+    // screens that display it — Billing Data > Rated Usage and > Usage Records.
+    // MUTATING like -usage-run, and additionally needs a browser, so it is a
+    // separate project rather than another testMatch on that one. Gated inside
+    // the spec behind JASEC_USAGE_UI_RUN=true.
+    {
+      name: 'jasec-usage-screens',
+      testMatch: ['**/regression/jasec/usage/ts-07-*.spec.ts'],
+      dependencies: ['setup'],
+      use: {
+        ...devices['Desktop Chrome'],
+        storageState: AUTH_FILE,
+      },
+    },
+
+    // ── JASEC top-up: Self Care card mgmt, top-up, Min Amount business logic
+    {
+      name: 'jasec-top-up',
+      testMatch: ['**/regression/jasec/top-up/*.spec.ts'],
+      dependencies: ['setup'],
+      use: {
+        ...devices['Desktop Chrome'],
+        storageState: AUTH_FILE,
+      },
+    },
+  ].filter(p => isSuiteAllowed(p.name ?? '', TENANT_NAME)),
+});

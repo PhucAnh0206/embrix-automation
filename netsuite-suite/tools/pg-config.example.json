@@ -1,0 +1,8 @@
+{
+  "_comment": "Copy to .pg-coopegsbx-dev.json in this folder (git-ignored) and fill in. Database coopegsbx-dev-db / coredb, dev-preprod VPN on. Read with NS_PG=coopegsbx-dev.",
+  "host": "",
+  "port": 5432,
+  "database": "coredb",
+  "user": "",
+  "password": ""
+}

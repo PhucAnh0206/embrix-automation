@@ -1,0 +1,154 @@
+Case ID,Test Case,Area,Test data,Test Steps,Expected Result(s),Actual Result(s),Status,Requirement
+CRM-001,A new customer created by Coopeweb is set up in Embrix,New customers from Coopeweb > Create,"New billing-only contract sent the way Coopeweb sends it, with a NetSuite customer number","1. Send the new contract request.
+2. Open the new customer and its order in Embrix.","- Request accepted; customer ACTIVE; order completed
+- No invoice at creation: a new contract is invoiced by the monthly billing",Request accepted; customer ACTIVE; no invoice at creation.,Pass,ISP-202
+CRM-003,Customer changes made in Embrix are not sent to NetSuite,New customers from Coopeweb > Changes in Embrix,A test customer,"1. Change the NetSuite customer number (Party Id) in Account Info.
+2. Check the customer activity for anything sent to NetSuite.",- Nothing is sent to NetSuite (customer data is owned by Coopeweb / NetSuite),The change is saved in Embrix and nothing is sent to NetSuite.,Pass,ISP-205
+CRM-004,New Coopeweb customers get the NET 18 payment term,New customers from Coopeweb > Payment term,New test customer created by Coopeweb,"1. Open the new customer and read its payment term.
+2. Check the due date of its invoices.",- Payment term NET 18: invoices issued on the 1st are due on the 18th,Payment term NET 18; invoice issued on the 1st is due on the 18th (e.g. invoice 0279599).,Pass,Coope: payment term NET 18
+CRM-005,The Coopeweb order number is kept on the new contract,New customers from Coopeweb > Order number,"New test contract sent the way Coopeweb sends it, with its order number","1. Send the new contract request with an order number.
+2. Open the customer's order in Embrix.",- The order is created with the number Coopeweb sent,"The order is created with the number Coopeweb sent, waiting for the connection.",Pass,EFT-107
+CRM-006,A new contract has no plan or active service before it is connected,New customers from Coopeweb > Before connection,"New test contract sent the way Coopeweb sends it, not yet connected to the network","1. Send the new contract request.
+2. Before the connection, open the customer's services and plan.","- No plan and no active service until the contract is connected to the network
+- Nothing is billed before the connection",No plan and no active service while the order is waiting for the connection.,Pass,EFT-107
+NET-001,A new contract is connected to the network (NOKIA),Network services > Connection,New test contract with a test ONT of this environment,"1. Create the contract from Coopeweb.
+2. Enter the ONT in Order Management and submit the order.
+3. Check the order and the service.","- NOKIA confirms the connection
+- Order completed; service ACTIVE; Coopeweb informed","Not tested yet on a QA contract: NOKIA now configures the test ONT (ALCLB3D94488 configured and enabled on OLT-STC01 for another test contract, 798696), so the connection works; our own run waits for a free test ONT, since ALCLB3D94488 is in use on 798696.",Blocked,EFT-108
+NET-002,TV service is activated in MOTV,Network services > TV,Connected test contract (NET-001) with the Internet + TV plan,"1. Order the TV plan on the connected contract.
+2. Submit the order.
+3. Check the order and the TV service.","- The customer's TV account is created in MOTV (login: contract number; no TV box needed)
+- Order completed; TV service ACTIVE","Not tested yet: MOTV answers and the test user signs in, but MOTV refuses to create or remove TV customers for that user (answer code 24 on the test contracts 798700, 798661 and 798696). Waiting for Coope to give the test user the rights of the production user, or a test user.",Blocked,EFT-108
+NET-003,Home phone service is activated in PortaOne,Network services > Home phone,Connected test contract (NET-001) with a phone plan and a test number,"1. Order the phone plan with the test number on the connected contract.
+2. Submit the order.
+3. Check the order and the phone service.","- The customer and the phone line are created in PortaOne with the number
+- Order completed; phone service ACTIVE","Not tested yet: PortaOne sign-ins from the test environment time out (4 of the last 6). Waiting for Coope to allow the test environment to reach PortaOne, and for a free test number from the PortaOne number inventory.",Blocked,EFT-108
+NET-004,"Suspension, reconnection and disconnection reach the network",Network services > Suspension and disconnection,Connected test contract (NET-001) with an unpaid invoice,"1. Let the unpaid invoice go to suspension.
+2. Pay the invoice.
+3. Cancel the contract.
+4. Check the service after each step.","- NOKIA suspends, reconnects and then disconnects the service
+- Each step is shown on the contract","Not tested yet: needs a connected test contract (NET-001). The billing side of these steps works (REG-002, SUS-001, CAN-002).",Blocked,EFT-108
+REG-001,Monthly billing works end to end,Core billing > Monthly billing,New test contract created by Coopeweb and activated,"1. Run the monthly billing for the contract.
+2. Check the invoice, the Hacienda stamp and what is sent to NetSuite.","- Invoice created for the month that ended, with IVA and the 911 / Cruz Roja levies
+- Stamped by Hacienda
+- Sent to NetSuite once","Invoice 0279865 created by the monthly billing for the month that ended, stamped by Hacienda and sent to NetSuite once, with the right customer and due date (18th). Test contracts are not registered in the NetSuite sandbox, so NetSuite answers ""contract not found""; this is expected in the test environment.",Pass,ISP-202
+REG-002,Suspension and reconnection for unpaid invoices,Core billing > Collections,"New test contract created by Coopeweb and activated, with an unpaid invoice","1. Let the invoice go overdue and run collections.
+2. Pay the invoice in full.
+3. Check the service.","- Invoice due on the 18th and unpaid: reminder on the 19th, suspension on the 21st, notice to Coopeweb on the 22nd
+- Payment closes the invoice and reconnects the service","Invoice 0279865 (27,512.91, due on the 18th): reminder on the 19th, suspension on the 21st (service SUSPENDED), notice to Coopeweb on the 22nd (in the test environment notices are issued but not delivered, as on the CoopeG Sandbox). Payment on the 24th closes the invoice and the service is reconnected automatically (ACTIVE); that month is billed for its days of service (25 of 28).",Pass,ISP-202
+REG-003,Hacienda stamps invoices,Core billing > Hacienda stamp,Any new invoice,"1. Create an invoice.
+2. Check its stamp status in Bills.",- Invoice stamped by Hacienda (test environment),Invoice 0279580 stamped by Hacienda.,Pass,ISP-202
+CHG-001,A service added in the middle of the month is billed from the day it is added,Plan changes & cancellations > Plan change,Test contract with Internet; TV added in the middle of the month,"1. Add TV to the plan in the middle of the month.
+2. Run the next monthly billing.
+3. Check the invoice sent to NetSuite.","- The next invoice includes the new TV service with the right amount and tax
+- The days from the change to the end of the month are billed, prorated, on the next invoice","TV added and active from the 26th. The next invoice (0279868) bills the TV lines from the 26th to the end of the month (3 of 28 days), with the right amounts and tax, and is sent to NetSuite once.",Pass,ISP-202 / ISP-204
+CAN-001,A cancellation in the middle of the month bills the days used before it,Plan changes & cancellations > Cancellation,"Test contract billed after the month (each invoice covers the month that ended), cancelled in the middle of the month","1. Cancel the subscription in the middle of the month.
+2. Run the next monthly billing.
+3. Check what is sent to NetSuite.","- Subscription closed; no invoice after the one for the month of the cancellation
+- The days used in the month of the cancellation, up to the day before it, are billed on the next invoice","Cancelled on the 10th: the 1st to the 9th are billed on the next invoice (0280414, 9 of 30 days). Cancelled on the 5th: the 1st to the 4th are billed (0280424, 4 of 31 days). Subscription and services closed; no later invoice.",Pass,ISP-202 / ISP-204
+CAN-002,Cancellation notice from collections,Plan changes & cancellations > Cancellation,Test contract with an unpaid invoice in collection,"1. Let the unpaid invoice go through collections.
+2. Check the notice to Coopeweb and the invoice.","- The cancellation notice is sent to Coopeweb the day after the suspension (the 22nd)
+- The unpaid invoice stays open (no duplicate, no unexpected credit)","The cancellation notice to Coopeweb is issued on the 22nd, the day after the suspension (in the test environment notices are issued but not delivered, as on the CoopeG Sandbox); the unpaid invoice is not changed.",Pass,ISP-202
+SUS-001,A manual suspension and resume in the same month bill only the days of service,Plan changes & cancellations > Suspension,Activated test contract,"1. Suspend the service, then resume it in the same month.
+2. Run the monthly billing.","- Service suspended, then active again
+- The month is billed only for the days the service was active","Suspended on the 10th, active again on the 20th: the month is billed for its 21 days of service (23,976.40 of 35,393.73); invoice 0279865 stamped by Hacienda and sent to NetSuite.",Pass,ISP-202
+MAP-004,Standard taxes on an invoice without exemption,Taxes & exemptions > No exemption,"Test customer without exemption, Internet 10,000","1. Create an invoice.
+2. Check the tax of each line sent to NetSuite.","- Internet: IVA 13% (tax code 7)
+- Cruz Roja (1%) and 911 (0.75%): tax code 5","Internet 10,000 with IVA 1,300 (tax code 7); 911 75 and Cruz Roja 100 (tax code 5).",Pass,ISP-217
+MAP-008,Partially exempt customers get the reduced tax code,Taxes & exemptions > Partial exemption,"Test customer with exemptions of 38.46%, 69.23%, 84.62% and 92.31%; Internet 10,000","1. Create an invoice for each exemption.
+2. Check the tax code and tax sent to NetSuite.",- Reduced tax codes 8 / 9 / 10 / 11 by exemption %; never tax code 0,"38.46% → tax code 8 (IVA 800.02), 69.23% → 9 (400.01), 84.62% → 10 (199.94), 92.31% → 11 (99.97) (invoices 0279745–0279748).",Pass,ISP-217
+MAP-009,Fully exempt customers get the right tax code,Taxes & exemptions > Full exemption,"Test customer with a 100% exemption, with and without an exemption certificate","1. Create an invoice with and without the certificate.
+2. Check the tax code sent to NetSuite.",- With certificate: tax code 6; without: tax code 12; no tax,"With certificate: tax code 6, no tax (invoice 0279749). Without certificate: tax code 12, no tax (invoice 0279750).",Pass,ISP-217
+MAP-012,An exemption applies only to the exempt service,Taxes & exemptions > Per service,Test customer exempt on Internet only (84.62%); invoice with Internet and TV,"1. Create an invoice with Internet and TV.
+2. Check the tax code of each line.",- Internet: reduced tax code 10; TV: standard tax code 7; levies: tax code 5,"Internet tax code 10, TV tax code 7, levies tax code 5 (invoice 0279742).",Pass,ISP-217
+MAP-013,A manual invoice line without a chosen service type gets the right exemption,Taxes & exemptions > Manual invoice,"Test customer exempt 38.46% on Internet; manual invoice, Internet 10,000, service type not chosen","1. Bills > Manual Billing: add the Internet item without choosing a service type.
+2. Check the tax code and tax sent to NetSuite.","- The line takes its product's service type (Internet): reduced tax code 8, IVA 800.02","Invoice 0279753: Internet tax code 8, IVA 800.02.",Pass,ISP-217
+INV-001,A monthly invoice reaches NetSuite,Invoices to NetSuite > Monthly billing,"Coope contract 798166 (registered in NetSuite), monthly Internet service","1. Run the monthly billing for the contract.
+2. Check the invoice and its NetSuite status.","- Invoice sent to NetSuite once and accepted, with its NetSuite number saved
+- Right customer, amounts and taxes (IVA 13%, 911 and Cruz Roja), department and class","Invoice 0280202 (530,083.63, due on the 18th) sent once and accepted by NetSuite as FA586158: customer 120998, Internet IVA 13%, 911 and Cruz Roja levies, for the month that ended.",Pass,ISP-202
+INV-002,The first invoice of a new Coopeweb customer reaches NetSuite,Invoices to NetSuite > New customer,New test contract created by Coopeweb and activated,"1. Run the first monthly billing for the contract.
+2. Check the invoice and what is sent to NetSuite.","- Invoice created by the billing and stamped by Hacienda
+- Sent with the right NetSuite customer","The first invoice of a new contract (0279865) covers only its first month, is stamped by Hacienda and is sent with customer 57936, due on the 18th. Test contracts are not registered in the NetSuite sandbox, so NetSuite answers ""contract not found""; this is expected in the test environment.",Pass,ISP-202
+INV-003,A manual invoice reaches NetSuite with the right details,Invoices to NetSuite > Manual invoice,"Test customer 208886 (NetSuite customer 74003): manual invoice, Internet 10,000","1. Create a manual invoice (Bills > Manual Billing).
+2. Check the total and what is sent to NetSuite.","- Total 11,475.00 (10,000 + IVA 1,300 + Cruz Roja 100 + 911 75)
+- Sent to NetSuite customer 74003 and accepted","Invoice 0279716: 11,475.00, stamped, accepted by NetSuite as FA586057. In NetSuite: same customer, date, total and taxes (Internet IVA 13%, 911 / Cruz Roja not subject to IVA).",Pass,ISP-202
+INV-004,Prepaid electricity invoices are sent to NetSuite,Invoices to NetSuite > Prepaid electricity,"Prepaid electricity customer 146195; invoice 206874, stamped by Hacienda, never sent","1. Bills > select the prepaid electricity invoice > Action: SYNC_INVOICE.
+2. Check its NetSuite status and message.",- The invoice is sent to NetSuite and accepted,"The invoice is not sent: NetSuite status ERROR, ""the line has no IVA, so it has no NetSuite tax code; the document was not sent to NetSuite"". Every prepaid electricity invoice has a public lighting line (Alumbrado Público) without IVA, which has no NetSuite tax code yet, so none can be sent.",Fail,ISP-202
+INV-005,An invoice already in NetSuite cannot be sent twice,Invoices to NetSuite > No duplicates,An invoice already accepted by NetSuite,1. Select the invoice in Bills and open the Action list.,- No re-send option for an invoice already in NetSuite,"Only Email, Extend due date and Regenerate are offered; no re-send once the invoice is in NetSuite (invoice 0279580).",Pass,ISP-202
+INV-006,The NetSuite invoice number is saved on the Embrix invoice,Invoices to NetSuite > NetSuite reference,Test customer 208886,"1. After an invoice reaches NetSuite, open it in Bills.",- The NetSuite internal id and invoice number are shown on the invoice,Invoice 0279580 shows NetSuite id 1087495 and number FA585964.,Pass,ISP-202
+INV-007,An invoice rejected by NetSuite is kept in Embrix with the reason,Invoices to NetSuite > Rejected by NetSuite,Test contract not registered in NetSuite,"1. Create an invoice for the contract.
+2. Check its status and message in Bills.","- The invoice stays active in Embrix
+- NetSuite status ERROR with NetSuite's message word for word","Invoice 0279718 stays active, NetSuite status ERROR, message ""No se ha encontrado un contrato con número …"" shown word for word.",Pass,ISP-202
+INV-008,A rejected invoice can be corrected and sent again,Invoices to NetSuite > Send again,Invoice rejected because the customer had no NetSuite number,"1. Set the customer's NetSuite number (Account Info).
+2. Bills > Action > SYNC_INVOICE.
+3. Check the result.","- The invoice is sent again once, with the corrected customer
+- NetSuite's new answer replaces the old one","Invoice 0279507 sent again once (""queued for NetSuite"") with customer 57936; the new NetSuite answer replaces the old one. Test contracts are not registered in the NetSuite sandbox, so NetSuite answers ""contract not found""; this is expected in the test environment.",Pass,ISP-202
+INV-009,Hacienda stamps the invoice before it is sent to NetSuite,Invoices to NetSuite > Order of steps,Any new invoice,1. Check the order of the Hacienda stamp and the NetSuite send for one invoice.,"- Hacienda first, then NetSuite, so NetSuite never receives an invoice Hacienda rejected","Invoice 0279580: stamped by Hacienda first, then sent to NetSuite.",Pass,ISP-202
+INV-018,An invoice already in NetSuite is voided with a credit note for its full amount,Invoices to NetSuite > Undo,Manual invoice on 208886 already in NetSuite,"1. Bills > select the invoice > Action: UNDO_MANUAL_INVOICE > Submit.
+2. Check the invoice and the credit note in Embrix and NetSuite.","- Agents can undo an invoice already in NetSuite from Bills
+- The invoice is kept and closed by a credit note for its full amount, including taxes, so the bill is 0
+- The credit note is stamped by Hacienda and sent to NetSuite, applied to the invoice","Bills offers Undo for invoice 0280643, already in NetSuite as FA586517. The undo keeps the invoice and closes it with credit note CR-105232 for its full amount (1,147.50, reason ""NC - Anulación por refacturación""), so the bill is 0. The credit note is stamped by Hacienda and accepted by NetSuite as NC1108.",Pass,Coope: void an invoice with a full credit note
+INV-010,Invoice month and year across a year change,Invoice details to NetSuite > Dates,Test customer 208886; invoices dated 1 December and 1 January,"1. Create an invoice on 1 December and one on 1 January.
+2. Check the description and dates in NetSuite.","- December: ""Telecomunicaciones DIC-2026""; January: ""Telecomunicaciones ENE-2027""","December invoice 0279602 → ""Telecomunicaciones DIC-2026"", dated 01/12/2026 (FA585975); January invoice 0279603 → ""Telecomunicaciones ENE-2027"", dated 01/01/2027 (FA585976).",Pass,ISP-215
+MAP-001,A standard customer goes to the Telecom department,Invoice details to NetSuite > Department and class,Test customer 208886,"1. Create an invoice.
+2. Check the department, class and location in NetSuite.","- Department 15 (Gerencia de Telecomunicaciones), class 104, location 131","Department 15, class 104, location 131.",Pass,ISP-215
+MAP-002,A FONATEL customer goes to the FONATEL department,Invoice details to NetSuite > Department and class,FONATEL test customer 3012830,"1. Create an invoice.
+2. Check the department, class and location in NetSuite.","- Department 137, class 9, location 131","Invoice 0279585: department 137, class 9, location 131 (NetSuite FA585967, department Fonatel).",Pass,ISP-215
+MAP-003,"A PHC customer goes to the PHC department, including a contract with both PHC bundles on one ONT",Invoice details to NetSuite > Department and class,PHC test contract with both PHC bundles (Internet and device) on one ONT,"1. Create the contract with both PHC bundles and connect it with one ONT.
+2. Create an invoice.
+3. Check the department, class and location sent to NetSuite.","- The order with both bundles on one ONT is saved and connected
+- Department 135, class 10, location 131","The order with both PHC bundles on one ONT is saved and connected, with one device record for the two bundles. Invoice 0280447 goes to NetSuite with department 135, class 10, location 131, customer 61425.",Pass,ISP-215
+MAP-006,The invoice goes to the right NetSuite customer,Invoice details to NetSuite > Customer,Test customer 208886 (NetSuite customer 74003),"1. Create an invoice.
+2. Check the customer in NetSuite.",- The invoice is on the customer's NetSuite number,Invoice sent to NetSuite customer 74003.,Pass,ISP-202
+MAP-007,An invoice for a customer without a NetSuite number is kept in Embrix with the reason,Invoice details to NetSuite > Missing customer,Test contract without a NetSuite customer number,"1. Create an invoice for the contract.
+2. Check the NetSuite answer and the invoice.",- NetSuite rejects it with a clear message; the invoice is kept in Embrix,"Invoice 0280307 kept in Embrix; NetSuite answered that the customer is missing (""Elementos requeridos faltantes en la solicitud: entity"").",Pass,ISP-202
+CRN-001,A credit note on a whole invoice reaches NetSuite,Credit notes > Whole invoice,"Test customer 208886, invoice in NetSuite","1. Apply Adjustment: credit 10% with tax on the whole invoice.
+2. Check the credit note in Embrix and NetSuite.",- Credit note accepted by NetSuite and applied to the invoice,"Credit note CR-105176 (1,147.50) accepted by NetSuite as NC1004 and applied to invoice FA586058.",Pass,ISP-204
+CRN-002,A credit note on one invoice line has the right amounts,Credit notes > One line,"Test customer 208886, invoice with Internet and TV","1. Apply Adjustment: credit 1,000 with tax on the TV line.
+2. Check the credit note in Embrix and NetSuite.","- One TV line: 1,000 + IVA 130 = 1,130; accepted by NetSuite","Credit note CR-105177 has one TV line: 1,000 + IVA 130 = 1,130 (tax code 7); accepted by NetSuite as NC1005 and applied to invoice FA586059.",Pass,ISP-204
+CRN-003,An intercompany invoice gets its automatic credit note with a valid tax code,Credit notes > Intercompany,Coope intercompany contract 798169 (registered in NetSuite),"1. Create an invoice for the intercompany contract.
+2. Check the automatic credit note in Embrix and NetSuite.","- Automatic full credit note with tax, valid tax code (never 0), accepted by NetSuite","Invoice 0280375 (11,475.00, FA586168) gets the automatic credit note CR-105209 with tax code 7, accepted as NC1036 and applied: the invoice is paid in full in NetSuite.",Pass,ISP-219
+CRN-004,Bulk credit notes reach NetSuite,Credit notes > Bulk upload,Upload file with one credit line (100 with tax) on an invoice of 208886,"1. AR Operations > Bulk Adjustments > Upload the file.
+2. Check the file results, the credit note and its NetSuite status.",- The file is processed; the credit note is created and reaches NetSuite,"File processed within 5 minutes (1 line completed, 0 errors); credit note CR-105212 (114.17) accepted by NetSuite as NC1039 and applied to the invoice.",Pass,ISP-204
+CRN-005,Debit notes are not sent to NetSuite,Credit notes > Debit note,Test customer 208886,"1. Apply Adjustment: debit 500 on an invoice.
+2. Check whether anything is sent to NetSuite.",- Debit note created in Embrix; nothing sent to NetSuite (debit notes are not part of the NetSuite integration),Debit note DR-100057 created; nothing sent to NetSuite.,Pass,ISP-204
+CRN-006,"A credit note without tax is created, stamped and sent",Credit notes > Without tax,"Test customer 208886, invoice with Internet and TV","1. Apply Adjustment: credit without tax on the Internet line, with a reason that is stamped by Hacienda and with one that is not.
+2. Check the credit notes in Embrix and NetSuite.","- Credit note created (and stamped when the reason requires it), with no tax, accepted by NetSuite","Credit note CR-105178 (1,000; its reason does not require a Hacienda stamp, so it is not stamped) and credit note CR-105179 (500, stamped by Hacienda): both without tax (tax code 5, tax 0), accepted by NetSuite as NC1006 and NC1007.",Pass,ISP-219
+CRN-007,A credit note on an invoice not yet in NetSuite waits for that invoice,Credit notes > Invoice not in NetSuite,Test invoice that never reached NetSuite,"1. Apply a credit on the invoice.
+2. Check the credit note and the balance.","- The credit note is kept in Embrix until its invoice is in NetSuite
+- The customer balance in Embrix stays correct",Credit note CR-105184 is kept in Embrix and waits until its invoice is in NetSuite; the invoice balance in Embrix is correct.,Pass,ISP-204
+CRN-008,Every credit note has a viewable PDF,Credit notes > PDF,Credit note with a reason that is not stamped by Hacienda,1. Credit/Debit Notes > select the credit note > Download.,- The PDF opens and downloads,"Credit note CR-105188 (229.50, NetSuite NC1014): PDF downloads correctly.",Pass,ISP-204
+CRN-011,A credit on a reduced-rate line keeps the invoice's tax code,Credit notes > Reduced rate,Coope contract 244822 with a 38.46% exemption (registered in NetSuite),"1. Create an invoice for the exempt customer.
+2. Credit 1,000 with tax on the Internet line.
+3. Compare the tax codes.","- The credit has the same tax code as the invoice line (8), tax 80","Invoice 0280376 (Internet tax code 8, FA586169); credit note CR-105210 with tax code 8 and tax 80, accepted as NC1037 and applied.",Pass,ISP-219
+ENG-006-01,A credit note goes to the right NetSuite customer,Credit notes > Customer,Test customer 208886 (NetSuite customer 74003),"1. Apply a 10% credit with tax.
+2. Check the customer of the credit note in NetSuite.",- Credit note on NetSuite customer 74003,"Credit note CR-105176 on customer 74003, accepted as NC1004 and applied to FA586058.",Pass,ISP-204
+ADJ-001,A credit requested by Coopeweb reaches NetSuite,Adjustments from Coopeweb > Credit,"Test customer 208886, invoice in NetSuite","1. Coopeweb requests a credit with tax on the invoice.
+2. Check the credit note in Embrix and NetSuite.",- Credit note created and accepted by NetSuite,Credit accepted (AR-REF539302); credit note CR-105180 (516.37) accepted by NetSuite as NC1008 and applied to FA586058.,Pass,ISP-210
+ADJ-002,Coopeweb can list invoice items and credit one item,Adjustments from Coopeweb > Item credit,"Test customer 208886, invoice with Internet 10,000 and TV 5,000","1. Coopeweb lists the invoice items.
+2. Coopeweb requests a 50% credit with tax on the TV item only.
+3. Check the credit note.","- The invoice items are listed
+- The credit note has only the TV line (2,500 + IVA 325) and reaches NetSuite","Items listed. Credit note CR-105181 (2,825) has only TV 2,500 + IVA 325 (tax code 7), stamped and accepted by NetSuite as NC1009.",Pass,ISP-210
+AR-001,NetSuite can extend an invoice's due date,Due dates from NetSuite > Extend,An open test invoice,"1. NetSuite sends a new due date with a short note.
+2. Check the due date and notes in Bills.",- Accepted; the due date changes; the note is saved,Due date of invoice 0279599 moved from 18 to 28 January; note saved.,Pass,ISP-203
+AR-002,A due date cannot be extended for an invoice in collection,Due dates from NetSuite > In collection,A test invoice in collection,1. NetSuite sends a new due date for the invoice.,"- Refused with the reason ""invoice found in collection""",Refused: invoice found in collection.,Pass,ISP-203
+AR-006,NetSuite can grant a grace period on an invoice in collection,Due dates from NetSuite > Grace period,"Invoice 0279572 of Coope contract 798166, in collection","1. NetSuite grants 5 days of grace.
+2. Check the collection status and next action.",- The grace period is applied and the next collection action moves later,"Accepted; collection status ""grace period requested""; next reminder moved 5 days later (2 → 7 November).",Pass,ISP-206
+PAY-001,A payment from NetSuite closes the invoice in Embrix,Payments from NetSuite > Full payment,"An open test invoice (1,147.50)","1. NetSuite sends a payment for the full amount.
+2. Check the invoice in Bills.","- Payment applied; invoice closed
+- Nothing sent back to NetSuite (payments go only from NetSuite to Embrix)",Invoice 0279599 closed (balance 0); nothing sent back to NetSuite.,Pass,ISP-202
+PAY-002..005,"Partial payments, overpayments, group payments and payment arrangements",Payments from NetSuite > Other cases,Test customer 208886; invoices 0279769 to 0279772; installment plan INST-100049 on invoice 0280446,"1. Pay less than an invoice.
+2. Pay more than an invoice.
+3. Pay two invoices with one payment.
+4. Pay the first installment of an installment plan.
+5. Check each invoice, the plan and the customer balance.","- Pays less: the payment is applied and the invoice stays open until fully paid
+- Pays more: the extra amount stays as a credit for the next invoice (Coope asked to confirm)
+- One payment for several invoices: the payment says which invoices it covers (Coope asked to confirm)
+- Payment arrangements (installment plans): stay in Embrix, not moved to NetSuite; a payment on a plan's invoice is recorded on the plan","Pays less: the invoice stays open with the rest due (0279769: 574.00 paid, 573.50 due). Installment plan: paying the first installment (5,737.50) lowers invoice 0280446 to 5,737.50 due and is recorded on plan INST-100049 (installment 1 paid, total paid 5,737.50); plans stay in Embrix, nothing is moved to NetSuite. Pays more: the extra amount is applied to the customer's oldest open invoice (0279770: 500.00 applied to 268979), not kept for the next invoice, and NetSuite is not told. One payment for two invoices closes both (0279771, 0279772). Waiting for Coope's confirmation on the last two points.",Need confirmation,ISP-212 / ISP-213
+RPT-001/002,The Invoicing report shows each invoice's NetSuite status,Reports > Invoicing report,Invoices accepted and rejected by NetSuite,"1. Reports > Invoicing.
+2. Filter by NetSuite status (ERROR, then SUCCESS).",- Each invoice shows the same status and message as in Bills; each filter returns only matching invoices,The ERROR filter shows rejected invoices with NetSuite's message (e.g. 0279497); the SUCCESS filter shows accepted ones (e.g. 0279580).,Pass,ISP-218
+RPT-005,The Credit Notes report shows each credit note's NetSuite status,Reports > Credit Notes report,Credit notes accepted and rejected by NetSuite,1. Reports > Credit Notes.,"- NetSuite reference, number, status and message per credit note","The report shows the NetSuite reference, number, status and message of each credit note.",Pass,ISP-218
+API-001,Coopeweb can get an invoice PDF,Invoice PDF for Coopeweb,A recent invoice of 208886,1. Coopeweb requests the PDF of the invoice.,- A valid PDF of the invoice is returned,The PDF of invoice 0279580 is returned (525 KB).,Pass,ISP-220
+RET-002,Client tickets EFT-91 / EFT-92: tax code never 0,Client ticket retests,Intercompany contract 798169; exempt customer with 84.615385%,1. Check the tax code of the intercompany credit note and of the exempt invoice.,- Valid tax codes; accepted by NetSuite,Intercompany credit note CR-105209 sent with tax code 7 and applied (NC1036); exempt invoice with 84.615385% sent with tax code 10.,Pass,EFT-91 / EFT-92
+ACC-001..003,The daily accounting extract is off for ISP and Energy,Accounting extract,Daily billing schedules of the test environment,"1. Check which jobs the daily schedule runs.
+2. Check whether the accounting extract still runs.",- The accounting extract is no longer generated (ISP and Energy),The daily schedule no longer includes the accounting extract; it has not run in any daily schedule since it was switched off (e.g. 1 November 2027).,Pass,ISP-207

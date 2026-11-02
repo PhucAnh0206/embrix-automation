@@ -1,0 +1,69 @@
+# Dependencies
+node_modules/
+
+# Auth state — contains credentials, never commit
+playwright/.auth/
+
+# Environment variables — contains secrets
+.env
+# Per-env sources of truth for switch-env.ps1 (contain real credentials).
+# The active one gets copied to .env by the switcher.
+.env.dev
+.env.preprod
+.env.prod
+.env.production
+.env.staging
+.env.local
+.env.bak
+.env.coopeg
+.env.congero
+.env.coopegsbx2
+
+# Test output
+test-results/
+# Recon/evidence dumps written by the explore-* specs. Deliberately NOT under
+# test-results/ — Playwright clears that folder around a run and the evidence
+# went with it.
+artifacts/
+playwright-report/
+# Captured console output from local runs (full-run.log, verify-*.log, etc.)
+*.log
+
+# Scratch space for ad-hoc transpiled helpers used while debugging.
+.tmpx/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# test examples
+tests/examples/
+
+# documents
+#docs/personals/
+# Working backups (*.bak-YYYY-MM-DD). Never commit these - this repo is public,
+# and git history is the real backup anyway.
+*.bak
+*.bak-*
+*.orig
+.env.congero-oci
+.env.oci-dev
+test-results-*/
+
+# per-tenant Chrome disk cache (PW_DISK_CACHE, run-projects.ps1)
+.pw-cache/
+
+# run-projects.ps1: one run per tenant
+.run-lock.*
+
+# NetSuite demo: invoice of demo 1 for demos 2 and 3 (local)
+.ns-demo-state.json
+
+# NetSuite suite copy (netsuite-suite/): run output and local DB configs stay local
+netsuite-suite/results/
+netsuite-suite/evidence/
+netsuite-suite/eft-106/evidence/
+**/.pg-*.json
+
+# NetSuite run output (ns.ps1) - generated on every run, local paths
+.ns-last-run.json

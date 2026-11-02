@@ -1,0 +1,305 @@
+/**
+ * Several credit-limit breaches in ONE BILL_CHECK run must not freeze it.
+ *
+ * Why: jasec-preprod, 2026-10-03. Bill Check for Sep 11 froze three seconds after 3-4 accounts hit
+ * credit-limit breaches, Kubernetes restarted service-billing after ~2.5 min, the run was marked ERROR
+ * and its bills were never made. Huy: 5 billing workers each held a database connection and each breach
+ * email needed another one (REQUIRES_NEW) from a pool of only 5. Workaround: pool 5 -> 20 on dev and
+ * preprod (prod already 60). An engine fix was announced.
+ *
+ * WHAT A PASS PROVES - read this before quoting it. With 20 connections and 5 workers, at most 10 are
+ * needed, so this run cannot freeze on dev today with or without the engine fix. A PASS confirms the
+ * workaround holds under several simultaneous breaches. It does not prove the engine fix.
+ *
+ * How: seed N fresh prepaid CHECK accounts with ZERO balance on a quiet billing day, move the clock to
+ * their bill date, run BILL_CHECK alone. Each account's monthly charge exceeds its credit (limit 0), so
+ * each one breaches.
+ *   PASS    BILL_CHECK reaches a final status and EVERY seeded account has a result row
+ *           (billed, or refused with its credit-limit reason).
+ *   FAIL    the run hangs, or any seeded account has no result - which is what the freeze looked like.
+ *   BLOCKED fewer than 5 accounts actually breached, so the run did not exercise the problem.
+ *
+ * MUTATING - dev, preprod, prod build 2; NEVER the final customer build: seeds accounts, moves the tenant CCP clock forward, spends a
+ * SCHEDULED job slot on the bill date.
+ *
+ *   $env:JASEC_BREACH_RUN='true'; npx playwright test --project=jasec-billing-breach --reporter=line
+ *   optional: JASEC_BREACH_N (default 8), JASEC_BREACH_BDOM (default: picked so the bill date is free),
+ *             JASEC_BREACH_TOPUPS="500,500" (credit for the LAST accounts, one value each; default none)
+ *
+ * ALSO THE SALDO AGOTADO MINIMUM (TC-88's rule, JEPYP-319 Q3) - added 2026-10-08. Every account here whose credit is
+ * below its month-end bill breaches, so it gets the "Saldo Agotado" email; its minimum must be owed + the standard
+ * minimum. owed = the WHOLE bill, net of its credit lines (JASEC_CYCLE_CHARGE, default 1,943.40 for a full first
+ * month), less the account's credit. Standard minimum (team's fix note, 2026-10-08): 2,915.10 (45 kWh) with no top-up
+ * in the month, 971.70 (15 kWh) after one - every JASEC_BREACH_TOPUPS account topped up in this cycle. Luis's Q3
+ * answer covers only the no-top-up case, so the 971.70 half is an assumption until he confirms it (TC-89).
+ * The team's fix is ccp creditLimitCheckOnWholeBill=true + a new engine build (tenant-deployment 106f50e); the value
+ * is recorded, not gated.
+ *
+ * SIDE EFFECT (intended, team 2026-10-08): the bill is judged as a whole, so an account whose credit covers the WHOLE
+ * bill is ACCEPTED even if one line on its own would go over (credit 1,950 vs 1,880.70 + 80.10 - 17.40 = 1,943.40).
+ * Give one account JASEC_BREACH_TOPUPS=1950 to check it: it must be billed, not refused, and get no Saldo Agotado. The emails are read from the monitored
+ * mailbox (what the customer receives): each account's contact is a plus-address of NOTIFY_EMAIL_TO. Soft assertions - the freeze verdict above stands on its own.
+ * Seed on the account's own billing day (BDOM = clock day) for a full first month, so the bill is the full charge.
+ *
+ * On prod the run is BLOCKED if any account that is not ours is due on the bill date (own-data rule; dev and preprod bill them too).
+ */
+import { test, expect } from '@playwright/test';
+import { PrepaidSeedHelper } from '../../../../helpers/prepaid-seed.helper';
+import { JobScheduleHelper } from '../../../../helpers/job-schedule.helper';
+import { DbHelper, hasDbConfig } from '../../../../helpers/db.helper';
+import { TestLogger } from '../../../../helpers/test-logger';
+import { uniqueRunSuffix, assertQaMeter } from '../../../../fixtures/create-prepaid-account.helper';
+import { blockedIf } from '../../../../helpers/blocked.helper';
+import { seedOnFreeBillDate } from '../../../../helpers/free-billing-day.helper';
+import { ensureDateFree } from '../../../../helpers/schedule-slot.helper';
+import { EmailHelper } from '../../../../helpers/email.helper';
+import { NotificationDbHelper } from '../../../../helpers/notification-db.helper';
+import { BREACH_MINIMUM_BASE, BREACH_MINIMUM_BASE_AFTER_TOPUP, expectedMinimum } from '../../../../helpers/notification-bands';
+import { amountAfter } from '../../../../test-data/notifications/billing-events.templates';
+import { MdrRemoteHelper } from '../../../../helpers/mdr-remote.helper';
+import { CLOCK_RESTORE } from '../../../../helpers/clock-policy';
+
+const RUN = String(process.env.JASEC_BREACH_RUN ?? '').trim().toLowerCase() === 'true';
+// dev, preprod and prod build 2 (Anh, 2026-10-05: fixes land on preprod first; prod build 2 has no UAT on it).
+// NEVER the final customer build - that build is check-only (production checklist 9b), no tests, no data.
+const ALLOWED_ENV = ['jasec-dev', 'jasec-oci-dev', 'jasec-preprod', 'jasec'].includes(process.env.TEST_ENV ?? '');
+const N = Number(process.env.JASEC_BREACH_N ?? 8);
+// Billing day: JASEC_BREACH_BDOM if set, else picked so the first bill date has no job schedule yet (2026-10-19, was a
+// fixed 20 that went BLOCKED whenever that date was taken). All N accounts share it.
+const BDOM_SET = Number(process.env.JASEC_BREACH_BDOM ?? 0);
+const MIN_BREACHES = 5; // the old pool size - fewer simultaneous breaches could never have frozen it
+const TOPUPS = (process.env.JASEC_BREACH_TOPUPS ?? '').split(',').map(x => x.trim()).filter(Boolean).map(Number);
+const CYCLE_CHARGE = Number(process.env.JASEC_CYCLE_CHARGE ?? 1943.40);
+// prod only since 2026-10-19 (Anh: dev and preprod are test environments - billing others due that day is fine).
+const OWN_DATA_ONLY = ['jasec'].includes(process.env.TEST_ENV ?? '');
+
+test('several credit-limit breaches in one BILL_CHECK run do not freeze it', { tag: ['@tc-88', '@tc-89'] }, async ({ request }) => {
+  if (blockedIf(!RUN, 'JASEC_BREACH_RUN is not "true" - this seeds accounts and moves the CCP clock')) return;
+  if (blockedIf(!ALLOWED_ENV, `dev / preprod / prod build 2 only (TEST_ENV=${process.env.TEST_ENV})`)) return;
+  if (blockedIf(!hasDbConfig(), 'needs DB access to read the run result')) return;
+  test.setTimeout(1_200_000);
+
+  const logger = new TestLogger('ts-11-credit-breach');
+  const seed = new PrepaidSeedHelper(logger);
+  const db = new DbHelper();
+  await db.connect();
+  const startClock = await seed.ccpDate();
+  try {
+    if (blockedIf(TOPUPS.some(x => !(x > 0)) || TOPUPS.length > N, `JASEC_BREACH_TOPUPS must be up to ${N} positive amounts`)) return;
+    // 1. N zero-balance accounts on a quiet billing day (no top-up = balance 0, credit limit 0); the last
+    //    TOPUPS.length accounts get that much credit first. Contact = a plus-address of the monitored mailbox.
+    //    The first account fixes the billing day (JASEC_BREACH_BDOM, or seeded until its bill date is free - 2026-10-19);
+    //    the other N-1 are seeded on the same day and clock, so they share its bill date.
+    const monitored = EmailHelper.recipient();
+    const tagOf: Record<string, string> = {};
+    const seedOne = async (day: number) => {
+      const s = uniqueRunSuffix();
+      const customerId = `E2EBRC-${s}`;
+      const { accountId } = await seed.seed({
+        meter: assertQaMeter(`M-QABRC-${s}`), customerId, name: `E2EBRC ${s}`, billingDom: day,
+        email: NotificationDbHelper.plusAddress(monitored, customerId),
+      });
+      tagOf[accountId] = NotificationDbHelper.plusTag(customerId);
+      return accountId;
+    };
+    let BDOM = BDOM_SET;
+    const ids: string[] = [];
+    if (BDOM) ids.push(await seedOne(BDOM));
+    else {
+      const got = await seedOnFreeBillDate(db, { read: () => seed.ccpDate(), set: d => seed.setCcpDate(d) }, seedOne);
+      if (blockedIf(!got, 'no usable bill date: the date is taken and cannot be reclaimed here (a PROCESSING run, a non-test tenant or JASEC_RECLAIM_SLOTS=false) - see the log')) return;
+      ids.push(got!.accountId); BDOM = got!.day;
+    }
+    while (ids.length < N) ids.push(await seedOne(BDOM));
+    const credit: Record<string, number> = {};
+    ids.forEach((id, i) => { credit[id] = TOPUPS[i - (N - TOPUPS.length)] ?? 0; });
+    for (const id of ids) if (credit[id] > 0) await seed.topUp(id, credit[id]);
+    console.log(`  seeded ${ids.length} accounts on BDOM ${BDOM} at ${await seed.ccpDate()}: ` +
+      ids.map(id => `${id}${credit[id] ? ` (credit ${credit[id]})` : ''}`).join(', '));
+
+    // 2. Their bill date, once each has a PENDING bill unit (the order completes asynchronously).
+    let dates: string[] = [];
+    for (let i = 0; i < 20; i++) {
+      const r = await db.query<{ d: string; n: number }>(
+        `SELECT (bp.nextaccountingdate + core_engine.get_future_cycle_date(bp.accountid))::date::text AS d, count(*)::int n
+           FROM core_engine.billing_profile bp
+           JOIN core_engine.bill_unit bu ON bu.id = bp.nextbillunitid AND bu.status = 'PENDING'
+          WHERE bp.accountid = ANY($1) GROUP BY 1`, [ids]);
+      const ready = r.reduce((a, x) => a + x.n, 0);
+      dates = r.map(x => x.d);
+      if (ready === ids.length) break;
+      await new Promise(res => setTimeout(res, 3_000));
+    }
+    if (blockedIf(dates.length !== 1, `seeded accounts are not all ready on one bill date (got ${JSON.stringify(dates)})`)) return;
+    const billDate = dates[0];
+
+    const others = await db.query<{ n: number }>(
+      `SELECT count(DISTINCT bp.accountid)::int n
+         FROM core_engine.billing_profile bp
+         JOIN core_engine.bill_unit bu ON bu.id = bp.nextbillunitid AND bu.status = 'PENDING'
+         JOIN core_engine.payment_profile pp ON pp.accountid = bp.accountid AND pp.paymentmethod = 'CHECK'
+        WHERE bp.accountid <> ALL($1)
+          AND bp.nextaccountingdate = $2::date - core_engine.get_future_cycle_date(bp.accountid)`, [ids, billDate]);
+    console.log(`  bill date ${billDate}; other accounts due that day: ${others[0]?.n ?? 0}`);
+    if (blockedIf(OWN_DATA_ONLY && (others[0]?.n ?? 0) > 0,
+      `${others[0]?.n} account(s) that are not ours are due on ${billDate} - on ${process.env.TEST_ENV} we bill our own ` +
+      `accounts only. Pick another JASEC_BREACH_BDOM.`)) return;
+    // createJobSchedule refuses a date that already holds a schedule (SCHEDULE_EXISTS). A used date is reclaimed on
+    // dev / preprod (schedule-slot.helper), as ts-10 and ts-12 do; it blocks (not a FAIL) only when that is not possible.
+    const slot = await ensureDateFree(db, billDate);
+    if (blockedIf(!slot.free, `${slot.reason} - set JASEC_BREACH_BDOM to another day`)) return;
+
+    // 3. Clock to the bill date (setCcpDate clears a stranded future-order pin first), BILL_CHECK alone.
+    await seed.setCcpDate(billDate);
+    const jobs = new JobScheduleHelper(request, logger);
+    const scheduleId = await jobs.createSchedule({ scheduleDate: billDate, frequency: 'SCHEDULED', jobs: [{ type: 'BILL_CHECK' }] });
+    const t0 = Date.now();
+    let processError = '';
+    // processJobSchedule returns at once with PROCESSING - it does NOT wait for the run. Poll the
+    // BILL_CHECK row until it is final, and only then read results or touch the clock: restoring the
+    // clock mid-run made the later accounts refuse with "Not yet time for Billing" (JS-100848, 2026-10-05).
+    await jobs.processSchedule(scheduleId, 600_000).catch(e => { processError = String((e as Error)?.message ?? e).slice(0, 200); });
+    let status = '';
+    for (let i = 0; i < 97 && !['COMPLETED', 'ERROR'].includes(status); i++) { // up to 8 min; read first - processSchedule usually already waited
+      if (i > 0) await new Promise(res => setTimeout(res, 5_000));
+      status = (await db.query<{ s: string }>(
+        `SELECT coalesce(status,'') s FROM core_engine.job_schedule_list WHERE id = $1 AND type = 'BILL_CHECK'`, [scheduleId]))[0]?.s ?? '';
+    }
+    const secs = Math.round((Date.now() - t0) / 1000);
+
+    // 4. What happened, from the database.
+    const row = (await db.query<{ jobid: string; status: string; ok: number; err: number }>(
+      `SELECT jobid, coalesce(status,'') status, coalesce(countsuccess,0)::int ok, coalesce(counterror,0)::int err
+         FROM core_engine.job_schedule_list WHERE id = $1 AND type = 'BILL_CHECK'`, [scheduleId]))[0];
+    const results = await db.query<{ accountid: string; r: string; reason: string }>(
+      `SELECT accountid, 'billed' r, '' reason FROM core_engine.jobs_success WHERE id = $1 AND accountid = ANY($2)
+       UNION ALL
+       SELECT accountid, 'refused', coalesce(reason,'') FROM core_engine.jobs_error WHERE id = $1 AND accountid = ANY($2)`,
+      [row?.jobid ?? '', ids]);
+    // A breach = a bill the credit cannot cover. Before the F8 fix (team, 2026-10-15) it was REFUSED with a credit-limit
+    // reason; since then it is BILLED INTO DEBT (then cut) and still sends Saldo Agotado with the TC-88 minimum (preprod
+    // ACT-100522/523: 4,858.50 = 1,943.40 + 2,915.10). Counting refusals only made this case BLOCKED (prod build 3, 10-16).
+    const intoDebt = (r: { accountid: string; r: string }) => r.r === 'billed' && (credit[r.accountid] ?? 0) < CYCLE_CHARGE;
+    const isBreach = (r: { accountid: string; r: string; reason: string }) => /credit limit/i.test(r.reason) || intoDebt(r);
+    const breaches = results.filter(isBreach).length;
+    // Accounts whose credit covers the whole bill must be BILLED now (the whole-bill side effect).
+    const covered = ids.filter(id => credit[id] >= CYCLE_CHARGE);
+    const missing = ids.filter(id => !results.some(r => r.accountid === id));
+    console.log(`  ${scheduleId} BILL_CHECK ${row?.status} in ${secs}s - success ${row?.ok}, error ${row?.err}` +
+      `${processError ? ` (process call: ${processError})` : ''}`);
+    console.log(`  our ${ids.length}: ${results.filter(r => r.r === 'billed').length} billed, ` +
+      `${results.filter(r => r.r === 'refused').length} refused, ${results.filter(intoDebt).length} billed into debt (${breaches} breaches), ${missing.length} with NO result`);
+
+    expect(['COMPLETED', 'ERROR'], `BILL_CHECK did not finish (status "${row?.status}") after ${secs}s - the freeze`)
+      .toContain(row?.status);
+    expect(missing, `seeded accounts with no billing result - their bills were never made (what the freeze looked like): ` +
+      missing.join(', ')).toEqual([]);
+    blockedIf(breaches < MIN_BREACHES,
+      `only ${breaches} account(s) breached their credit limit - at least ${MIN_BREACHES} at once are needed to exercise the freeze`);
+    console.log(`  PASS - ${breaches} simultaneous credit-limit breaches, run finished in ${secs}s, every account accounted for`);
+
+    for (const id of covered) {
+      const r = results.find(x => x.accountid === id);
+      console.log(`  whole-bill side effect: ${id} credit ${credit[id]} >= bill ${CYCLE_CHARGE} -> ${r?.r ?? 'no result'} ${r?.reason ?? ''}`);
+      expect.soft(r?.r, `${id}: credit ${credit[id]} covers the whole bill ${CYCLE_CHARGE}, so it must be BILLED, not refused ` +
+        `(team 2026-10-08: "if one line goes over the limit but the whole bill fits in the credit, the bill is now accepted")`).toBe('billed');
+    }
+
+    // 5. TC-88's rule on every breached account: the Saldo Agotado minimum = owed + 2,915.10.
+    const wholeBill = (await db.query<{ value: string }>(
+      `SELECT value FROM core_config.ccp_properties WHERE property = 'creditLimitCheckOnWholeBill'`))[0]?.value ?? '<absent>';
+    const breached = results.filter(isBreach).map(r => r.accountid);
+    const mail = new EmailHelper();
+    await mail.connect();
+    const found: Record<string, string> = {};
+    try {
+      const since = new Date(t0 - 60_000);
+      for (let i = 0; i < 30 && breached.some(id => !(id in found)); i++) {   // up to ~5 min for delivery
+        // (covered accounts are searched too, below, so a wrongly sent email is caught)
+        if (i) await new Promise(res => setTimeout(res, 10_000));
+        const got = await mail.searchEmails({ match: e => /Saldo Agotado/i.test(e.subject), since, limit: 200 });
+        for (const id of [...breached, ...covered]) {
+          const m = got.find(e => e.to.includes(tagOf[id]));
+          if (m) found[id] = amountAfter(m.text, 'Monto mínimo a recargar') || amountAfter(m.text, 'recarga mínima de') || '(none)';
+        }
+      }
+    } finally {
+      await mail.disconnect();
+    }
+    for (const id of covered) {
+      expect.soft(found[id], `${id}: its bill was covered, so no "Saldo Agotado" email may be sent`).toBeUndefined();
+    }
+    console.log(`  Saldo Agotado minimum (creditLimitCheckOnWholeBill=${wholeBill}, bill ${CYCLE_CHARGE}):`);
+    for (const id of breached) {
+      const owed = Math.round((CYCLE_CHARGE - credit[id]) * 100) / 100;
+      const base = credit[id] > 0 ? BREACH_MINIMUM_BASE_AFTER_TOPUP : BREACH_MINIMUM_BASE;   // topped up this cycle?
+      const want = expectedMinimum('CREDIT_LIMIT_BREACH', base, owed);
+      const got = found[id];
+      const n = got && got !== '(none)' ? Number(got.replace(/[^\d,]/g, '').replace(',', '.')) : NaN;
+      console.log(`    ${id} credit ${credit[id]}: email ${got ?? 'NOT DELIVERED'}, expected ${want.toFixed(2)}`);
+      test.info().annotations.push({ type: 'TC-88', description: `${id} credit ${credit[id]}: ${got ?? 'not delivered'} vs ${want.toFixed(2)} (creditLimitCheckOnWholeBill=${wholeBill})` });
+      expect.soft(got, `${id}: no "Saldo Agotado" email reached ${tagOf[id]} within ~5 min`).toBeTruthy();
+      if (!Number.isNaN(n)) {
+        expect.soft(n, `TC-88 rule - ${id} (credit ${credit[id]}): Saldo Agotado minimum ${got}, expected ` +
+          `${want.toFixed(2)} = owed ${owed.toFixed(2)} (whole bill net of credit lines, less credit) + ${base.toFixed(2)} ` +
+          `(${credit[id] > 0 ? '15 kWh after a top-up this month - team rule, Luis to confirm' : '45 kWh, no top-up - JEPYP-319 Q3'}). ` +
+          `creditLimitCheckOnWholeBill=${wholeBill}.`)
+          .toBeCloseTo(want, 2);
+      }
+    }
+
+    // 6. JEPYP-482 (team, 2026-10-30): a reading on an account ALREADY in debt from its month-end bill is billed into
+    //    further debt and sends "Saldo Agotado" again (minimum + the new debt) - before the fix it sent nothing. One
+    //    account without credit, while the clock is still on the bill date. Skipped (not blocked) without the MDR loader.
+    const probe = breached.find(id => !(credit[id] > 0));
+    const mdr = new MdrRemoteHelper(logger);
+    if (probe && await mdr.isAvailable()) {
+      await test.step(`JEPYP-482: a reading on ${probe}, in debt from its bill, is billed and sends Saldo Agotado again`, async () => {
+        const meter = (await db.query<{ m: string }>(
+          `SELECT sp.provisioningid AS m FROM core_engine.service_unit su
+             JOIN core_engine.service_provision sp ON sp.id = su.id AND sp.type = 'METER' WHERE su.accountid = $1`, [probe]))[0]?.m ?? '';
+        expect(meter, `${probe}: no metered service unit`).toMatch(/^M-QA/);
+        const debt = async () => Number((await db.query<{ a: string }>(
+          `SELECT bb.amount::text AS a FROM core_engine.balance_unit bu JOIN core_engine.balance_unit_balances bb ON bb.id = bu.id
+            WHERE bu.accountid = $1 AND bb.currencyid = 'CRC'`, [probe]))[0]?.a ?? NaN);
+        const mails = async () => db.query<{ id: string; text: string }>(
+          `SELECT id, regexp_replace(regexp_replace(content, '<[^>]+>', ' ', 'g'), '\\s+', ' ', 'g') AS text
+             FROM core_engine.email_notification WHERE accountid = $1 AND type = 'CREDIT_LIMIT_BREACH' ORDER BY id`, [probe]);
+        const billed = async (file: string) => (await db.query<{ status: string; ec: string; q: number }>(
+          `SELECT status, coalesce(errorcode,'') AS ec, quantity::float8 AS q FROM core_usage.file_detail_record_processed
+            WHERE provisioningid = $1 AND id = $2`, [meter, file]))[0];
+        const waitBilled = async (file: string) => {
+          for (let i = 0; i < 36; i++) { const r = await billed(file); if (r) return r; await new Promise(res => setTimeout(res, 5_000)); }
+          return undefined;
+        };
+        const fileOf = (out: string) => out.match(/MDR_PREPAGO_\d{8}-\d{6}\.csv/)?.[0] ?? '';
+        const owed0 = await debt();
+        expect(owed0, `${probe} must be in debt from its bill before the reading`).toBeGreaterThan(0);
+        const mails0 = (await mails()).length;
+        const base0 = await waitBilled(fileOf(await mdr.submitReading(meter, 0)));   // a fresh meter's first reading is its baseline
+        expect(base0, `${probe}: the 0 kWh baseline reading never processed`).toBeTruthy();
+        const r = await waitBilled(fileOf(await mdr.submitReading(meter, 10)));
+        console.log(`  JEPYP-482 ${probe}: reading 10 -> ${r ? `${r.status}/${r.ec} ${r.q} kWh` : 'not billed'}`);
+        expect.soft(r ? `${r.status}/${r.ec} ${r.q}` : 'not billed', 'the reading is billed (10 kWh) into further debt').toBe('PROCESSED/ 10');
+        let owed1 = owed0;
+        for (let i = 0; i < 20 && owed1 === owed0; i++) { await new Promise(res => setTimeout(res, 3_000)); owed1 = await debt(); }
+        expect.soft(owed1, `${probe}: the reading must add to the debt ${owed0}`).toBeGreaterThan(owed0);
+        let m: { id: string; text: string }[] = [];
+        for (let i = 0; i < 24 && m.length <= mails0; i++) { await new Promise(res => setTimeout(res, 5_000)); m = await mails(); }
+        expect.soft(m.length, `${probe}: one more "Saldo Agotado" for the reading (had ${mails0})`).toBe(mails0 + 1);
+        const text = (m[m.length - 1]?.text ?? '').replace(/&#8353;/g, '₡').replace(/&#?\w+;/g, ' ');
+        const got = text.match(/nimo a recargar[^0-9]{0,40}([0-9][0-9.]*,[0-9]{2})/i)?.[1];
+        const n = got ? Number(got.replace(/\./g, '').replace(',', '.')) : NaN;
+        const want = expectedMinimum('CREDIT_LIMIT_BREACH', BREACH_MINIMUM_BASE, owed1);
+        console.log(`  JEPYP-482 ${probe}: debt ${owed0} -> ${owed1}; Saldo Agotado ${got ?? 'none'}, expected ${want.toFixed(2)}`);
+        expect.soft(n, `${probe}: the new Saldo Agotado asks ${BREACH_MINIMUM_BASE} + the new debt ${owed1}`).toBeCloseTo(want, 2);
+      });
+    } else {
+      test.info().annotations.push({ type: 'JEPYP-482-skipped',
+        description: probe ? 'the MDR loader is not reachable - no reading sent' : 'no breached account without credit' });
+    }
+  } finally {
+    if (CLOCK_RESTORE) await seed.setCcpDate(startClock).catch(e => console.log(`  WARNING: clock not restored to ${startClock}: ${e}`));
+    await db.disconnect();
+  }
+});

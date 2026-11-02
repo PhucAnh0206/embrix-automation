@@ -1,0 +1,35 @@
+#,Client-reported issue,Validation result,What we checked,Steps to reproduce,Result,Evidence,Root cause,Fix approach,Estimated effort,Client information needed
+1,The provisioning order is not created with the order number sent in the request.,Not reproduced,New contract sent the way Coopeweb sends it; order read back.,"1. Coopeweb sends a new contract request with its own order number (e.g. QA-ANH-NS-R2-10251606-E107-O).
+2. In Embrix, open the new customer > Orders and open the order.
+3. Compare the order number with the one sent.
+Expected: the order has the same number Coopeweb sent.","New contract QA-ANH-NS-R2-10271519-E107: the order is created with the number sent (QA-ANH-NS-R2-10271519-E107-O), status CREATED.","eft-106/evidence/EFT107-I1.json
+eft-106/evidence/EFT107-I1-coopeweb-request.png
+eft-106/evidence/EFT107-I1-order.png",Not applicable (not reproduced on the current build),,,
+2,The initial subscription is still being created.,Not reproduced,Same new contract: subscriptions read right after creation.,"1. Coopeweb sends a new contract request.
+2. Before the contract is provisioned, open the customer > Subscription.
+Expected: no subscription yet; it is created only when the contract is provisioned.",Contract QA-ANH-NS-R2-10271519-E107: no subscription while its order is CREATED.,"eft-106/evidence/EFT107-I2.json
+eft-106/evidence/EFT107-I2-services.png",Not applicable (not reproduced on the current build),,,
+3,The account is created with initial services already active.,Not reproduced,Same new contract: services read right after creation.,"1. Coopeweb sends a new contract request.
+2. Before the contract is provisioned, open the customer > Services.
+Expected: no active service yet; services become active only when the contract is provisioned.",Contract QA-ANH-NS-R2-10271519-E107: no active service right after creation (0 service record(s)).,"eft-106/evidence/EFT107-I3.json
+eft-106/evidence/EFT107-I3-services.png",Not applicable (not reproduced on the current build),,,
+4,Provisioning fails because of an error when creating the order.,"Confirmed (test environment cause, now resolved)","Every NOKIA answer to this environment's provisioning orders, with both test ONTs.","1. Coopeweb sends a new contract request.
+2. Order Management > open the contract's provisioning order > enter the test ONT serial and model on the Internet service > create the order.
+3. Open the customer > Customer Activity and check the NOKIA steps in order: location lookup (GET_LOCATION_DATA), free position (GET_SPACE_DATA), configuration (CREATE_PROVISIONING_ORDER).
+4. Open the order and check its status.
+Expected: every NOKIA step answers successfully and the order ends COMPLETED.","Reproduced, in two stages. With the first test ONT (ALCLB3D9363D, shared with the CoopeG Sandbox), NOKIA refused the location lookup, so nothing else could be sent. With the second test ONT (ALCLB3D94488, 26 Oct, contracts QA-ANH-NS-R2-10261514-E108 and QA-ANH-NS-R2-10261545-E108), NOKIA finds the ONT and proposes position 8 (OLT-STC01, 1-1-1-1-8) as free, then refuses to configure the ONT there: ""Could not configure ISAM ONT on 1-1-1-1-8 ... Unable to create object"" (NOKIA rolled back). The order ends PROVISIONING_ERROR and Embrix reports the failure to Coopeweb. Resolved in the environment: since 31 Oct NOKIA configures the test ONT ALCLB3D94488 on OLT-STC01 (operative status ENABLED, test contract 798696), so the provisioning order is created and completed.","eft-106/evidence/EFT107-I4.json
+eft-106/evidence/EFT107-I4-nokia-location-lookup.png
+eft-106/evidence/EFT108-PROVISIONING.json
+eft-106/evidence/EFT108-PROVISIONING-create-provisioning-order.png
+eft-106/evidence/EFT108-PROVISIONING-get-location-data.png
+eft-106/evidence/EFT108-PROVISIONING-get-space-data.png
+eft-106/evidence/EFT108-PROVISIONING-services.png
+eft-106/evidence/EFT108-PROVISIONING-update-work-order.png","Integration / test data (NOKIA test system): this environment and the Demo Sandbox use the same NOKIA test system, which still held the test ONT's position, and the test environment lacked 7 OLT templates that production has. No Embrix code change.",Done in the environment: the position was freed in NOKIA and the OLT templates were copied from production (31 Oct). Keep one environment provisioning with a test ONT at a time.,No development.,"The client's account, order number, request and date / time of the test, to confirm it is the same case."
+5,Invoices are not being sent to NetSuite.,Not reproduced (and Expected behavior for contracts not registered in NetSuite),"New invoice on a contract registered in NetSuite (Bills > Manual Billing), then looked up in the NetSuite sandbox.","1. On a contract registered in NetSuite (e.g. 208886), go to Bills > Manual Billing and create an invoice.
+2. In Bills, check the invoice's Finance Sync Status and Finance Version (the NetSuite invoice number).
+3. Search that number in NetSuite.
+Expected: status SUCCESS, a NetSuite number (FA...), and the invoice found once in NetSuite with the same amount.
+Variation: on a contract not registered in NetSuite, the invoice shows ERROR with NetSuite's ""contract not found"" message (expected behavior).","Invoice 0280378 of 208886 (1,147.50, made in Bills > Manual Billing): NetSuite accepted it as FA586172; sent 1 time(s); NetSuite sandbox search FA586172: 1 record(s) — CLI72191 AGUSTIN ACEVEDO GUTIERREZ - None - - None - FA586172 01/01/2027 Abierta 0.00 0.00 1,147.50 Expected behavior for contracts not registered in NetSuite: NetSuite refuses their invoices (""contract not found"") and Embrix shows the message on the invoice.","eft-106/evidence/EFT107-I5.json
+eft-106/evidence/EFT107-I5-bills.png
+eft-106/evidence/EFT107-I5-netsuite-FA586172-search.png
+eft-106/evidence/EFT107-I5-netsuite-request.png",Not applicable (not reproduced on the current build),,,"The client's account, order number, request and date / time of the test, to confirm it is the same case."

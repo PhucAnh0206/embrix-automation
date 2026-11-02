@@ -1,0 +1,90 @@
+stages:
+  - setup
+  - smoke
+  - regression
+  - e2e
+
+variables:
+  EMBRIX_BASE_URL: $QA_BASE_URL
+  EMBRIX_USER: $QA_EMBRIX_USER
+  EMBRIX_PASSWORD: $QA_EMBRIX_PASSWORD
+  TEST_ENV: "qa"
+
+default:
+  image: mcr.microsoft.com/playwright:v1.49.0-jammy
+  before_script:
+    - npm ci
+  cache:
+    key: "$CI_COMMIT_REF_SLUG"
+    paths:
+      - node_modules/
+
+# ── Stage 1: Auth Setup ───────────────────────────────────────────────
+auth-setup:
+  stage: setup
+  script:
+    - npx playwright test --project=setup
+  artifacts:
+    paths:
+      - playwright/.auth/
+    expire_in: 1 hour
+  rules:
+    - when: always
+
+# ── Stage 2: Smoke Tests ─────────────────────────────────────────────
+smoke-tests:
+  stage: smoke
+  script:
+    - npx playwright test --project=smoke
+  artifacts:
+    when: always
+    paths:
+      - playwright-report/
+      - test-results/
+    reports:
+      junit: test-results/junit.xml
+    expire_in: 7 days
+  rules:
+    - when: always  # Run on every pipeline
+
+# ── Stage 3: Regression Tests ────────────────────────────────────────
+regression-tests:
+  stage: regression
+  needs:
+    - job: auth-setup
+      artifacts: true
+    - job: smoke-tests
+  script:
+    - npx playwright test --project=regression
+  artifacts:
+    when: always
+    paths:
+      - playwright-report/
+      - test-results/
+    reports:
+      junit: test-results/junit.xml
+    expire_in: 7 days
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == "develop"
+
+# ── Stage 4: E2E Scenarios ───────────────────────────────────────────
+e2e-tests:
+  stage: e2e
+  needs:
+    - job: auth-setup
+      artifacts: true
+    - job: regression-tests
+  script:
+    - npx playwright test --project=e2e
+  artifacts:
+    when: always
+    paths:
+      - playwright-report/
+      - test-results/
+    reports:
+      junit: test-results/junit.xml
+    expire_in: 14 days
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+    - if: $CI_COMMIT_BRANCH == "release"

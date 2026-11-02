@@ -1,0 +1,121 @@
+Business process,Status,What was tested,Cases and results,Open points,Evidence
+Provisioning,Blocked,"New contract provisioned through Order Management with this environment's own ONT; NOKIA, and MOTV / PortaOne when TV / phone are ordered, judged on their own answers (built, waiting for the ONT). Earlier attempts with the shared ONT: EFT-107 issue 4.",EFT108-PROVISIONING: Fail,"A free test ONT to repeat the full network cycle (connection, suspension, reconnection, disconnection) on a QA contract: NOKIA now configures the test ONT ALCLB3D94488, but it is in use on test contract 798696. Nothing to fix in Embrix.","eft-106/evidence/EFT108-PROVISIONING-create-provisioning-order.png
+eft-106/evidence/EFT108-PROVISIONING-get-location-data.png
+eft-106/evidence/EFT108-PROVISIONING-get-space-data.png
+eft-106/evidence/EFT108-PROVISIONING-services.png
+eft-106/evidence/EFT108-PROVISIONING-update-work-order.png"
+Billing,Pass,"Monthly and manual invoices: amounts, taxes and exemptions, Hacienda stamp, departments and dates in NetSuite.","REG-001 Monthly billing works end to end: Pass
+REG-003 Hacienda stamps invoices: Pass
+INV-001 A monthly invoice reaches NetSuite: Pass
+INV-002 The first invoice of a new Coopeweb customer reaches NetSuite: Pass
+INV-003 A manual invoice reaches NetSuite with the right details: Pass
+INV-010 Invoice month and year across a year change: Pass
+MAP-001 A standard customer goes to the Telecom department: Pass
+MAP-002 A FONATEL customer goes to the FONATEL department: Pass
+MAP-003 A PHC customer goes to the PHC department, including a contract with both PHC bundles on one ONT: Pass
+MAP-004 Standard taxes on an invoice without exemption: Pass
+MAP-008 Partially exempt customers get the reduced tax code: Pass
+MAP-009 Fully exempt customers get the right tax code: Pass
+MAP-012 An exemption applies only to the exempt service: Pass
+MAP-013 A manual invoice line without a chosen service type gets the right exemption: Pass",,"eft-106/evidence/EFT108-BILLING-INV-001-0279698-bills.png
+eft-106/evidence/EFT108-BILLING-INV-001-0279698-netsuite-request.png
+eft-106/evidence/EFT108-BILLING-INV-002-0279604-bills.png
+eft-106/evidence/EFT108-BILLING-INV-002-0279604-netsuite-request.png
+eft-106/evidence/EFT108-BILLING-INV-003-0279716-bills.png
+eft-106/evidence/EFT108-BILLING-INV-003-0279716-netsuite-request.png
+eft-106/evidence/EFT108-BILLING-INV-010-0279602-bills.png
+eft-106/evidence/EFT108-BILLING-INV-010-0279602-netsuite-request.png
+eft-106/evidence/EFT108-BILLING-INV-010-0279603-bills.png
+eft-106/evidence/EFT108-BILLING-INV-010-0279603-netsuite-request.png
+eft-106/evidence/EFT108-BILLING-MAP-002-0279585-bills.png
+eft-106/evidence/EFT108-BILLING-MAP-002-0279585-netsuite-request.png
+eft-106/evidence/EFT108-BILLING-MAP-003-0279605-bills.png
+eft-106/evidence/EFT108-BILLING-MAP-003-0279605-netsuite-request.png
+eft-106/evidence/EFT108-BILLING-MAP-008-0279745-bills.png
+eft-106/evidence/EFT108-BILLING-MAP-008-0279745-netsuite-request.png
+eft-106/evidence/EFT108-BILLING-MAP-008-0279748-bills.png
+eft-106/evidence/EFT108-BILLING-MAP-008-0279748-netsuite-request.png
+eft-106/evidence/EFT108-BILLING-MAP-009-0279749-bills.png
+eft-106/evidence/EFT108-BILLING-MAP-009-0279749-netsuite-request.png
+eft-106/evidence/EFT108-BILLING-MAP-009-0279750-bills.png
+eft-106/evidence/EFT108-BILLING-MAP-009-0279750-netsuite-request.png
+eft-106/evidence/EFT108-BILLING-MAP-012-0279742-bills.png
+eft-106/evidence/EFT108-BILLING-MAP-012-0279742-netsuite-request.png
+eft-106/evidence/EFT108-BILLING-MAP-013-0279753-bills.png
+eft-106/evidence/EFT108-BILLING-MAP-013-0279753-netsuite-request.png
+eft-106/evidence/EFT108-BILLING-REG-001-0279616-bills.png
+eft-106/evidence/EFT108-BILLING-REG-001-0279616-netsuite-request.png
+eft-106/evidence/EFT108-BILLING-REG-003-0279580-bills.png
+eft-106/evidence/EFT108-BILLING-REG-003-0279580-netsuite-request.png"
+Disconnection and reconnection,Partly done,"Collection reminder, suspension on the 21st, notice to Coopeweb, payment and automatic reconnection; manual suspension and resume.","REG-002 Suspension and reconnection for unpaid invoices: Pass
+SUS-001 A manual suspension and resume in the same month bill only the days of service: Pass
+EFT107-I4: Fail","The suspension and reconnection orders to the network (NOKIA) are not proven: A free test ONT to repeat the full network cycle (connection, suspension, reconnection, disconnection) on a QA contract: NOKIA now configures the test ONT ALCLB3D94488, but it is in use on test contract 798696. Nothing to fix in Embrix.","eft-106/evidence/EFT108-DISCONNECTION-REG-002-0279608-bills.png
+eft-106/evidence/EFT108-DISCONNECTION-REG-002-0279608-netsuite-request.png
+eft-106/evidence/EFT108-DISCONNECTION-SUS-001-0279607-bills.png
+eft-106/evidence/EFT108-DISCONNECTION-SUS-001-0279607-netsuite-request.png
+eft-106/evidence/EFT107-I4-nokia-location-lookup.png"
+Credit notes,Pass,"Whole-invoice and line credits, with and without tax, intercompany, bulk upload, debit notes, credits from Coopeweb, undo of an invoice.","CRN-001 A credit note on a whole invoice reaches NetSuite: Pass
+CRN-002 A credit note on one invoice line has the right amounts: Pass
+CRN-003 An intercompany invoice gets its automatic credit note with a valid tax code: Pass
+CRN-004 Bulk credit notes reach NetSuite: Pass
+CRN-005 Debit notes are not sent to NetSuite: Pass
+CRN-006 A credit note without tax is created, stamped and sent: Pass
+CRN-007 A credit note on an invoice not yet in NetSuite waits for that invoice: Pass
+CRN-008 Every credit note has a viewable PDF: Pass
+CRN-011 A credit on a reduced-rate line keeps the invoice's tax code: Pass
+ENG-006-01 A credit note goes to the right NetSuite customer: Pass
+ADJ-001 A credit requested by Coopeweb reaches NetSuite: Pass
+ADJ-002 Coopeweb can list invoice items and credit one item: Pass
+INV-018 An invoice already in NetSuite is voided with a credit note for its full amount: Pass",,"eft-106/evidence/EFT108-CREDIT-NOTES-ADJ-001-CR-105180-credit-notes.png
+eft-106/evidence/EFT108-CREDIT-NOTES-ADJ-001-CR-105180-netsuite-request.png
+eft-106/evidence/EFT108-CREDIT-NOTES-ADJ-002-CR-105181-credit-notes.png
+eft-106/evidence/EFT108-CREDIT-NOTES-ADJ-002-CR-105181-netsuite-request.png
+eft-106/evidence/EFT108-CREDIT-NOTES-CRN-001-CR-105176-credit-notes.png
+eft-106/evidence/EFT108-CREDIT-NOTES-CRN-001-CR-105176-netsuite-request.png
+eft-106/evidence/EFT108-CREDIT-NOTES-CRN-002-CR-105177-credit-notes.png
+eft-106/evidence/EFT108-CREDIT-NOTES-CRN-002-CR-105177-netsuite-request.png
+eft-106/evidence/EFT108-CREDIT-NOTES-CRN-003-0279754-bills.png
+eft-106/evidence/EFT108-CREDIT-NOTES-CRN-003-0279754-netsuite-request.png
+eft-106/evidence/EFT108-CREDIT-NOTES-CRN-003-CR-105189-credit-notes.png
+eft-106/evidence/EFT108-CREDIT-NOTES-CRN-003-CR-105189-netsuite-request.png
+eft-106/evidence/EFT108-CREDIT-NOTES-CRN-004-CR-105192-credit-notes.png
+eft-106/evidence/EFT108-CREDIT-NOTES-CRN-004-CR-105192-netsuite-request.png
+eft-106/evidence/EFT108-CREDIT-NOTES-CRN-006-CR-105178-credit-notes.png
+eft-106/evidence/EFT108-CREDIT-NOTES-CRN-006-CR-105178-netsuite-request.png
+eft-106/evidence/EFT108-CREDIT-NOTES-CRN-006-CR-105179-credit-notes.png
+eft-106/evidence/EFT108-CREDIT-NOTES-CRN-006-CR-105179-netsuite-request.png
+eft-106/evidence/EFT108-CREDIT-NOTES-CRN-007-CR-105184-credit-notes.png
+eft-106/evidence/EFT108-CREDIT-NOTES-CRN-008-CR-105188-credit-notes.png
+eft-106/evidence/EFT108-CREDIT-NOTES-CRN-008-CR-105188-netsuite-request.png
+eft-106/evidence/EFT108-CREDIT-NOTES-CRN-011-0279755-bills.png
+eft-106/evidence/EFT108-CREDIT-NOTES-CRN-011-0279755-netsuite-request.png
+eft-106/evidence/EFT108-CREDIT-NOTES-CRN-011-CR-105190-credit-notes.png
+eft-106/evidence/EFT108-CREDIT-NOTES-CRN-011-CR-105190-netsuite-request.png
+eft-106/evidence/EFT108-CREDIT-NOTES-INV-018-0279756-bills.png
+eft-106/evidence/EFT108-CREDIT-NOTES-INV-018-0279756-netsuite-request.png
+eft-106/evidence/EFT108-CREDIT-NOTES-INV-018-CR-105191-credit-notes.png
+eft-106/evidence/EFT108-CREDIT-NOTES-INV-018-CR-105191-netsuite-request.png"
+Contract creation,Pass,"New contracts from Coopeweb: order number kept, no subscription or active service before provisioning, payment term NET 18.","CRM-001 A new customer created by Coopeweb is set up in Embrix: Pass
+CRM-003 Customer changes made in Embrix are not sent to NetSuite: Pass
+CRM-004 New Coopeweb customers get the NET 18 payment term: Pass
+EFT107-I1: Pass
+EFT107-I2: Pass
+EFT107-I3: Pass",,"eft-106/evidence/EFT108-CONTRACT-CREATION-CRM-004-0279599-bills.png
+eft-106/evidence/EFT108-CONTRACT-CREATION-CRM-004-0279599-netsuite-request.png
+eft-106/evidence/EFT107-I1-coopeweb-request.png
+eft-106/evidence/EFT107-I1-order.png
+eft-106/evidence/EFT107-I2-services.png
+eft-106/evidence/EFT107-I3-services.png"
+Plan changes,Pass,TV added to an Internet plan in the middle of the month.,CHG-001 A service added in the middle of the month is billed from the day it is added: Pass,,"eft-106/evidence/EFT108-PLAN-CHANGES-CHG-001-0279616-bills.png
+eft-106/evidence/EFT108-PLAN-CHANGES-CHG-001-0279616-netsuite-request.png"
+Terminations,Pass,Cancellation in the middle of the month and cancellation notice from collections.,"CAN-001 A cancellation in the middle of the month bills the days used before it: Pass
+CAN-002 Cancellation notice from collections: Pass",,
+Relocations,Out of scope,Not tested: out of scope.,,"Out of scope for the NetSuite environment (confirmed 28 Oct), as in the CoopeG Sandbox release of 26 October.",
+Payments,Partly done,"Full payment from NetSuite, due-date extension, grace period; partial / over / group payments and arrangements.","PAY-001 A payment from NetSuite closes the invoice in Embrix: Pass
+AR-001 NetSuite can extend an invoice's due date: Pass
+AR-002 A due date cannot be extended for an invoice in collection: Pass
+AR-006 NetSuite can grant a grace period on an invoice in collection: Pass
+PAY-002..005 Partial payments, overpayments, group payments and payment arrangements: Need confirmation",PAY-002..005: waiting for Coope's confirmation on the last two points.,"eft-106/evidence/EFT108-PAYMENTS-AR-001-0279599-bills.png
+eft-106/evidence/EFT108-PAYMENTS-AR-001-0279599-netsuite-request.png
+eft-106/evidence/EFT108-PAYMENTS-PAY-001-0279599-bills.png
+eft-106/evidence/EFT108-PAYMENTS-PAY-001-0279599-netsuite-request.png"

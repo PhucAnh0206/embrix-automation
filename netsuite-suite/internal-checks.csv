@@ -1,0 +1,64 @@
+Case ID,Bug Title,Module / Feature,Test data,Test Steps,Expected Result(s),Actual Result(s),Status,Note,Owner,Jira story
+ENV-001,Check the NetSuite database upgrade was applied,Setup > Database upgrade,Upgrade history table (flyway_schema_history),"1. (DB, read-only) List the latest database upgrades.
+2. Look for upgrades 10.2 and 10.3.","- The NetSuite database changes are in place: sync status, error message, NetSuite reference and number on invoices and credit notes
+- No failed database upgrade",Database of this environment: the NetSuite fields on invoices and credit notes and the new NetSuite queue are in place; no failed database upgrade,Pass,EFT-88,QA,EFT-88 (environment)
+ENV-002,"Check the NetSuite accounting settings (departments, classes, tax codes)",Setup > NetSuite settings,NetSuite mapping settings (READONLY-CHECKS.sql Q2 / Q3),"1. (DB, read-only) Read the department, class and tax-code settings (Q2).
+2. Read the invoice type and location settings (Q3).
+3. Compare with what Coope's accountants specified (oracle-01).","- Department: DEFAULT 15, PHC 135, FONATEL 137
+- Class: DEFAULT 104, FONATEL 9, PHC 10
+- Tax codes 5 to 12 by exemption %
+- Invoice type 12, location 131; no duplicates",Departments DEFAULT 15 / FONATEL 137 / PHC 135; classes 104 / 9 / 10; tax codes 5 to 12; NetSuite customer from the contract's Party Id; invoice type 12,Pass,ISP-231,QA,EFT-88 (environment)
+ENV-003,Check all integration services start cleanly after the upgrade,Setup > Services,"Main app, Coopeweb gateway (crm-gateway), Finance gateway","1. Open the app and call one read API on each service.
+2. (Dev) Restart the services and check the start-up logs.","- All services respond
+- No database errors in the start-up logs","Dev check after the 24 Oct redeploy: every service started clean (core services, crm-gateway, provision-gateway redeployed with a clean start and no database error; finance, payment, tax-engine, tax-gateway started 23 Oct with no error line). QA part: the app, GraphQL and the Coopeweb gateway answer",Pass,Checked by Dev,Dev,EFT-88 (environment)
+AUTH-001,Check Embrix can sign in to NetSuite,Connection to NetSuite > Sign-in,Any invoice sent to NetSuite,"1. Customer Activity > open the NetSuite call (CREATE_INVOICE) of an invoice.
+2. Read NetSuite's answer.","- NetSuite answers with a business result (accepted, or a business error such as ""missing customer""), never a sign-in error",NetSuite answered 200: invoice 0279580 → 1087495 / FA585964,Pass,ISP-232,QA,ISP-202 / ISP-232
+MAP-005,Check an exemption % with no NetSuite tax code is stopped in Embrix,Taxes & exemptions > Unmapped %,Test customer with an exemption such as 50%,"1. Set the exemption (e.g. 50%) on a test customer.
+2. Invoice the customer.","- Embrix shows an error naming the invoice, line, rate and exemption; nothing sent to NetSuite","Invoice 0279594 with a 50% exemption is not sent to NetSuite; the Invoicing report shows the reason: ""no NetSuite tax code for IVA 650.00 on 10000.00 (rate 6.50%, 6.50 of the 13 IVA points exempted; customer exemption 50.00%)""",Pass,,QA,ISP-217
+MAP-011,Check an exemption stored with extra decimals still maps correctly,Taxes & exemptions > Decimals,Test customer with exemption 84.615385%,"1. Set the exemption to 84.615385.
+2. Create a manual invoice.
+3. Read the Internet tax code.",- Tax code 10 (84.615385 is treated as 84.62); never 0,Exemption stored as 84.615385% → tax code 10 (invoice 0279591); never 0,Pass,EFT-92,QA,ISP-217
+ENG-007-01,Check a successful invoice keeps its NetSuite reference after later actions,Invoices to NetSuite > Status kept,"Standard test customer 208886 (NetSuite customer 74003): manual invoice, Internet 10,000","1. Create the manual invoice; wait for NetSuite.
+2. Bills: read Finance Sync Status / Ref Id / Version.
+3. Refresh, e-mail the invoice, regenerate it, then credit it.
+4. Re-read the three fields after each step.","- SUCCESS with the NetSuite id and invoice number
+- The values do not change after any later action","Invoice 0279580: SUCCESS, ref 1087495 / FA585964 kept after refresh and after Email invoice",Pass,Jeremy fix (ENG-007),QA,ISP-202
+ENG-007-02,Check a rejection keeps NetSuite's message over time,Invoices to NetSuite > Error kept,New test customer without a NetSuite customer number (Coopeweb API),"1. Create the customer without a NetSuite customer number.
+2. Create a manual invoice for it.
+3. Bills: read the status and error.
+4. Read again 30 seconds later.","- ERROR with NetSuite's message word for word
+- No NetSuite id; invoice ACTIVE; the message is still there later","Invoice 0279606 (contract without Party Id): sync ERROR with NetSuite's message word for word (""Elementos requeridos faltantes en la solicitud: entity""), no NetSuite id, invoice ACTIVE; the message is still there on a later read",Pass,ENG-007,QA,ISP-202
+ENG-007-03,Check a re-sent invoice replaces the old error with the new result,Invoices to NetSuite > Re-send,"The rejected invoice from ENG-007-02, after setting NetSuite customer 57936","1. Set the NetSuite customer number 57936 on the customer.
+2. Bills > Action > SYNC_INVOICE.
+3. Read status, error and what was sent.","- Re-sent with the new customer number
+- The old error is replaced by NetSuite's new answer (on SUCCESS: error cleared, NetSuite id saved)","Re-send of invoice 0279598: ""queued for NetSuite"", sent with the corrected customer; the stored result is replaced by NetSuite's new answer (test contracts are unknown to NetSuite, so their invoices are answered ""contract not found"")",Pass,Jeremy fix (ENG-007). SUCCESS path needs an ERROR invoice on a contract NetSuite knows,QA,ISP-202
+ENG-007-04,Check a logging failure does not lose the NetSuite result,Invoices to NetSuite > Status kept,Logging failure (Dev simulates it),"1. (Dev) Make the activity log fail.
+2. Send one invoice that succeeds and one that fails.
+3. QA reads both invoices in Bills.","- Status, NetSuite id and error are saved even without a log entry
+- The logging failure is reported in the server logs","Dev: covered by the code tests (an activity row that cannot be written keeps the status, NetSuite id and error). Cannot be caused from the screen",Pass,Checked by Dev (code tests),Dev + QA,ISP-202
+ENG-007-05,Check a failed re-send cannot overwrite a successful invoice,Invoices to NetSuite > Status kept,A successful invoice: 0279698 on 798166 (FA586029),"1. (Dev) Force a re-send of the successful invoice.
+2. Read status, NetSuite id and error.",- Still SUCCESS with the same NetSuite id; no second NetSuite record,"Dev forced a re-send of 0279698 (798166, FA586029): refused with ""Already in NetSuite: FA586029"", nothing sent. Embrix: still SUCCESS, NetSuite number FA586029, one CREATE_INVOICE call only. NetSuite sandbox: one invoice FA586029 (customer CLI104915, 01/11/2027, open, 530,083.63)",Pass,Pairs with INV-005. The UI does not offer SYNC_INVOICE on a SUCCESS invoice,Dev,ISP-202
+ENG-006-02,Check two credit notes in a row each keep their own customer,Credit notes > Customer,"208886 (74003), then Coope contract 244822 (65730), both with invoices already in NetSuite","1. Credit an invoice on 208886.
+2. Straight after, credit an invoice on the 57936 customer.
+3. Read the customer in both NetSuite calls.","- First ""74003"", second ""57936""; nothing carried over","208886: CR-105186 sent with customer ""74003"" (NC1012); straight after, 244822: CR-105187 sent with customer ""65730"" (NC1013). Nothing carried over.",Pass,Jeremy fix (ENG-006),QA,ISP-204
+ENG-006-03,Check a credit note for a customer without a NetSuite number,Credit notes > Missing customer,New test customer without a NetSuite customer number,"1. Credit 100 with tax on one of its invoices.
+2. Read what was sent, the status and the error.","- Credit note kept in Embrix with NetSuite's error (no customer sent)
+- Its NetSuite reference and sync status visible in the Credit Notes report (Coope, see RPT-005)",Credit CR-105184 on a contract whose invoice never reached NetSuite is kept in Embrix as PENDING; the Credit Notes report shows the NetSuite status,Pass,Report columns tracked in RPT-005,QA,ISP-204
+AR-003,Check an unknown invoice is rejected,Due dates (NetSuite API) > Unknown invoice,"Invoice id ""QA-DOES-NOT-EXIST""",1. NetSuite API: extendInvoiceDueDate for the unknown invoice.,- Rejected with a clear error; nothing changes,Unknown invoice refused: INVOICE_NOT_EXISTS,Pass,ISP-203,QA,ISP-203
+AR-004,Check a past or badly formatted due date is rejected,Due dates (NetSuite API) > Bad dates,"An open test invoice (e.g. 414398 on 208886); due date 2020-01-01; due date ""31/12/2027""","1. NetSuite API: extendInvoiceDueDate with each bad date.
+2. Check the invoice's due date after each.","- Both rejected; the due date does not change
+- The error message is a business message (no database error text)","Past date 2020-01-01 refused: INCORRECT_INPUT_PARAMETERS ""dueDate 2020-01-01 is before the current date""; malformed date refused as a business error; due date unchanged",Pass,ISP-203,QA,ISP-203
+RPT-003,Check the report speed-up does not change report results,Reports > Performance,-,1. (Dev) Compare report results with and without the 10.2 indexes.,- Same rows and totals,"Dev check: Billed Transaction Summary for the bills of Sep-Nov 2027 gives the same 547 rows and total 48,873,114.58 with and without the speed-up indexes (same checksum of every row). The six indexes were missing on this Sandbox and were added, as in production",Pass,Checked by Dev,Dev,Not in ISP-201
+RET-003,Retest: invoices carry the NetSuite customer and a numeric invoice type,Client ticket retests,Standard test customer 208886 (NetSuite customer 74003); a new Coopeweb customer with NetSuite customer 57936,"1. Create a manual invoice on 208886.
+2. Read the customer and invoice type sent to NetSuite.",- Customer = Party Id; invoice type 12 (a number),"Invoice 0279580 sent with customer ""74003"" and invoice type 12; NetSuite accepted it (FA585964)",Pass,ISP-292,QA,EFT defect retest
+EDGE-001,An invoice already in NetSuite cannot be sent again,Invoices to NetSuite > Resend,Invoice 0279768 of 208886 (FA586064),"1. Bills > select the invoice > Action list.
+2. Send the same resend request the screen uses, directly to the server.
+3. Search the invoice number in the NetSuite sandbox.","- The screen does not offer SYNC_INVOICE
+- The server refuses the resend
+- NetSuite holds the invoice once","The screen offers EMAIL_INVOICE, EXTEND_DUE_DATE and REGENERATE_INVOICE only; the server answers ""Already in NetSuite: FA586064"" and sends nothing; FA586064 is found once in the NetSuite sandbox.",Pass,tests/dev/ns-edge-cases.spec.ts (EDGE-RESEND),Anh,
+EDGE-002,"Credits beyond the open amount, on closed invoices, and two credits on one invoice",Credit notes > Limits,"208886: 0279769 (1,147.50, 573.50 due), 0279770 (paid), 0279768 (in NetSuite); clock 2027-11-04","1. Apply Adjustment: credit 800 on 0279769, then 2,000 on 0279769.
+2. Credit 100 on 0279770.
+3. Two credits (50, 60) on 0279768.","- Credits are limited to what is open; closed invoices are refused with a clear message
+- Each credit note reaches NetSuite once","800 on 573.50 due: accepted as ""Apply Adjustment successfully!"" but credited only 573.50 (CR-105193, NC1019) with no message that it was reduced. 2,000 on the then closed invoice and 100 on the paid invoice: refused, ""Credit adjustment on closed invoice not allowed"". Two credits on 0279768: CR-105194 57.37 (NC1020) and CR-105195 68.85 (NC1021), both in NetSuite (amounts entered before tax).",Pass,Suggestion: tell the agent when a credit is reduced to the open amount. tests/dev/ns-edge-cases.spec.ts (EDGE-CREDIT),Anh,
+EDGE-003,Invoices NetSuite refused show the reason and can be sent again,Invoices to NetSuite > Refusals,"Refused invoices other than ""contract not found""",1. Bills > the refused invoice: Finance Error Message and Action list.,"- NetSuite's message is shown on the invoice
+- SYNC_INVOICE is offered to send it again","Shown on each: e.g. missing customer (entity), invalid field value, no open fiscal period for the invoice date, no item line, and the Embrix check ""no NetSuite tax code for IVA 650.00""; SYNC_INVOICE is offered on all of them.",Pass,tests/dev/ns-edge-cases.spec.ts (EDGE-ERRORS),Anh,

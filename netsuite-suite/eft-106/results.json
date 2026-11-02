@@ -1,0 +1,127 @@
+{
+  "EFT107-I1": {
+    "verdict": "Pass",
+    "result": "New contract QA-ANH-NS-R2-10271519-E107: the order is created with the number sent (QA-ANH-NS-R2-10271519-E107-O), status CREATED.",
+    "at": "2026-10-27T15:20:26.359Z"
+  },
+  "EFT107-I2": {
+    "verdict": "Pass",
+    "result": "Contract QA-ANH-NS-R2-10271519-E107: no subscription while its order is CREATED.",
+    "at": "2026-10-27T15:20:52.339Z"
+  },
+  "EFT107-I3": {
+    "verdict": "Pass",
+    "result": "Contract QA-ANH-NS-R2-10271519-E107: no active service right after creation (0 service record(s)).",
+    "at": "2026-10-27T15:21:15.272Z"
+  },
+  "EFT107-I4": {
+    "verdict": "Fail",
+    "result": "Reproduced: NOKIA answered with an error to 13 of 15 location lookups for the test ONT(s) ALCLB3D9363D, ALCLB3D94488; without the location the next steps are not sent (84 of 92 NOKIA calls failed). Development team: this environment reaches the same NOKIA with the same request as the CoopeG Sandbox; the error is NOKIA's answer for an ONT the Sandbox also uses, not an Embrix defect. Errors: com.alcatel.ossgw.adapter.mtosi.translator.axis.MtosiExcepti | Operation: alu.v1:query - Processor: RetrieveAxsData - | ONT location missing in Embrix (oltName, oltPath) for CREATE | ONT location missing in Embrix (oltName, oltPath, spaceId) f | ONT location missing in Embrix (oltName, oltPath, spaceId) f | connect timed out | APC configure operation failedCaused by: Could not configure | ONT location missing in Embrix (oltName) for CREATE_SUSPEND_.",
+    "at": "2026-10-27T15:21:39.990Z"
+  },
+  "EFT107-I5": {
+    "verdict": "Pass",
+    "result": "Invoice 0280378 of 208886 (1,147.50, made in Bills > Manual Billing): NetSuite accepted it as FA586172; sent 1 time(s); NetSuite sandbox search FA586172: 1 record(s) — CLI72191 AGUSTIN ACEVEDO GUTIERREZ - None - - None - FA586172 01/01/2027 Abierta 0.00 0.00 1,147.50",
+    "at": "2026-10-27T15:23:53.399Z"
+  },
+  "EFT109-NETSUITE": {
+    "verdict": "Pass",
+    "result": "CREATE_INVOICE 129/692, CREATE_CREDIT_NOTES 76/80, EXTEND_INVOICE_DUE_DATE 3/11 answered since the environment was set up; 436 refusal(s) are \"contract not found\" for test contracts (expected); 8 due-date request(s) refused by Embrix's checks (validation cases); 131 other NetSuite error(s) on test data: Elementos requeridos faltantes en la línea 0 de la sublista applys: refNum | Elementos requeridos faltantes en la solicitud: entity | You have entered an Invalid Field Value 115567 for the following field: custbody_cpgt_contrato | You have entered an Invalid Field Value 243820 for the following field: entity | You have entered an Invalid Field Value 30112 for the following field: custbody_cpgt_contrato | You have entered an Invalid Field Value 58375 for the following field: custbody_cpgt_contrato | You have entered an Invalid Field Value 7765 for the following field: custbody_cpgt_contrato | You have entered an Invalid Field Value 128749 for the following field: custbody_cpgt_contrato | You have entered an Invalid Field Value 150381 for the following field: entity | Insert Transaction Failure: No valid, open, tax period for date - 01/01/2028. Please visit Setup > Manage Tax  | Insert Transaction Failure: No valid, open, tax period for date - 01/02/2028. Please visit Setup > Manage Tax  | You have entered an Invalid Field Value 999999999 for the following field: entity | Insert Transaction Failure: No valid, open, tax period for date - 01/10/2029. Please visit Setup > Manage Tax  | Insert Transaction Failure: No valid, open, tax period for date - 01/01/2030. Please visit Setup > Manage Tax  | You have entered an Invalid Field Value 164599 for the following field: custbody_cpgt_contrato | Finance gateway: Read timed out. Latest invoice FA586485 and credit note NC1094 found once in the NetSuite sandbox.",
+    "at": "2026-10-31T11:41:34.812Z"
+  },
+  "EFT109-COOPEWEB": {
+    "verdict": "Fail",
+    "result": "Inbound: invoice inquiry with PDF and item list answered for 208886 (0280446); calls received since set-up: EMBRIX_ORDER 88, PROCESS_ACCOUNT_AND_ORDER 63, APPLY_PAYMENT 30, PROCESS_ADJUSTMENT 14, EXTEND_INVOICE_DUE_DATE 11, EXTEND_GRACE_PERIOD 5, PAYMENT_NOTIFICATION 2. Outbound to Coopeweb answered: PROCESS_ACCOUNT_AND_ORDER 63/63, APPLY_PAYMENT 29/30, EXTEND_GRACE_PERIOD 3/5, SEND_SMS_NOTIFICATION 556/616 (556 simulated by test mode), PAYMENT_NOTIFICATION 2/2, PROCESS_ADJUSTMENT 14/14, GET_EXCHANGE_RATE 36/36, SEND_ACCOUNTING_EXTRACT 0/2, CREATE_MANUAL_SUSPEND_ORDER 1/3, UPDATE_PROVISIONING_REQUEST 9/12, UPDATE_WORK_ORDER 33/47, NOTIFY_CANCELLATION_TO_CRM 33/33 (33 simulated by test mode), CREATE_UTILITIES_ORDER_TRIGGER 2/2, GET_AUTHORIZATION_TOKEN 4/4, UPDATE_STB_PROVISIONING_STATUS 4/4, UPDATE_STATUS 3/3, CREATE_STB_ORDER_SERVICE 1/1, UPDATE_PROVISIONING_IDENTIFIER 1/2. Test mode is on (as on the CoopeG Sandbox): cancellation notices and SMS are issued but not delivered.",
+    "at": "2026-10-31T11:42:16.748Z"
+  },
+  "EFT109-NOKIA": {
+    "verdict": "Fail",
+    "result": "116 of 165 NOKIA calls failed (CREATE_SUSPEND_RECONNECT_ORDER 5/74, GET_LOCATION_DATA 10/30, GET_ACCOUNT_PROVISIONING_DATA 0/4, GET_PROVISIONING_TEMPLATE 0/3, CREATE_DEPROVISIONING_ORDER 5/22, GET_SPACE_DATA 10/10, CREATE_PROVISIONING_ORDER 5/8, UPDATE_OPERATIVE_STATUS 9/9, UPDATE_OPTICAL_DATA 5/5). Errors: com.alcatel.ossgw.adapter.mtosi.translator.axis.MtosiException: Failed to execute operatio | Operation: alu.v1:query - Processor: RetrieveAxsData - | ONT location missing in Embrix (oltName, oltPath) for CREATE_SUSPEND_RECONNECT_ORDER: requ | ONT location missing in Embrix (oltName, oltPath, spaceId) for GET_PROVISIONING_TEMPLATE:  | ONT location missing in Embrix (oltName, oltPath, spaceId) for CREATE_DEPROVISIONING_ORDER | connect timed out | APC configure operation failedCaused by: Could not configure ISAM ONT on 1-1-1-1-8Caused b | ONT location missing in Embrix (oltName) for CREATE_SUSPEND_RECONNECT_ORDER: request not s | Cannot execute additional query operation while another query operation with the scope of  | APC configure operation failedCaused by: Could not configure ISAM ONT on 1-1-1-15-1Caused . ONT(s) used: ALCLB3D9363D, ALCLB3D94488, ALCLB1A55CD1.",
+    "at": "2026-10-31T11:42:45.761Z"
+  },
+  "EFT109-MOTV": {
+    "verdict": "Fail",
+    "result": "SESSION_LOGIN 7/7, DELETE_CUSTOMER 0/3, CREATE_STB_PROFILE_ORDER 0/4",
+    "at": "2026-10-31T11:44:23.891Z"
+  },
+  "EFT109-PORTAONE": {
+    "verdict": "Fail",
+    "result": "USER_LOGIN 0/14, REMOVE_DID 0/1",
+    "at": "2026-10-31T11:42:58.072Z"
+  },
+  "EFT108-PROVISIONING": {
+    "verdict": "Fail",
+    "result": "New contract QA-ANH-NS-R2-10261545-E108 with ONT ALCLB3D94488: provisioning order created; order PROVISIONING_ERROR. NOKIA: GET_LOCATION_DATA answered, GET_SPACE_DATA answered, CREATE_PROVISIONING_ORDER FAILED. Coopeweb: UPDATE_WORK_ORDER FAILED, UPDATE_WORK_ORDER FAILED, UPDATE_WORK_ORDER FAILED.",
+    "at": "2026-10-26T15:47:45.649Z"
+  },
+  "EFT108-RELOCATION": {
+    "verdict": "Blocked",
+    "result": "Not run: needs a test ONT of this environment (EFT_ONT / EFT_ONT_MODEL): the only one is shared with the CoopeG Sandbox.",
+    "at": "2026-10-26T14:50:38.744Z"
+  },
+  "EFT108-PAYMENTS": {
+    "verdict": "Pass",
+    "result": "PAY-001 (Pass) 0279599 on 208886: NetSuite FA585972; AR-001 (Pass) 0279599 on 208886: NetSuite FA585972",
+    "at": "2026-10-25T17:22:14.034Z"
+  },
+  "EFT108-BILLING": {
+    "verdict": "Pass",
+    "result": "REG-001 (Pass) 0279616 on QA-ANH-NS-R2-10240645-VN: not in NetSuite; REG-003 (Pass) 0279580 on 208886: NetSuite FA585964; INV-001 (Pass) 0279698 on 798166: NetSuite FA586029; INV-002 (Pass) 0279604 on QA-ANH-NS-R2-10240329-VN: not in NetSuite; INV-003 (Pass) 0279716 on 208886: NetSuite FA586057; INV-010 (Pass) 0279602 on 208886: NetSuite FA585975; INV-010 (Pass) 0279603 on 208886: NetSuite FA585976; MAP-002 (Pass) 0279585 on 3012830: NetSuite FA585967; MAP-003 (Pass) 0279605 on QA-ANH-NS-R2-10240530-VH: not in NetSuite; MAP-008 (Pass) 0279745 on QA-ANH-NS-R2-10121024-E1: not in NetSuite; MAP-008 (Pass) 0279748 on QA-ANH-NS-R2-10121024-E1: not in NetSuite; MAP-009 (Pass) 0279749 on QA-ANH-NS-R2-10121024-E1: not in NetSuite; MAP-009 (Pass) 0279750 on QA-ANH-NS-R2-10121024-E1: not in NetSuite; MAP-012 (Pass) 0279742 on QA-ANH-NS-R2-10121024-E1: not in NetSuite; MAP-013 (Pass) 0279753 on QA-ANH-NS-R2-10121024-E1: not in NetSuite",
+    "at": "2026-10-25T17:13:47.075Z"
+  },
+  "EFT108-DISCONNECTION": {
+    "verdict": "Pass",
+    "result": "REG-002 (Pass) 0279608 on QA-ANH-NS-R2-10240617-VN: not in NetSuite; SUS-001 (Pass) 0279607 on QA-ANH-NS-R2-10240544-VX: not in NetSuite",
+    "at": "2026-10-25T17:15:27.041Z"
+  },
+  "EFT108-PAYMENTS-CURRENT": {
+    "verdict": "Recorded",
+    "result": "underpayment: answer {\"remainingAmount\":573.5,\"id\":\"P18181\",\"paymentDetails\":[{\"accountId\":\"208886\",\"; 0279769 paid 574 → ACTIVE, due 573.5; payment rows P18181 574.00 remaining 0.00 CLOSED; new activity: CREATE_INVOICE, APPLY_PAYMENT, PAYMENT | overpayment: answer {\"remainingAmount\":0,\"id\":\"P18183\",\"paymentDetails\":[{\"accountId\":\"208886\",\"rema; 0279770 paid 1647.5 → CLOSED, due 0; payment rows P18183 1647.50 remaining 0.00 CLOSED; new activity: APPLY_PAYMENT, PAYMENT | one payment for two invoices: answer {\"paymentDetails\":[{\"accountId\":\"208886\",\"remainingAmount\":0,\"id\":\"P18185\",\"stat; 0279771 paid 1147.5 → CLOSED, due 0; 0279772 paid 1147.5 → CLOSED, due 0; payment rows P18185 1147.50 remaining 0.00 CLOSED, P18186 1147.50 remaining 0.00 CLOSED; new activity: APPLY_PAYMENT, APPLY_PAYMENT, PAYMENT, PAYMENT",
+    "at": "2026-10-25T17:17:51.772Z"
+  },
+  "EFT108-CREDIT-NOTES": {
+    "verdict": "Pass",
+    "result": "CRN-001 (Pass) CR-105176 on 208886: NetSuite NC1004; CRN-002 (Pass) CR-105177 on 208886: NetSuite NC1005; CRN-003 (Pass) 0279754 on 798169: NetSuite FA586060; CRN-003 (Pass) CR-105189 on 798169: NetSuite NC1015; CRN-004 (Pass) CR-105192 on 208886: NetSuite NC1018; CRN-006 (Pass) CR-105178 on 208886: NetSuite NC1006; CRN-006 (Pass) CR-105179 on 208886: NetSuite NC1007; CRN-007 (Pass) CR-105184 on QA-ANH-NS-R2-10121024-N2: not in NetSuite; CRN-008 (Pass) CR-105188 on 208886: NetSuite NC1014; CRN-011 (Pass) 0279755 on 244822: NetSuite FA586061; CRN-011 (Pass) CR-105190 on 244822: NetSuite NC1016; ADJ-001 (Pass) CR-105180 on 208886: NetSuite NC1008; ADJ-002 (Pass) CR-105181 on 208886: NetSuite NC1009; INV-018 (Waiting for decision) 0279756 on 208886: NetSuite FA586062; INV-018 (Waiting for decision) CR-105191 on 208886: NetSuite NC1017",
+    "at": "2026-10-25T17:19:42.173Z"
+  },
+  "EFT108-CONTRACT-CREATION": {
+    "verdict": "Pass",
+    "result": "CRM-004 (Pass) 0279599 on 208886: NetSuite FA585972",
+    "at": "2026-10-25T17:20:05.540Z"
+  },
+  "EFT108-PLAN-CHANGES": {
+    "verdict": "Pass",
+    "result": "CHG-001 (Waiting for decision) 0279616 on QA-ANH-NS-R2-10240645-VN: not in NetSuite",
+    "at": "2026-10-25T17:21:31.768Z"
+  },
+  "EDGE-RESEND": {
+    "verdict": "Pass",
+    "result": "Invoice 0279768 (FA586064): Bills actions offered EMAIL_INVOICE, EXTEND_DUE_DATE, REGENERATE_INVOICE (no SYNC_INVOICE); server syncInvoice → {\"id\":\"0279768\",\"docType\":\"INVOICE\",\"financeSyncStatus\":\"SUCCESS\",\"isError\":true,\"message\":\"Already in NetSuite: FA586064\"}; new CREATE_INVOICE calls 0; after: undefined FA586064; NetSuite sandbox FA586064 ×1.",
+    "at": "2026-10-25T18:02:07.161Z"
+  },
+  "EDGE-CREDIT": {
+    "verdict": "Recorded",
+    "result": "more than the open amount (573.50 due) (0279769, 800): Apply Adjustment successfully!; credit note CR-105193 -573.5, NetSuite NC1019; invoice CLOSED due 0 | more than the invoice total (1,147.50) (0279769, 2000): Credit adjustment on closed invoice not allowed; credit note none; invoice CLOSED due 0 | on an invoice closed by payment (0279770, 100): Credit adjustment on closed invoice not allowed; credit note none; invoice CLOSED due 0 | second small credit on the same invoice (1) (0279768, 50): Apply Adjustment successfully!; credit note CR-105194 -57.37, NetSuite NC1020; invoice ACTIVE due 1090.13 | second small credit on the same invoice (2) (0279768, 60): Apply Adjustment successfully!; credit note CR-105195 -68.85, NetSuite NC1021; invoice ACTIVE due 1021.28",
+    "at": "2026-10-25T18:09:27.621Z"
+  },
+  "EDGE-ERRORS": {
+    "verdict": "Recorded",
+    "result": "0279038 (256336): \"Debe introducir al menos una línea de artículo para esta transacción.\" — actions EMAIL_INVOICE, EXTEND_DUE_DATE, REGENERATE_INVOICE, SYNC_INVOICE | 0279696 (798247): \"Elementos requeridos faltantes en la solicitud: entity\" — actions EMAIL_INVOICE, EXTEND_DUE_DATE, REGENERATE_INVOICE, SYNC_INVOICE | 0279303 (244823): \"Error creando línea 1: You have entered an Invalid Field Value 0 for the following field: \" — actions EMAIL_INVOICE, EXTEND_DUE_DATE, REGENERATE_INVOICE, SYNC_INVOICE | 0279015 (524679): \"Insertar fallo de transacción: No hay período fiscal abierto válido para el día - 18/01/20\" — actions EMAIL_INVOICE, EXTEND_DUE_DATE, REGENERATE_INVOICE, SYNC_INVOICE, UNDO_MANUAL_INVOICE | 0279594 (QA-ANH-NS-R2-10121024-E1): \"Invoice 0279594 line I_INT (QA-NS-R2 INTERNET): no NetSuite tax code for IVA 650.00 on 100\" — actions EMAIL_INVOICE, EXTEND_DUE_DATE, REGENERATE_INVOICE, SYNC_INVOICE, UNDO_MANUAL_INVOICE | 0279741 (QA-ANH-NS-R2-10121024-E1): \"Invoice 0279741 line I_INT (QA-NS-R2 INTERNET): no NetSuite tax code for IVA 650.00 on 100\" — actions EMAIL_INVOICE, EXTEND_DUE_DATE, REGENERATE_INVOICE, SYNC_INVOICE, UNDO_MANUAL_INVOICE",
+    "at": "2026-10-25T18:12:08.551Z"
+  },
+  "EFT110-HIST-PDF": {
+    "verdict": "Fail",
+    "result": "CR-105073 (244819, reason CUSTOMER_SATISFACTION, stamp none, NetSuite SUCCESS NC834): no PDF – DOWNLOAD (15 bytes) | CR-105079 (244819, reason CUSTOMER_SATISFACTION, stamp none, NetSuite SUCCESS NC840): no PDF – DOWNLOAD (15 bytes) | CR-105088 (244819, reason CUSTOMER_SATISFACTION, stamp none, NetSuite SUCCESS NC846): no PDF – DOWNLOAD (15 bytes)",
+    "at": "2026-10-27T15:18:23.436Z"
+  },
+  "EFT110-REF": {
+    "verdict": "Recorded",
+    "result": "CR-105106 (244819, stamp STAMPED): Factura Referencia \"Clave: 50624092600020519094700200071030000001\" (invoice 0279298) | CR-105179 (208886, stamp STAMPED): no PDF – not listed on Credit/Debit Notes",
+    "at": "2026-10-27T15:19:08.101Z"
+  },
+  "EFT108-TV": {
+    "verdict": "Blocked",
+    "result": "Not reached: TV goes to MOTV only after the Internet is provisioned, and QA-ANH-NS-R2-10261545-E108's provisioning did not complete (order PROVISIONING_ERROR).",
+    "at": "2026-10-26T15:47:45.661Z"
+  }
+}

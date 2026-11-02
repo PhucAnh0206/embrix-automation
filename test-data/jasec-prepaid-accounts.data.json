@@ -1,0 +1,42 @@
+[
+  {
+    "accountInfo": {
+      "accountCategory": "PREPAID",
+      "customerSegment": "B2C",
+      "customerId": "TEST_ID-001",
+      "legalEntity": "US",
+      "accountType": "PREPAID",
+      "currency": "CRC",
+      "clientId": "NISE-001",
+      "accountSubtype": "Residencial Permanente"
+    },
+    "contact": {
+      "firstName": "Anh",
+      "lastName": "Tran",
+      "identityDocument": "CÉDULA DE IDENTIDAD",
+      "email": "qa.mailbox@example.com",
+      "useAsBilling": true
+    },
+    "address": {
+      "street": "Colon 111",
+      "country": "Costa Rica",
+      "state": "Cartago",
+      "city": "Cartago",
+      "district": "Oriental",
+      "postalCode": "30101",
+      "useAsBilling": true
+    },
+    "paymentProfile": {
+      "paymentMethod": "CHECK",
+      "paymentTerm": "NET_30"
+    },
+    "billingProfile": {
+      "billingDom": 1
+    },
+    "meter": {
+      "provisioningId": "M-QAPRE-",
+      "lecturaInicialKwh": "12300"
+    },
+    "bundleId": "B-100000-E"
+  }
+]
