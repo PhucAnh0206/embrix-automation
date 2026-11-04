@@ -2,16 +2,16 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 /**
- * TestLogger — Writes structured log entries to a file in artifacts/logs/.
+ * TestLogger — Writes structured log entries to a file in output/artifacts/logs/.
  *
- * NOT `test-results/`, and this is not cosmetic. Playwright CLEARS test-results
+ * NOT `output/test-results/`, and this is not cosmetic. Playwright CLEARS test-results
  * around a run, and this class creates its directory ONCE in the constructor
  * then writes to it later — so the directory could vanish in between and
  * `flush()` threw `ENOENT`, failing tests whose assertions had all passed.
  * Measured 2026-09-08: it took down top-up TC 1.1 and TC 1.3, and then
  * ts-08-topup-before-billing AFTER its top-up had already succeeded and been
  * confirmed in the database. Three false failures from a logging side effect.
- * `.gitignore` already documents artifacts/ as the place evidence survives.
+ * `.gitignore` already documents output/artifacts/ as the place evidence survives.
  *
  * Categories:
  *   [LOG]   – General information
@@ -33,7 +33,7 @@ export class TestLogger {
       .replace(/_+/g, '_')
       .substring(0, 80);
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-    const dir = path.join(process.cwd(), 'artifacts', 'logs', (process.env.TEST_ENV ?? '').trim() || 'no-tenant');
+    const dir = path.join(process.cwd(), 'output', 'artifacts', 'logs', (process.env.TEST_ENV ?? '').trim() || 'no-tenant');
     if (!fs.existsSync(dir)) {
       fs.mkdirSync(dir, { recursive: true });
     }

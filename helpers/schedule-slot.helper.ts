@@ -17,7 +17,7 @@ import { tenantArtifactPath } from './tenant-paths';
  * due since (+1 invoice, its 2 mails, its journal rows). Nothing of the first run was billed, mailed, cut or extracted
  * again (EBS headers and accounting entries +0); credit-limit actions only acted on the current debt state, as any
  * daily does. What is lost is the deleted run's own record - so every deleted row is written to
- * artifacts/<tenant>/schedule-reclaims/ first. Same result on OCI dev (re-run of the COMPLETED full DAILY of
+ * output/artifacts/<tenant>/schedule-reclaims/ first. Same result on OCI dev (re-run of the COMPLETED full DAILY of
  * 2026-09-17: only the newly due account was billed; earlier invoices, mails and the EBS extract not repeated).
  *
  * Never on another tenant (prod included), never a PROCESSING run (a live job). JASEC_RECLAIM_SLOTS=false turns it off.

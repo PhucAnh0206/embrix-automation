@@ -13,7 +13,7 @@ import type {
  * NotificationReportHelper — evaluates a NotificationTemplate's field checks
  * against a received email and produces a Jira-ready results table.
  *
- * Per the helper conventions (docs/PLAYWRIGHT_CONVENTIONS.md §6.1) this class
+ * Per the helper conventions this class
  * contains NO Playwright runner imports and performs NO assertions. It only
  * evaluates and reports. The spec owns `test.step` and `expect.soft`, which
  * keeps the helper reusable outside the runner (e.g. a future CLI that
@@ -156,7 +156,7 @@ export class NotificationReportHelper {
   }
 
   /**
-   * Write the table to test-results/notification-reports/ and return the path,
+   * Write the table to output/test-results/notification-reports/ and return the path,
    * so the spec can attach it to the Playwright report.
    */
   writeReport(template: NotificationTemplate, ctx: NotificationContext, markdown: string): string {

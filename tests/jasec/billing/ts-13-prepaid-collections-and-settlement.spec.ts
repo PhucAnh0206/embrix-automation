@@ -20,7 +20,7 @@
  *   1. every prepaid invoice with a charge is settled                       (whole tenant)
  *   2. no prepaid account holds an open collection unit                      (whole tenant)
  *   3. the invoices the LATEST billing run produced are settled              (prospective - the fresh evidence)
- *      Reads artifacts/billing-run-invoices.json, written by ts-06 (TC-147). BLOCKED if there is none for
+ *      Reads output/artifacts/billing-run-invoices.json, written by ts-06 (TC-147). BLOCKED if there is none for
  *      this tenant. In a full run this runs AFTER the billing runs, so it judges that run's invoices.
  *      Checked on the CORE UI first, as an agent sees it, then in the DATABASE (the record behind the screen):
  *        - Bills > Open/Closed Bills: Invoice Status CLOSED, Due 0

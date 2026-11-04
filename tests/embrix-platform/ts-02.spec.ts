@@ -1071,7 +1071,7 @@ test.describe('REGRESSION: Test Suite - 02', () => {
     // Step 4: "The details of the selected template are displayed."
     //
     // KNOWN DEFECT (coopeg-sandbox, 2026-09-12): this button does nothing.
-    // Diagnosed with tests/dev — the click lands (the button takes focus) but
+    // Diagnosed with a one-off probe — the click lands (the button takes focus) but
     // no [role=dialog], no .modal, no new tab and no navigation follows. The
     // original code waited 30s for a dialog and failed with an opaque timeout;
     // this fails naming the defect instead.

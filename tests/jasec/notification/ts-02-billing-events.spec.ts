@@ -31,7 +31,7 @@
  *   JEPYP230_LIVE_RUN=true npm run test:notification:live
  * ─────────────────────────────────────────────────────────────────────────────
  *
- * Originals are written to artifacts/jepyp230-restore.json BEFORE anything is
+ * Originals are written to output/artifacts/jepyp230-restore.json BEFORE anything is
  * staged, so a crashed run can still be reversed by hand. The runbook has no
  * backup table and the discovery queries do not preserve prior values.
  *
@@ -96,7 +96,7 @@ const FREQUENCY = (process.env.JEPYP230_FREQUENCY as 'DAILY' | 'SCHEDULED') ?? '
  */
 const BATCH_SIZE_FLOOR = 60;
 
-// artifacts/, NOT test-results/ — Playwright WIPES test-results around a run
+// output/artifacts/, NOT output/test-results/ — Playwright WIPES test-results around a run
 // (.gitignore:20 says so). This file is the ONLY record of the pre-stage values
 // for a run that dirties the tenant, and the restore-failure message below tells
 // a human to replay it by hand, so writing it somewhere Playwright deletes made
@@ -280,12 +280,12 @@ test.afterAll(async () => {
     }
   } catch (err) {
     // Never let restore failure mask the test result — but make it loud, because
-    // the environment is now dirty and artifacts/jepyp230-restore.json is the
+    // the environment is now dirty and output/artifacts/jepyp230-restore.json is the
     // only record of the original values.
     console.error(`
 [TS-02] RESTORE FAILED: ${String(err)}
 ` +
-      `        Replay it by hand from artifacts/jepyp230-restore.json
+      `        Replay it by hand from output/artifacts/jepyp230-restore.json
 `);
   } finally {
     await db?.disconnect();

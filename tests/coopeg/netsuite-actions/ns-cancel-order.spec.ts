@@ -32,5 +32,5 @@ test('NS cancellation: cancel order for a QA contract', async ({ page, baseURL, 
   if (await submit.isEnabled().catch(() => false)) { await submit.click(); testLogger.log(`${ACC}: Submit order clicked`); }
   else testLogger.log(`${ACC}: Submit order not enabled after creating the cancel order`);
   await page.waitForTimeout(5000);
-  await page.screenshot({ path: `test-results/ns-cancel-${ACC}.png`, fullPage: true }).catch(() => {});
+  await page.screenshot({ path: `output/test-results/ns-cancel-${ACC}.png`, fullPage: true }).catch(() => {});
 });

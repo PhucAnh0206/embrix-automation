@@ -34,12 +34,12 @@ Each demo can be run on its own, in any order, as often as needed. Demos 2 and 3
 2. Go to the automation folder and start the menu:
    ```powershell
    cd D:\Dev\products\Embrix\automation\embrix-automation
-   .\ns-demo.ps1
+   .\scripts\netsuite\ns-demo.ps1
    ```
 3. Type a number (1 to 6) or **A** for all six, and press Enter. A browser window opens by itself; let it run and talk over the green captions. Do not click in the browser while it runs.
 4. "Demo finished." appears in PowerShell at the end.
 
-Shortcuts: `.\ns-demo.ps1 all` (all six, no menu) · `.\ns-demo.ps1 5` (one demo) · add `-Slow` for slower clicks and longer captions on a big screen.
+Shortcuts: `.\scripts\netsuite\ns-demo.ps1 all` (all six, no menu) · `.\scripts\netsuite\ns-demo.ps1 5` (one demo) · add `-Slow` for slower clicks and longer captions on a big screen.
 
 ## If something goes wrong
 | You see | Meaning | What to do |
@@ -47,7 +47,7 @@ Shortcuts: `.\ns-demo.ps1 all` (all six, no menu) · `.\ns-demo.ps1 5` (one demo
 | "Another run is in progress" | A test run is still going on this laptop | Wait for it to finish, then start again |
 | "Could not clear the old schedule … (is the VPN on?)" | Demo 5 needs the VPN | Connect the VPN and run demo 5 again |
 | The NetSuite status stays ERROR with "No valid, open, tax period" | NetSuite's accounting period for that date is closed | Ask Coope's NetSuite administrator to open it; show the other demos meanwhile |
-| The demo stops with a red message in PowerShell | A step did not give the expected result | Screenshots are in `test-results\`; QA can explain it. The other demos can still be run one by one |
+| The demo stops with a red message in PowerShell | A step did not give the expected result | Screenshots are in `output\test-results\`; QA can explain it. The other demos can still be run one by one |
 | A NetSuite login page asks for a verification code | NetSuite wants a new sign-in | Type the code from the shared test account's e-mail in the browser; the demo continues |
 
 ## What the demo changes

@@ -20,7 +20,7 @@ test('NS discount: Modify order adding a discount to a QA contract', async ({ pa
   const step = async (name: string) => {
     const buttons = (await page.getByRole('button').allInnerTexts()).map(t => t.trim()).filter(Boolean);
     testLogger.log(`${ACC} ${name}: buttons ${[...new Set(buttons)].join(' | ').slice(0, 400)}`);
-    await page.screenshot({ path: `test-results/ns-discount-${String(++n).padStart(2, '0')}-${name}.png`, fullPage: true }).catch(() => {});
+    await page.screenshot({ path: `output/test-results/ns-discount-${String(++n).padStart(2, '0')}-${name}.png`, fullPage: true }).catch(() => {});
   };
   await page.goto(`${baseURL!.replace(/\/+$/, '')}/customers/${ACC}/services`, { waitUntil: 'domcontentloaded' });
   await page.waitForLoadState('networkidle').catch(() => {});

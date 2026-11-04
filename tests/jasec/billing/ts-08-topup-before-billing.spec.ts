@@ -67,14 +67,14 @@ const AMOUNT = Number(process.env.JASEC_TOPUP_AMOUNT ?? 5000);
 /**
  * The account to top up. Explicit env wins; otherwise read the tariff-calculation handoff file,
  * which is where `run-billing-cycle-e2e.ps1` leaves the account it just seeded
- * (artifacts/<TEST_ENV>/jasec-latest-meter.json). Prefer the env var when the
+ * (output/artifacts/<TEST_ENV>/jasec-latest-meter.json). Prefer the env var when the
  * caller has the id.
  */
 function resolveAccountId(): string | null {
   const explicit = (process.env.JASEC_TOPUP_ACCOUNT ?? '').trim();
   if (explicit) return explicit;
 
-  // Read from artifacts/, never test-results/: Playwright clears test-results/
+  // Read from output/artifacts/, never output/test-results/: Playwright clears output/test-results/
   // around runs, so a handoff left only there can disappear between ts-01
   // writing it and this spec reading it (observed 2026-09-14).
   // Per tenant since 2026-10-14 (helpers/tenant-paths.ts) - never another tenant's handoff.
@@ -110,7 +110,7 @@ test.describe('B4 precondition — a real top-up inside the billed cycle', () =>
       expect(
         accountId,
         'No account to top up. Pass JASEC_TOPUP_ACCOUNT, or run this straight ' +
-        'after a seed so test-results/jasec-latest-meter.json still exists.',
+        'after a seed so output/test-results/jasec-latest-meter.json still exists.',
       ).not.toBeNull();
 
       // ── Put the clock INSIDE the cycle that will be billed ──────────────

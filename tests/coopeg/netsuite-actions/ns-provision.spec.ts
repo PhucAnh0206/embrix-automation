@@ -23,7 +23,7 @@
  *   $env:EMBRIX_ENV_FILE='.env.coopegsbx2'; $env:NS_PROV_ONT='ALCLB3D9363D'; $env:NS_PROV_ONT_MODEL='G-2425G-B';
  *   $env:NS_PROV_TAGS='N'; $env:NS_PROV_ONT_CLEARED='true'; $env:NS_PROV_GO='true';
  *   npx playwright test tests/coopeg/netsuite-actions/ns-provision.spec.ts --project=dev --reporter=line
- * Results: test-results/ns-provision.json
+ * Results: output/test-results/ns-provision.json
  */
 import * as fs from 'fs';
 import { Client } from 'pg';
@@ -99,7 +99,7 @@ test('NS provisioning: QA test contracts provisioned on coopegsbx2', async ({ pa
   }
   if (!GO) {
     out.result = 'dry run: checks only, nothing sent (set NS_PROV_GO=true to act)';
-    fs.writeFileSync('test-results/ns-provision.json', JSON.stringify(out, null, 2));
+    fs.writeFileSync('output/test-results/ns-provision.json', JSON.stringify(out, null, 2));
     testLogger.log(out.result);
     return;
   }
@@ -173,8 +173,8 @@ test('NS provisioning: QA test contracts provisioned on coopegsbx2', async ({ pa
     c.final = state;
     testLogger.log(`${p.account}: final ${JSON.stringify(state)}`);
   }
-  fs.mkdirSync('test-results', { recursive: true });
-  fs.writeFileSync('test-results/ns-provision.json', JSON.stringify(out, null, 2));
+  fs.mkdirSync('output/test-results', { recursive: true });
+  fs.writeFileSync('output/test-results/ns-provision.json', JSON.stringify(out, null, 2));
   for (const c of out.contracts) {
     // NS_PROV_DB_COMPLETE: done here once the provisioning order exists (the order left CREATED); the DB step + Submit order follow.
     if (process.env.NS_PROV_DB_COMPLETE === 'true') {

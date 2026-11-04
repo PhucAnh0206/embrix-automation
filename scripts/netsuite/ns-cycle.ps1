@@ -1,15 +1,15 @@
 # ns-cycle.ps1 -- NetSuite cases that need a provisioned contract on coopegsbx2 (REG-001/002, INV-002, SUS-001, CHG-001,
 # CAN-001/002, MAP-003, MAP-007, ENG-007-02). Every step sets the CCP clock and puts it back to NS_BASELINE (default 2027-01-01).
 #
-#   .\ns-cycle.ps1 full -Start 2027-01-01 -CleanSchedules    whole cycle on a new contract (about 45 min), see "full" below
-#   .\ns-cycle.ps1 suspended -Start 2027-01-01 -CleanSchedules   exploration of the suspended-line billing rules of the 26 Oct
+#   .\scripts\netsuite\ns-cycle.ps1 full -Start 2027-01-01 -CleanSchedules    whole cycle on a new contract (about 45 min), see "full" below
+#   .\scripts\netsuite\ns-cycle.ps1 suspended -Start 2027-01-01 -CleanSchedules   exploration of the suspended-line billing rules of the 26 Oct
 #                                                             release (ISP-286/287, UAT guide UAT-06..10), see "suspended" below
-#   .\ns-cycle.ps1 provision -Tag N -Date 2027-01-01         new contract, provisioned: N normal, X no Party Id, H PHC, I intercompany,
+#   .\scripts\netsuite\ns-cycle.ps1 provision -Tag N -Date 2027-01-01         new contract, provisioned: N normal, X no Party Id, H PHC, I intercompany,
 #                                                             T Internet + TV, B business (ENTERPRISE)
-#   .\ns-cycle.ps1 discount -Account <id> -Date 2027-09-12 -Offer Recurring_Discount_Internet   Modify order adding a discount + finish
-#   .\ns-cycle.ps1 schedule -Date 2027-02-01                 Daily Schedule of a date (new, or the PENDING one Embrix created)
-#   .\ns-cycle.ps1 order -Account <id> -Kind Suspend -Date 2027-01-10 -Expect SUSPENDED   Place Order (Cancel/Suspend/Resume) + finish
-#   .\ns-cycle.ps1 finish -Account <id> -Date 2027-02-21 -Expect SUSPENDED                finish the open order (collection SUSPEND,
+#   .\scripts\netsuite\ns-cycle.ps1 discount -Account <id> -Date 2027-09-12 -Offer Recurring_Discount_Internet   Modify order adding a discount + finish
+#   .\scripts\netsuite\ns-cycle.ps1 schedule -Date 2027-02-01                 Daily Schedule of a date (new, or the PENDING one Embrix created)
+#   .\scripts\netsuite\ns-cycle.ps1 order -Account <id> -Kind Suspend -Date 2027-01-10 -Expect SUSPENDED   Place Order (Cancel/Suspend/Resume) + finish
+#   .\scripts\netsuite\ns-cycle.ps1 finish -Account <id> -Date 2027-02-21 -Expect SUSPENDED                finish the open order (collection SUSPEND,
 #                                                             RESUME after payment, MODIFY): DB step + Submit order at its date
 #
 # Needs: VPN on (DB step), Core UI login in .env.coopegsbx2, the ONT free (one contract at a time: cancel the previous one first).
@@ -28,8 +28,8 @@ param(
 $ErrorActionPreference = 'Stop'
 # This repo, and the NetSuite suite folder (helpers\netsuite\suite-dir.ts): NS_SUITE_DIR, else the QC workspace's
 # test-cases\netsuite two levels up, else the copy in this repo (netsuite-suite\).
-$repo = $PSScriptRoot
-$workspaceSuite = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..\test-cases\netsuite'))
+$repo = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))   # this script lives in scripts\<area>\
+$workspaceSuite = [IO.Path]::GetFullPath((Join-Path $repo '..\..\test-cases\netsuite'))
 $suite = if ($env:NS_SUITE_DIR) { $env:NS_SUITE_DIR } elseif (Test-Path $workspaceSuite) { $workspaceSuite } else { Join-Path $repo 'netsuite-suite' }
 $tools = Join-Path $suite 'tools'
 # the date every step puts the clock back to: 2027-01-01, or NS_BASELINE when the team has moved it
@@ -39,7 +39,7 @@ if ($Ont -eq 'ALCLB3A97FBA') { throw "Never Kiet's ONT" }
 function Clock([string] $d) { $c = node "$tools\clock.js" set $d; Write-Host "  clock $c" -ForegroundColor DarkGray }
 # Tool output goes to the host, never into a function's return value.
 function Tool { & node @args | ForEach-Object { Write-Host "  $_" }; if ($LASTEXITCODE) { throw "node $($args -join ' ') failed" } }
-# Runs one tests/dev spec with the given env vars for this call only. Exit code ignored: each step checks the result itself.
+# Runs one tests/coopeg/netsuite-actions spec with the given env vars for this call only. Exit code ignored: each step checks the result itself.
 function Spec([string] $spec, [hashtable] $vars) {
   $saved = @{}
   foreach ($k in $vars.Keys + 'EMBRIX_ENV_FILE') { $saved[$k] = [Environment]::GetEnvironmentVariable($k) }
@@ -79,7 +79,7 @@ function Provision([string] $tag, [string] $d) {
   try {
     $vars = @{ NS_PROV_ONT = $Ont; NS_PROV_ONT_MODEL = $OntModel; NS_PROV_TAGS = $tag; NS_PROV_ONT_CLEARED = 'true'; NS_PROV_GO = 'true'; NS_PROV_DB_COMPLETE = 'true' }
     Spec 'ns-provision.spec.ts' $vars
-    $acc = (Get-Content "$repo\test-results\ns-provision.json" -Raw | ConvertFrom-Json).contracts[0].account
+    $acc = (Get-Content "$repo\output\test-results\ns-provision.json" -Raw | ConvertFrom-Json).contracts[0].account
   } finally { Clock $baseline }
   if (-not $acc) { throw 'no contract created (see the log above)' }
   Finish $acc $d 'ACTIVE'

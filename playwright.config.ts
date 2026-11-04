@@ -13,7 +13,7 @@ dotenv.config({ path: process.env.EMBRIX_ENV_FILE || '.env' });
 
 // Clear logs if configured, and ensure we only run this once in the main test runner process
 if (!process.env.TEST_WORKER_INDEX && process.env.CLEAN_LOGS_ON_START === 'true') {
-  const dir = path.join(process.cwd(), 'test-results', 'logs');
+  const dir = path.join(process.cwd(), 'output', 'test-results', 'logs');
   if (fs.existsSync(dir)) {
     const files = fs.readdirSync(dir);
     for (const file of files) {
@@ -74,6 +74,8 @@ if (!process.env.TEST_WORKER_INDEX) {
 
 export default defineConfig({
   testDir: './tests',
+  // Everything a run writes lives under output/ (gitignored); run-projects.ps1 passes output/test-results-<tenant>.
+  outputDir: 'output/test-results',
 
   /* Run tests in each file sequentially — Embrix tests share state (billing cycles, accounts) */
   fullyParallel: false,
@@ -99,8 +101,8 @@ export default defineConfig({
 
   /* Reporters */
   reporter: [
-    ['html', { outputFolder: 'playwright-report', open: 'never' }],
-    ['junit', { outputFile: 'test-results/junit.xml' }],
+    ['html', { outputFolder: 'output/playwright-report', open: 'never' }],
+    ['junit', { outputFile: 'output/test-results/junit.xml' }],
     ['list'],
     // Acts only on tests under coopeg/netsuite; a no-op for every other suite.
     ['./reporters/netsuite-csv.reporter.ts'],
@@ -164,7 +166,7 @@ export default defineConfig({
         ...((() => {
           const v = (process.env.PW_DISK_CACHE ?? '').trim();
           if (!v || /^(false|0|no|off)$/i.test(v)) return [];
-          const dir = /^(true|1|yes|on)$/i.test(v) ? `.pw-cache/${process.env.TEST_ENV ?? 'default'}` : v;
+          const dir = /^(true|1|yes|on)$/i.test(v) ? `output/pw-cache/${process.env.TEST_ENV ?? 'default'}` : v;
           return [`--disk-cache-dir=${dir}`, '--disk-cache-size=536870912'];
         })()),
       ],
@@ -552,7 +554,7 @@ export default defineConfig({
 
     // ── JASEC TC-150 (read-only): a prepaid invoice is settled from the balance and never goes
     // to collections (Luis, 2026-10-05). Its OWN project, run AFTER the billing runs: its third
-    // test judges the invoices the latest TC-146 run recorded (artifacts/billing-run-invoices.json).
+    // test judges the invoices the latest TC-146 run recorded (output/artifacts/billing-run-invoices.json).
     // In jasec-billing-read it would run BEFORE them and judge a stale run.
     //   npx playwright test --project=jasec-billing-settlement
     // Tests 1-2 read the database only; test 3 also opens Core UI (Bills, Account Statement), so it
@@ -656,7 +658,7 @@ export default defineConfig({
     },
 
     // ── JASEC rating results on screen (READ-ONLY): the charges the tarification scenarios rated are shown
-    // on Rated Usage with the same amounts. Reads artifacts/block-e-results.json (run-block-E.ps1 writes
+    // on Rated Usage with the same amounts. Reads output/artifacts/block-e-results.json (run-block-E.ps1 writes
     // it); runs after the tariff calculation cases.
     {
       name: 'jasec-usage-charges',

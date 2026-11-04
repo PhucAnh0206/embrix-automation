@@ -1,10 +1,10 @@
 # ns-demo.ps1 -- NetSuite business demo (coopegsbx2): the main flows in a visible browser, with captions on screen.
 #
-#   .\ns-demo.ps1            menu: pick a demo (or all)
-#   .\ns-demo.ps1 all        run the six demos in a row (about 15 minutes)
-#   .\ns-demo.ps1 1          one demo: 1 invoice to NetSuite, 2 extend a due date, 3 payment from NetSuite, 4 void an invoice,
+#   .\scripts\netsuite\ns-demo.ps1            menu: pick a demo (or all)
+#   .\scripts\netsuite\ns-demo.ps1 all        run the six demos in a row (about 15 minutes)
+#   .\scripts\netsuite\ns-demo.ps1 1          one demo: 1 invoice to NetSuite, 2 extend a due date, 3 payment from NetSuite, 4 void an invoice,
 #                            5 monthly billing run (needs the VPN), 6 new contract from CoopeWeb
-#   .\ns-demo.ps1 all -Slow  slower clicks and longer captions, for a large audience
+#   .\scripts\netsuite\ns-demo.ps1 all -Slow  slower clicks and longer captions, for a large audience
 #
 # Guide for the audience and the presenter: docs\NetSuite\DEMO.md (workspace). Uses .env.coopegsbx2 for this run only.
 param(
@@ -12,7 +12,7 @@ param(
   [switch] $Slow
 )
 $ErrorActionPreference = 'Stop'
-$repo = $PSScriptRoot
+$repo = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))   # this script lives in scripts\<area>\
 $names = [ordered]@{
   '1' = 'An invoice goes to NetSuite (and is found there)'
   '2' = 'An agent extends a due date'
@@ -53,7 +53,7 @@ try {
   $ErrorActionPreference = 'Continue'
   npx playwright test tests/coopeg/netsuite-actions/ns-demo.spec.ts --project=dev --headed --workers=1 --reporter=list
   if ($LASTEXITCODE -eq 0) { Write-Host '  Demo finished.' -ForegroundColor Green }
-  else { Write-Host '  The demo stopped on a step (see the message above). Screenshots: test-results\.' -ForegroundColor Yellow }
+  else { Write-Host '  The demo stopped on a step (see the message above). Screenshots: output\test-results\.' -ForegroundColor Yellow }
 }
 finally {
   foreach ($k in $saved.Keys) { Set-Item "env:$k" $saved[$k] -ErrorAction SilentlyContinue; if ($null -eq $saved[$k]) { Remove-Item "env:$k" -ErrorAction SilentlyContinue } }

@@ -11,7 +11,7 @@
  * Bills EVERY account due on the bill date (2027-11-01 on 10-21: ~11 team / QA accounts) - run only with
  * the team's OK. Refuses to run if a schedule already exists on the bill date.
  * Run: $env:EMBRIX_ENV_FILE='.env.coopegsbx2'; npx playwright test tests/coopeg/netsuite-actions/ns-billing-run.spec.ts --project=dev
- * Results: test-results/ns-billing-run.json (read with the GraphQL checks in notes).
+ * Results: output/test-results/ns-billing-run.json (read with the GraphQL checks in notes).
  */
 import * as fs from 'fs';
 import { test, expect } from '../../../fixtures/page-factory';
@@ -84,12 +84,12 @@ test('NS billing run: new contracts billed by the Daily Schedule', async ({ page
       out.cards = await dailySchedulePage.createAndProcess(BILL, () => setClock(BILL).then(() => undefined), testLogger);
     }
     testLogger.log(`job cards: ${JSON.stringify(out.cards)}`);
-    await page.screenshot({ path: 'test-results/ns-billing-run-cards.png', fullPage: true }).catch(() => {});
+    await page.screenshot({ path: 'output/test-results/ns-billing-run-cards.png', fullPage: true }).catch(() => {});
   } finally {
     out.restored = await setClock(base);
     testLogger.log(`clock restored: ${out.restored}`);
-    fs.mkdirSync('test-results', { recursive: true });
-    fs.writeFileSync('test-results/ns-billing-run.json', JSON.stringify(out, null, 2));
+    fs.mkdirSync('output/test-results', { recursive: true });
+    fs.writeFileSync('output/test-results/ns-billing-run.json', JSON.stringify(out, null, 2));
   }
   expect(out.restored.slice(0, 10)).toBe(base.slice(0, 10));
 });

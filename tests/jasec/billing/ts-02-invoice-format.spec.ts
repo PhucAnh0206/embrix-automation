@@ -261,7 +261,7 @@ test.describe('Invoice document format vs JEPYP-125 and JEPYP-266 (both shipped)
     }
     pdfText = await extractPdfText(pdf.content);
     pdfBytes = pdf.content;
-    // Keep the PDF for the visual checks (logo, layout): artifacts/<tenant>/invoices/<file>.
+    // Keep the PDF for the visual checks (logo, layout): output/artifacts/<tenant>/invoices/<file>.
     const keep = tenantArtifactPath('invoices', pdfName);
     fs.mkdirSync(path.dirname(keep), { recursive: true });
     fs.writeFileSync(keep, pdf.content);

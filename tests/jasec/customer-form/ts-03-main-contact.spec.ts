@@ -31,7 +31,7 @@ import type { Page } from '@playwright/test';
 import type { TestLogger } from '../../../helpers/test-logger';
 
 const RUN = Date.now().toString(36).toUpperCase();
-const ARTIFACTS = path.join(process.cwd(), 'artifacts', 'tc-03-main-contact');
+const ARTIFACTS = path.join(process.cwd(), 'output', 'artifacts', 'tc-03-main-contact');
 
 // This case does not own the clock: never let the jasec fixture rewind it.
 test.use({ ccpBaseline: null });

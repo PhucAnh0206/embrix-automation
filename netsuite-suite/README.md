@@ -30,20 +30,20 @@ $env:NS_BASELINE = '<that date>'               # every runner puts the clock bac
 ## 3. Run
 **Automated cases** (`ns.ps1`, one case, a list, or an area):
 ```powershell
-.\ns.ps1 smoke                                  # quick health check: settings, NetSuite reachable
-.\ns.ps1 INV-003 INV-018 PAY-001                # chosen cases
-.\ns.ps1 billing                                # an area: smoke, billing, customer, inbound, credits, screens, exempt, basics
-.\ns.ps1 INV-003 -Headed -SlowMo 300            # watch it in the browser
+.\scripts\netsuite\ns.ps1 smoke                                  # quick health check: settings, NetSuite reachable
+.\scripts\netsuite\ns.ps1 INV-003 INV-018 PAY-001                # chosen cases
+.\scripts\netsuite\ns.ps1 billing                                # an area: smoke, billing, customer, inbound, credits, screens, exempt, basics
+.\scripts\netsuite\ns.ps1 INV-003 -Headed -SlowMo 300            # watch it in the browser
 ```
 **Billing cycle on a new contract** (`ns-cycle.ps1`, about 45 minutes; provisions a contract, bills three months, collection, suspension, payment, reconnection, plan change, cancellation):
 ```powershell
-.\ns-cycle.ps1 full -Start <YYYY-MM-01> -CleanSchedules
+.\scripts\netsuite\ns-cycle.ps1 full -Start <YYYY-MM-01> -CleanSchedules
 ```
 Every case, its command and its prerequisites (credit windows, contracts, Coope's test contracts): the runbook **`netsuite-suite\docs\NEXT-RUN.md`**, section 6.
 
 ## 4. Results
 - `netsuite-suite\results\NetSuite_Regression_TestSuite_R2_<date>.csv`: the client file with this run's Actual Result and Status per case.
-- `test-results\` and `netsuite-suite\evidence\`: screenshots and what was sent / received per case.
+- `output\test-results\` and `netsuite-suite\evidence\`: screenshots and what was sent / received per case.
 - The client file itself (`netsuite-suite\NetSuite_Regression_TestSuite…csv`) holds the latest official results; it is updated by QA, not by the runs.
 
 ## 5. Rules

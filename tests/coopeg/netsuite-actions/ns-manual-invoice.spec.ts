@@ -17,7 +17,7 @@ test('NS manual invoice: one line through Manual Billing, answer on screen', asy
   test.skip(!ACC, 'NS_MI_ACCOUNT=<account>');
   const api = new NsApi(await playwright.request.newContext());
   const ui: any = await attachUi(api, browser);
-  const shot = (name: string) => ui.page.screenshot({ path: `test-results/ns-manual-invoice-${ACC}-${name}.png`, fullPage: true }).catch(() => { });
+  const shot = (name: string) => ui.page.screenshot({ path: `output/test-results/ns-manual-invoice-${ACC}-${name}.png`, fullPage: true }).catch(() => { });
   // The answer toast is short-lived: catch it as soon as it appears.
   ui.page.on('console', () => { });
   let result: string;

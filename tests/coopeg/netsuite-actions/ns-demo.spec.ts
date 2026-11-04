@@ -9,7 +9,7 @@
  *                                             on Bills, sent to NetSuite > NetSuite sandbox
  *   Demo 6  A new contract from CoopeWeb      CoopeWeb's request > Account Info (NetSuite customer number) > the order (CoopeWeb's
  *                                             number, waiting for connection) > Services (nothing active or billed yet)
- * Demos 2 and 3 use the invoice of demo 1 while it is open (kept in .ns-demo-state.json); otherwise they make a fresh one first. 4 makes its own.
+ * Demos 2 and 3 use the invoice of demo 1 while it is open (kept in output/ns-demo-state.json); otherwise they make a fresh one first. 4 makes its own.
  * Demos 1-4 write only on the team test account (NS_DEMO_ACCOUNT, default 208886) and never move the clock. Demo 5 bills Coope's
  * test contract 798166 (NS_DEMO_BILL_ACCOUNT; registered in NetSuite) on its next billing day: it moves the clock to that day
  * and back, removes that day's old Daily Schedule (clean-schedules.js, backup kept; needs the VPN) and the schedule bills every
@@ -31,11 +31,11 @@ const ACC = process.env.NS_DEMO_ACCOUNT ?? '208886';
 const BILL_ACC = process.env.NS_DEMO_BILL_ACCOUNT ?? '798166';
 const HOLD = Number(process.env.NS_DEMO_HOLD ?? 5000);
 const WHICH = (process.env.NS_DEMO ?? 'all').split(',');
-const STATE = '.ns-demo-state.json';
+const STATE = 'output/ns-demo-state.json';
 const money = (n: unknown) => Math.abs(Number(n)).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const runs = (n: string) => WHICH.includes('all') || WHICH.includes(n);
 const load = (): Record<string, string> => { try { return JSON.parse(fs.readFileSync(STATE, 'utf8')); } catch { return {}; } };
-const keep = (k: string, v: string) => { fs.writeFileSync(STATE, JSON.stringify({ ...load(), [k]: v }, null, 2)); };
+const keep = (k: string, v: string) => { fs.mkdirSync('output', { recursive: true }); fs.writeFileSync(STATE, JSON.stringify({ ...load(), [k]: v }, null, 2)); };
 
 /** Caption bar on top of every page of this browser context (kept across navigations). */
 async function captions(page: Page) {

@@ -19,13 +19,15 @@ playwright/.auth/
 .env.congero
 .env.coopegsbx2
 
-# Test output
+# Everything a run writes: output/test-results(-<tenant>), playwright-report, artifacts (evidence and
+# handoff files that must survive a run - Playwright clears test-results), run-logs, pw-cache, NetSuite state.
+output/
+# The same folders from before 2026-11-04, when they sat in the repo root.
 test-results/
-# Recon/evidence dumps written by the explore-* specs. Deliberately NOT under
-# test-results/ — Playwright clears that folder around a run and the evidence
-# went with it.
+test-results-*/
 artifacts/
 playwright-report/
+run-logs/
 # Captured console output from local runs (full-run.log, verify-*.log, etc.)
 *.log
 
@@ -48,15 +50,10 @@ tests/examples/
 *.orig
 .env.congero-oci
 .env.oci-dev
-test-results-*/
-
-# per-tenant Chrome disk cache (PW_DISK_CACHE, run-projects.ps1)
 .pw-cache/
 
-# run-projects.ps1: one run per tenant
+# run-projects.ps1 / ns.ps1: one run per tenant (exists only while a run is going)
 .run-lock.*
-
-# NetSuite demo: invoice of demo 1 for demos 2 and 3 (local)
 .ns-demo-state.json
 
 # NetSuite suite copy (netsuite-suite/): run output and local DB configs stay local
@@ -64,6 +61,4 @@ netsuite-suite/results/
 netsuite-suite/evidence/
 netsuite-suite/eft-106/evidence/
 **/.pg-*.json
-
-# NetSuite run output (ns.ps1) - generated on every run, local paths
 .ns-last-run.json

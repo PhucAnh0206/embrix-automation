@@ -3,7 +3,7 @@
  * then wait for each to reach NetSuite (financeSyncStatus SUCCESS and its NC number in the CREATE_CREDIT_NOTES answer).
  *   $env:EMBRIX_ENV_FILE='.env.coopegsbx2'; $env:NS_RESEND='208886:CR-105173,208886:CR-105174'
  *   npx playwright test tests/coopeg/netsuite-actions/ns-resend-credit-notes.spec.ts --project=dev --reporter=line
- * Writes test-results/ns-resend-credit-notes.json.
+ * Writes output/test-results/ns-resend-credit-notes.json.
  */
 import * as fs from 'fs';
 import { test, expect } from '@playwright/test';
@@ -34,7 +34,7 @@ test('re-send credit notes from the Credit/Debit Notes screen', async ({ playwri
     out.push(r);
     console.log(JSON.stringify(r));
   }
-  fs.mkdirSync('test-results', { recursive: true });
-  fs.writeFileSync('test-results/ns-resend-credit-notes.json', JSON.stringify(out, null, 2));
+  fs.mkdirSync('output/test-results', { recursive: true });
+  fs.writeFileSync('output/test-results/ns-resend-credit-notes.json', JSON.stringify(out, null, 2));
   expect(out.filter(r => r.status !== 'SUCCESS').map(r => `${r.note}: ${r.status} ${r.toast}`)).toEqual([]);
 });

@@ -13,7 +13,7 @@
  * asserting against a stale message from a previous run.
  *
  * Output: a Jira-ready 3-column table, written to
- * test-results/notification-reports/ and attached to the HTML report.
+ * output/test-results/notification-reports/ and attached to the HTML report.
  *
  * FUTURE TEMPLATES (JEPYP-50 low balance, -51 balance ended, -52 reconnection,
  * -53 minimum top-up, -54 invoice + statement): add a template file next to

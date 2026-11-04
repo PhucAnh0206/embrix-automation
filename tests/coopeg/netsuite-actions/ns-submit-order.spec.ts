@@ -38,7 +38,7 @@ test('NS provisioning: Submit order for a QA contract', async ({ page, baseURL, 
     await page.waitForTimeout(5000);
     status = (await gql(`{ getSubscriptionByAccountId(input:{id:"${ACC}"}) { status } }`)).data?.getSubscriptionByAccountId?.[0]?.status ?? '';
   }
-  await page.screenshot({ path: `test-results/ns-submit-${ACC}.png`, fullPage: true }).catch(() => {});
+  await page.screenshot({ path: `output/test-results/ns-submit-${ACC}.png`, fullPage: true }).catch(() => {});
   testLogger.log(`${ACC}: subscription ${status || 'unknown'} (expected ${EXPECT})`);
   expect(status).toBe(EXPECT);
 });

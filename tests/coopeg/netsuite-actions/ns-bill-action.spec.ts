@@ -6,7 +6,7 @@
  *   NS_BILL_DATE=yyyy-mm-dd                EXTEND_DUE_DATE: the new due date typed in the form
  *   NS_BILL_GO=true                        submit (UNDO creates a full credit note; EXTEND changes the due date)
  * Checks: INV-018 (Undo offered for an invoice already in NetSuite, and its credit note reaches NetSuite) and the
- * Bills EXTEND_DUE_DATE date (saved one day short before the 31 Oct fix). Evidence: test-results\ns-bill-action-*.png
+ * Bills EXTEND_DUE_DATE date (saved one day short before the 31 Oct fix). Evidence: output\test-results\ns-bill-action-*.png
  *   $env:EMBRIX_ENV_FILE='.env.coopegsbx2'; npx playwright test tests/coopeg/netsuite-actions/ns-bill-action.spec.ts --project=dev --reporter=line
  */
 import { test, expect } from '@playwright/test';
@@ -17,7 +17,7 @@ const [ACC, INV] = (process.env.NS_BILL ?? '').split(':');
 const ACTION = process.env.NS_BILL_ACTION ?? '';
 const DATE = process.env.NS_BILL_DATE ?? '';
 const GO = process.env.NS_BILL_GO === 'true';
-const shot = (n: string) => `test-results/ns-bill-action-${INV}-${n}.png`;
+const shot = (n: string) => `output/test-results/ns-bill-action-${INV}-${n}.png`;
 
 test('NS Bills action: offered actions, form, optional submit', async ({ page, playwright, baseURL }) => {
   test.setTimeout(10 * 60_000);

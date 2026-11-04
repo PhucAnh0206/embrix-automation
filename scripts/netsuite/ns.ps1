@@ -1,9 +1,9 @@
 # ns.ps1 -- run NetSuite cases (coopegsbx2) with one command.
 #
-#   .\ns.ps1 INV-003                 one case
-#   .\ns.ps1 AR-001 AR-003 -Headed   several cases, browser visible (only screen cases open one)
-#   .\ns.ps1 billing                 a whole area: smoke, billing, customer, inbound, credits, screens, exempt, basics
-#   .\ns.ps1 billing -SlowMo 500     slower clicks (ms between actions)
+#   .\scripts\netsuite\ns.ps1 INV-003                 one case
+#   .\scripts\netsuite\ns.ps1 AR-001 AR-003 -Headed   several cases, browser visible (only screen cases open one)
+#   .\scripts\netsuite\ns.ps1 billing                 a whole area: smoke, billing, customer, inbound, credits, screens, exempt, basics
+#   .\scripts\netsuite\ns.ps1 billing -SlowMo 500     slower clicks (ms between actions)
 #
 # Uses .env.coopegsbx2 for THIS run only (the shared .env and other terminals are untouched), its own
 # output folder, and the same one-run-per-tenant lock as run-projects.ps1.
@@ -31,7 +31,7 @@ $grep = ($ids | ForEach-Object { if ($_.StartsWith('~')) { $_.Substring(1) } els
 $ids = $ids | ForEach-Object { $_ -replace '^~.*?(\w+-\d+):$', '$1' }
 
 # This repo, wherever it is checked out.
-$repo = $PSScriptRoot
+$repo = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))   # this script lives in scripts\<area>\
 $lock = Join-Path $repo '.run-lock.coopegsbx2'
 if (Test-Path $lock) {
   $owner = (Get-Content $lock -Raw).Trim()
@@ -41,7 +41,8 @@ if (Test-Path $lock) {
   }
 }
 
-$json = Join-Path $repo '.ns-last-run.json'
+New-Item -ItemType Directory -Force (Join-Path $repo 'output') | Out-Null
+$json = Join-Path $repo 'output\ns-last-run.json'
 $saved = @{ EMBRIX_ENV_FILE = $env:EMBRIX_ENV_FILE; PW_SLOWMO = $env:PW_SLOWMO; PLAYWRIGHT_JSON_OUTPUT_NAME = $env:PLAYWRIGHT_JSON_OUTPUT_NAME; PLAYWRIGHT_HTML_OPEN = $env:PLAYWRIGHT_HTML_OPEN }
 Push-Location $repo
 try {
@@ -53,7 +54,7 @@ try {
   Remove-Item $json -ErrorAction SilentlyContinue
   Write-Host "NetSuite (coopegsbx2): $($ids -join ', ')" -ForegroundColor Cyan
   # ns-08 / ns-98 are the NetSuite-side checks: they need a person to sign in to NetSuite first, so not here.
-  $pw = @('playwright', 'test', '--project=netsuite', '--workers=1', '--output=test-results-coopegsbx2',
+  $pw = @('playwright', 'test', '--project=netsuite', '--workers=1', '--output=output/test-results-coopegsbx2',
           '--reporter=list,html,json,./reporters/netsuite-csv.reporter.ts', '--grep', $grep, 'coopeg/netsuite/ns-0[0-7]')
   if ($Headed) { $pw += '--headed' }
   & npx @pw

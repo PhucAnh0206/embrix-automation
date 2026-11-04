@@ -7,7 +7,7 @@
  *   $env:EMBRIX_ENV_FILE='.env.coopegsbx2'; $env:NS_BULK_INVOICE='<invoice of 208886>'; $env:NS_BULK_DATE='2027-11-03'
  *   npx playwright test tests/coopeg/netsuite-actions/ns-bulk-adjustment.spec.ts --project=dev --reporter=line
  * Optional: NS_BULK_ACCOUNT (208886), NS_BULK_AMOUNT (100), NS_BULK_REASON ("Corrección" not stamped;
- * "NC - Error en facturación" stamped). Writes test-results/ns-bulk-adjustment.json.
+ * "NC - Error en facturación" stamped). Writes output/test-results/ns-bulk-adjustment.json.
  */
 import * as fs from 'fs';
 import * as path from 'path';
@@ -33,8 +33,8 @@ test('CRN-004: bulk credit upload reaches NetSuite', async ({ page, baseURL, tes
   expect(DATE, 'NS_BULK_DATE (credit window)').toMatch(/^\d{4}-\d{2}-\d{2}$/);
 
   const name = `qa_ns_crn004_${new Date().toISOString().replace(/\D/g, '').slice(4, 12)}.csv`;
-  const file = path.join('test-results', name);
-  fs.mkdirSync('test-results', { recursive: true });
+  const file = path.join('output', 'test-results', name);
+  fs.mkdirSync('output/test-results', { recursive: true });
   fs.writeFileSync(file, 'adjustmenttype;source;userId;artype;reason;customreason;taxrule;accountid;invoiceid;amount;percent;startdate;ticketnumber;notes\n'
     + `BILL_ADJUSTMENT;AGENT_CARE;congeroadmin;CREDIT;;${REASON};WITH_TAX;${ACC};${INV};${AMOUNT};;;;QA-NS-CRN-004\n`);
   const out: any = { file: name, account: ACC, invoice: INV, amount: AMOUNT, reason: REASON };
@@ -68,7 +68,7 @@ test('CRN-004: bulk credit upload reaches NetSuite', async ({ page, baseURL, tes
     await page.locator('tbody').getByText('View').first().click();
     await page.waitForTimeout(5000);
     out.lines = (await page.locator('body').innerText()).match(/Created Date[\s\S]*?(?=\n\d+\nPage size|$)/)?.[0];
-    await page.screenshot({ path: `test-results/ns-bulk-${name}.png`, fullPage: true }).catch(() => {});
+    await page.screenshot({ path: `output/test-results/ns-bulk-${name}.png`, fullPage: true }).catch(() => {});
   } finally {
     testLogger.log(`clock restored ${await setClock(base)}`);
   }
@@ -79,7 +79,7 @@ test('CRN-004: bulk credit upload reaches NetSuite', async ({ page, baseURL, tes
     const a = acts.find((x: any) => x.entityId === out.note.id && x.apiName === 'CREATE_CREDIT_NOTES');
     out.netsuite = { activity: a?.id, request: a?.request && JSON.parse(a.request)?.creditMemo, response: a?.response && JSON.parse(a.response) };
   }
-  fs.writeFileSync('test-results/ns-bulk-adjustment.json', JSON.stringify(out, null, 1));
+  fs.writeFileSync('output/test-results/ns-bulk-adjustment.json', JSON.stringify(out, null, 1));
   testLogger.log(`stats: ${out.stats}`);
   testLogger.log(`lines: ${String(out.lines).replace(/\s+/g, ' ')}`);
   testLogger.log(`credit note: ${JSON.stringify(out.note)}; NetSuite ${JSON.stringify(out.netsuite?.response)}`);

@@ -25,7 +25,7 @@
  *       picked up. FINANCE_SYNC_ACCOUNT would pick it up, but it is not in the DAILY schedule.
  *     - asserts each created account has none of those rows, and FAILS loudly if it does,
  *     - never runs billing to "prove" the impact,
- *     - writes every accepted bad id to artifacts/account-id-validation-created.json.
+ *     - writes every accepted bad id to output/artifacts/account-id-validation-created.json.
  *
  *   npx playwright test --project=jasec-regression --grep '@acct-id-validation'
  */

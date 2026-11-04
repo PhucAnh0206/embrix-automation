@@ -12,7 +12,7 @@
  * date, must list every one of those transactions with the same Net Amount. One reading, not the whole
  * history, so grid paging can never hide a row and fake a failure.
  *
- * INPUT: `artifacts/block-e-results.json`, the results file the QA tariff runner writes at the end of every run
+ * INPUT: `output/artifacts/block-e-results.json`, the results file the QA tariff runner writes at the end of every run
  * (since 2026-10-06). Missing, or written for another tenant = BLOCKED. A scenario that did not PASS is not
  * judged here - its arithmetic already failed or never ran.
  *

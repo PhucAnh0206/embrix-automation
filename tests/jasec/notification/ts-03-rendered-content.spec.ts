@@ -65,7 +65,7 @@ const EXPECTED_MISSING: Record<string, string> = {
  */
 const SCAN_DEPTH = 12;
 
-// artifacts/, NOT test-results/ - Playwright WIPES test-results around runs
+// output/artifacts/, NOT output/test-results/ - Playwright WIPES test-results around runs
 // (.gitignore:20 says so), so evidence written there can vanish between being
 // produced and being read. Recommendation 6 of SUITE-AUDIT-2026-09-10; the same
 // fault was already fixed for ts-02's run plan on 2026-09-10 and for the

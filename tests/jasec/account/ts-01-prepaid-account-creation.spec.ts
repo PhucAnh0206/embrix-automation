@@ -340,18 +340,18 @@ test.describe('TS-01 — Prepaid Account Creation (Energia Prepago)', {
     if (isCalcMode) {
       // WRITTEN TO BOTH PLACES ON PURPOSE.
       //
-      // `test-results/` is managed by Playwright and gets cleared around runs,
+      // `output/test-results/` is managed by Playwright and gets cleared around runs,
       // so a handoff left only there can vanish between the spec writing it and
       // the PowerShell caller reading it. That is not theoretical: on
       // 2026-09-14 seed-two-cycle-account.ps1 logged the write, reported
       // "2 passed", and then died on `Handoff file not found` for the path it
       // had just been told about. The file was genuinely gone.
       //
-      // `artifacts/` is the suite's established home for anything that has to
-      // survive a run, so that is now the primary. test-results/ is still
+      // `output/artifacts/` is the suite's established home for anything that has to
+      // survive a run, so that is now the primary. output/test-results/ is still
       // written so that any consumer not yet updated keeps working - five
       // scripts read this file and they should not have to change in lockstep.
-      // Readers should prefer artifacts/ and fall back.
+      // Readers should prefer output/artifacts/ and fall back.
       const handoffJson = JSON.stringify(
         { accountId, provisioningId, orderId, lecturaInicialKwh: calcLecturaInicial }, null, 2);
       // Per tenant since 2026-10-14 (helpers/tenant-paths.ts): one fixed path let two tenants' runs swap handoffs.
