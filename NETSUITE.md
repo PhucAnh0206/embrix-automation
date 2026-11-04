@@ -55,9 +55,9 @@ Every case, its command and its prerequisites (credit windows, contracts, Coope'
 ## Folder map
 | Path | What |
 |---|---|
-| `tests\regression\netsuite\` | The regression specs (ns-00 … ns-08) |
-| `tests\dev\ns-*.spec.ts` | Screen runners used by `ns-cycle.ps1` and the extra checks (provisioning, billing run, Bills actions, NetSuite sandbox) |
-| `tests\eft-106\` | Client escalation checks (EFT-107 / 108 / 109) |
+| `tests\coopeg\netsuite\` | The regression specs (ns-00 … ns-08) |
+| `tests\coopeg\netsuite-actions\ns-*.spec.ts` | Screen runners used by `ns-cycle.ps1` and the extra checks (provisioning, billing run, Bills actions, NetSuite sandbox) |
+| `tests\coopeg\tickets\eft-106\` | Client escalation checks (EFT-107 / 108 / 109) |
 | `helpers\netsuite\` | Shared NetSuite code (API, screens, data, records) |
 | `netsuite-suite\` | Client file, internal checks, tools, runbook |
 | `ns.ps1`, `ns-cycle.ps1` | Runners |

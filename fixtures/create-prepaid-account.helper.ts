@@ -33,7 +33,7 @@ export interface JasecOrderData {
 
 /**
  * Shape of one JASEC test-data row (account only — no order).
- * Loaded from `test-data/jasec-prepaid-accounts.data.json`.
+ * Loaded from `tests/data/jasec-prepaid-accounts.data.json`.
  */
 export type PrepaidAccountRow = {
   accountInfo: PrepaidAccountPayload['accountInfo'];
@@ -372,7 +372,7 @@ export async function createPrepaidAccountViaGateway(
   const { testLogger, accountOrderApiHelper } = fixtures;
 
   const started = Date.now();
-  // Mirrors test-data/jasec-prepaid-accounts.data.json, minus the meter. The
+  // Mirrors tests/data/jasec-prepaid-accounts.data.json, minus the meter. The
   // template merged in underneath is CoopeG-shaped (Guanacaste), so every
   // address field is overridden here rather than inherited.
   const { accountId } = await accountOrderApiHelper.createAccountAndOrder({

@@ -7,7 +7,7 @@ import type {
   CheckResult,
   NotificationContext,
   NotificationTemplate,
-} from '../test-data/notifications/types';
+} from '../tests/data/notifications/types';
 
 /**
  * NotificationReportHelper — evaluates a NotificationTemplate's field checks

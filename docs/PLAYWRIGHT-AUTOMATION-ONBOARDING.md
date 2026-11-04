@@ -92,7 +92,7 @@ don't need to write code to *run* tests, but these terms make the rest of this g
 
 | Term | What it is | In our repo |
 |---|---|---|
-| **Spec file** | a file of tests, name ends in `.spec.ts` | `tests/regression/jasec/top-up/ts-02-topup.spec.ts` |
+| **Spec file** | a file of tests, name ends in `.spec.ts` | `tests/jasec/top-up/ts-02-topup.spec.ts` |
 | **Test** | one scenario: a name plus a list of actions and checks | `test('2.3a: Top Up using Pay with PlaceToPay — APPROVE card', …)` |
 | **describe** | a group of tests inside one file | `test.describe('TS-02 Top-up', …)` |
 | **Step** | a named part of a test, shown as a heading in the reports | `test.step('ACTIVE subscription', …)` |
@@ -286,8 +286,8 @@ Commands run in the repo folder, after `.\switch-env.ps1 <tenant>`.
 | **one case** (by its tag) | `npx playwright test --grep "@tc-11\b"` |
 | **several cases** | `npx playwright test --grep "@tc-11\b\|@tc-12\b"` (`\|` = "or") |
 | **one functionality** (a project) | `npx playwright test --project=jasec-top-up` |
-| **one file** | `npx playwright test tests/regression/jasec/top-up/ts-02-topup.spec.ts` |
-| **one test in a file, by line** | `npx playwright test tests/regression/jasec/top-up/ts-02-topup.spec.ts:335` |
+| **one file** | `npx playwright test tests/jasec/top-up/ts-02-topup.spec.ts` |
+| **one test in a file, by line** | `npx playwright test tests/jasec/top-up/ts-02-topup.spec.ts:335` |
 | **by words in the test name** | `npx playwright test --grep "PlaceToPay"` |
 | **everything except** something | `--grep-invert "@tc-64x"` |
 | **only list** what would run (runs nothing) | add `--list` |
@@ -505,7 +505,7 @@ VPN and your Core UI login are needed for **everything** on dev/preprod, so they
 ### 6.6 Functionality map
 
 Each row: the **project**, the **switch** (if any), whether it **changes data**, and the case numbers. Specs are in
-`tests/regression/jasec/`.
+`tests/jasec/`.
 
 #### Customers
 
@@ -560,13 +560,13 @@ $env:JASEC_DISPATCH_RUN='true'; $env:JASEC_BATCH_N='2'
 npx playwright test --project=jasec-provisioning
 
 $env:JASEC_SUSPEND_ORDERS_RUN='true'
-$f='tests/regression/jasec/provisioning/suspend-resume-orders.spec.ts'
+$f='tests/jasec/provisioning/suspend-resume-orders.spec.ts'
 npx playwright test --project=jasec-provisioning-orders $f --grep "@order-journey"
 npx playwright test --project=jasec-provisioning-orders $f --grep "@resume-billing-only-suspend"
 npx playwright test --project=jasec-provisioning-orders $f --grep "@api-control"
 
 $env:JASEC_AUTO_PROV_RUN='true'
-$f='tests/regression/jasec/provisioning/auto-suspend-resume.spec.ts'
+$f='tests/jasec/provisioning/auto-suspend-resume.spec.ts'
 # one at a time, in this order: @tc-131  @auto-nise  @tc-128  @tc-132  @tc-133  @tc-134  @tc-129
 npx playwright test --project=jasec-provisioning-orders $f --grep "@tc-131\b"
 ```
@@ -590,7 +590,7 @@ bill date to use:
 
 ```powershell
 $env:JASEC_SEED_RUN='true'; $env:JASEC_CLOCK_KEEP='true'
-npx playwright test --project=jasec-seed tests/regression/jasec/seed/seed-notification-cohort.spec.ts
+npx playwright test --project=jasec-seed tests/jasec/seed/seed-notification-cohort.spec.ts
 #   → look for the line:  COHORT ... | bill date 2026-08-04
 $env:JEPYP230_LIVE_RUN='true'; $env:JEPYP230_SCHEDULE_DATE='2026-08-04'; $env:JASEC_WARN_PROFILE='prepaid'
 npx playwright test --project=jasec-notification-live
@@ -616,8 +616,8 @@ Without a date, both look for a usable day themselves, and report BLOCKED if the
 
 ```powershell
 $env:JASEC_BILL_RUN='true'
-npx playwright test --project=jasec-billing-run tests/regression/jasec/billing/ts-06-billing-run.spec.ts --headed
-npx playwright test --project=jasec-billing-run tests/regression/jasec/billing/ts-07-invoice-document.spec.ts
+npx playwright test --project=jasec-billing-run tests/jasec/billing/ts-06-billing-run.spec.ts --headed
+npx playwright test --project=jasec-billing-run tests/jasec/billing/ts-07-invoice-document.spec.ts
 npx playwright test --project=jasec-billing-read --grep-invert "@aresep"        # @aresep is parked
 ```
 
@@ -917,7 +917,7 @@ the e-mail address test customers get (a placeholder is used otherwise). No VPN.
 
 ### 9.3 Run it
 
-The whole regression is **one file of about 40 tests in a fixed order**: `tests/regression/embrixPlatform/ts-02.spec.ts`,
+The whole regression is **one file of about 40 tests in a fixed order**: `tests/embrix-platform/ts-02.spec.ts`,
 project `embrix-platform`. Tests are named `TC-00: …`, `TC-01: …`.
 
 ```powershell

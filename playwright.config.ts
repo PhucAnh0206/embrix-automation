@@ -102,7 +102,7 @@ export default defineConfig({
     ['html', { outputFolder: 'playwright-report', open: 'never' }],
     ['junit', { outputFile: 'test-results/junit.xml' }],
     ['list'],
-    // Acts only on tests under regression/netsuite; a no-op for every other suite.
+    // Acts only on tests under coopeg/netsuite; a no-op for every other suite.
     ['./reporters/netsuite-csv.reporter.ts'],
   ],
 
@@ -195,6 +195,7 @@ export default defineConfig({
     {
       name: 'smoke',
       testMatch: '**/smoke/*.spec.ts',
+      testIgnore: '**/smoke/read-context.spec.ts',   // needs a login: runs in `dev`
       use: { ...devices['Desktop Chrome'] },
     },
 
@@ -203,7 +204,7 @@ export default defineConfig({
       // ts-02 — the 41-case Embrix platform suite. Runs on any tenant that
       // carries a normal catalog.
       name: 'embrix-platform',
-      testMatch: ['**/regression/embrixPlatform/*.spec.ts'],
+      testMatch: ['**/embrix-platform/*.spec.ts'],
       dependencies: ['setup'],
       use: {
         ...devices['Desktop Chrome'],
@@ -218,7 +219,7 @@ export default defineConfig({
       // spec path silently ran this one too, with its billing jobs and extra
       // clock moves.
       name: 'coopeg-lifecycle',
-      testMatch: ['**/regression/coopeguanacaste/*.spec.ts'],
+      testMatch: ['**/coopeg/lifecycle/*.spec.ts'],
       dependencies: ['setup'],
       use: {
         ...devices['Desktop Chrome'],
@@ -231,7 +232,7 @@ export default defineConfig({
     // title starts with its Case ID so results map back to the CSV.
     {
       name: 'netsuite',
-      testMatch: ['**/regression/netsuite/*.spec.ts'],
+      testMatch: ['**/coopeg/netsuite/*.spec.ts'],
       dependencies: ['setup'],
       use: {
         ...devices['Desktop Chrome'],
@@ -243,7 +244,7 @@ export default defineConfig({
     // (EFT-109). Plan and coverage: docs\NetSuite\EFT-106-COVERAGE.md. Results: test-cases\netsuite\eft-106\.
     {
       name: 'eft106',
-      testMatch: ['**/eft-106/*.spec.ts'],
+      testMatch: ['**/coopeg/tickets/eft-106/*.spec.ts'],
       dependencies: ['setup'],
       use: {
         ...devices['Desktop Chrome'],
@@ -251,15 +252,14 @@ export default defineConfig({
       },
     },
 
-    // ── Dev: documentation / scratch specs. NOT part of regression ────
-    // `read-context.spec.ts` demonstrates the test-context helper by writing
-    // placeholder ids (INV-FIXTURE-67890, INV-DIRECT-12345). While it lived
-    // under regression/coopeguanacaste it ran on every regression pass and
-    // wrote those fakes into the then-shared context file, which other suites
-    // read back as real data. Keep demo specs out of `regression`.
+    // ── Dev: one-off runners, NOT part of any regression ────
+    // - coopeg/netsuite-actions: NetSuite screen runners (ns-cycle.ps1, ns-demo.ps1, extra checks)
+    // - jasec/probes: one-off JASEC investigations
+    // - smoke/read-context: demonstrates the test-context helper by writing placeholder ids
+    //   (INV-FIXTURE-67890, INV-DIRECT-12345); in a regression project it would feed those fakes to other suites.
     {
       name: 'dev',
-      testMatch: ['**/dev/*.spec.ts'],
+      testMatch: ['**/coopeg/netsuite-actions/*.spec.ts', '**/jasec/probes/*.spec.ts', '**/smoke/read-context.spec.ts'],
       dependencies: ['setup'],
       use: {
         ...devices['Desktop Chrome'],
@@ -270,7 +270,7 @@ export default defineConfig({
     // ── JASEC regression: prepaid account creation + JASEC-specific flows
     {
       name: 'jasec-regression',
-      testMatch: ['**/regression/jasec/*.spec.ts'],
+      testMatch: ['**/jasec/account/ts-01*.spec.ts', '**/jasec/customer-form/ts-02-*.spec.ts', '**/jasec/customer-form/ts-03-*.spec.ts'],
       dependencies: ['setup'],
       use: {
         ...devices['Desktop Chrome'],
@@ -284,7 +284,7 @@ export default defineConfig({
     {
       name: 'jasec-notification',
       // ts-01 only. Its siblings in this folder are separate projects — see below.
-      testMatch: ['**/regression/jasec/notification/ts-01-*.spec.ts'],
+      testMatch: ['**/jasec/notification/ts-01-*.spec.ts'],
       dependencies: ['setup'],
       use: {
         ...devices['Desktop Chrome'],
@@ -298,7 +298,7 @@ export default defineConfig({
     // neither UI auth nor a billing run and is safe to run at any time.
     {
       name: 'jasec-notification-content',
-      testMatch: ['**/regression/jasec/notification/ts-03-*.spec.ts'],
+      testMatch: ['**/jasec/notification/ts-03-*.spec.ts'],
     },
 
     // ── JASEC notification live run: stages balance bands, fires a billing
@@ -307,7 +307,7 @@ export default defineConfig({
     // JEPYP230_LIVE_RUN=true inside the spec; skips without it.
     {
       name: 'jasec-notification-live',
-      testMatch: ['**/regression/jasec/notification/ts-02-*.spec.ts'],
+      testMatch: ['**/jasec/notification/ts-02-*.spec.ts'],
     },
 
     // ── JASEC notification reconnection: Event 6 (report cases 5.2 / 5.3).
@@ -317,7 +317,7 @@ export default defineConfig({
     // of the read-only content suite.
     {
       name: 'jasec-notification-reconnect',
-      testMatch: ['**/regression/jasec/notification/ts-04-*.spec.ts'],
+      testMatch: ['**/jasec/notification/ts-04-*.spec.ts'],
       dependencies: ['setup'],
       use: {
         ...devices['Desktop Chrome'],
@@ -331,7 +331,7 @@ export default defineConfig({
     // rather than part of the read-only content suite.
     {
       name: 'jasec-notification-tiers',
-      testMatch: ['**/regression/jasec/notification/ts-05-*.spec.ts'],
+      testMatch: ['**/jasec/notification/ts-05-*.spec.ts'],
     },
 
     // ── JASEC provisioning (JEPYP-27): suspend/reconnect, both directions plus
@@ -365,8 +365,8 @@ export default defineConfig({
     // jasec-provisioning-orders below, because they need a browser and a logged-in session and these do not.
     {
       name: 'jasec-provisioning',
-      testMatch: ['**/regression/jasec/provisioning/*.spec.ts'],
-      testIgnore: ['**/regression/jasec/provisioning/suspend-resume-orders.spec.ts', '**/regression/jasec/provisioning/reprocess-failed-step.spec.ts', '**/regression/jasec/provisioning/auto-suspend-resume.spec.ts'],
+      testMatch: ['**/jasec/provisioning/*.spec.ts'],
+      testIgnore: ['**/jasec/provisioning/suspend-resume-orders.spec.ts', '**/jasec/provisioning/reprocess-failed-step.spec.ts', '**/jasec/provisioning/auto-suspend-resume.spec.ts'],
     },
 
     // ── JASEC provisioning through the Core UI.
@@ -392,7 +392,7 @@ export default defineConfig({
     // JASEC_HELD_CYCLE_RUN for @auto-held-cycle).
     {
       name: 'jasec-provisioning-orders',
-      testMatch: ['**/regression/jasec/provisioning/suspend-resume-orders.spec.ts', '**/regression/jasec/provisioning/reprocess-failed-step.spec.ts', '**/regression/jasec/provisioning/auto-suspend-resume.spec.ts'],
+      testMatch: ['**/jasec/provisioning/suspend-resume-orders.spec.ts', '**/jasec/provisioning/reprocess-failed-step.spec.ts', '**/jasec/provisioning/auto-suspend-resume.spec.ts'],
       dependencies: ['setup'],
       use: {
         ...devices['Desktop Chrome'],
@@ -414,9 +414,9 @@ export default defineConfig({
     {
       name: 'jasec-billing-run',
       testMatch: [
-        '**/regression/jasec/billing/ts-06-*.spec.ts',
-        '**/regression/jasec/billing/ts-07-*.spec.ts',
-        '**/regression/jasec/billing/ts-08-*.spec.ts',
+        '**/jasec/billing/ts-06-*.spec.ts',
+        '**/jasec/billing/ts-07-*.spec.ts',
+        '**/jasec/billing/ts-08-*.spec.ts',
       ],
       dependencies: ['setup'],
       use: {
@@ -438,7 +438,7 @@ export default defineConfig({
       // One folder, two projects, split by filename prefix: `explore-*` needs a
       // browser and the VPN, `read-*` needs neither. Keep the prefixes.
       name: 'jasec-billing-explore',
-      testMatch: ['**/regression/jasec/billing/explore-*.spec.ts'],
+      testMatch: ['**/jasec/explore/billing/explore-*.spec.ts'],
       dependencies: ['setup'],
       use: {
         ...devices['Desktop Chrome'],
@@ -450,7 +450,7 @@ export default defineConfig({
       // TC-153 (2026-10-15): a month-end bill the balance cannot cover is billed into debt, the customer is cut, a
       // top-up reconnects (the F8 fix). Gated JASEC_REFUSED_BILL_RUN=true; runs only in Costa Rica weekday daytime.
       name: 'jasec-billing-refused',
-      testMatch: ['**/regression/jasec/billing/ts-15-*.spec.ts'],
+      testMatch: ['**/jasec/billing/ts-15-*.spec.ts'],
       dependencies: ['setup'],
       use: {
         ...devices['Desktop Chrome'],
@@ -462,7 +462,7 @@ export default defineConfig({
       // Evidence videos for the team: one happy case per ticket, captions on screen, video always kept.
       // Gate: JASEC_EVIDENCE_RUN=true. Not official coverage.
       name: 'jasec-evidence-video',
-      testMatch: ['**/regression/jasec/evidence/*.spec.ts'],
+      testMatch: ['**/jasec/tickets/jepyp-475/*.spec.ts'],
       dependencies: ['setup'],
       fullyParallel: false,
       use: {
@@ -479,7 +479,7 @@ export default defineConfig({
       // one (credit and debt). Gated JASEC_BALANCE_TRANSFER_RUN=true; BLOCKED "fix not deployed" until
       // JASEC_JEPYP475_DEPLOYED=true. Account cases.
       name: 'jasec-balance-transfer',
-      testMatch: ['**/regression/jasec/account/ts-04-*.spec.ts'],
+      testMatch: ['**/jasec/account/ts-04-*.spec.ts'],
       dependencies: ['setup'],
       fullyParallel: false,
       use: {
@@ -494,7 +494,7 @@ export default defineConfig({
     // 02 (tax) and 03 (receipt) also order, top up and bill on a free date - dev / preprod only, the specs refuse prod.
     {
       name: 'jasec-customer-form-explore',
-      testMatch: ['**/regression/jasec/customer-form/explore-*.spec.ts'],
+      testMatch: ['**/jasec/explore/customer-form/explore-*.spec.ts'],
       dependencies: ['setup'],
       use: {
         ...devices['Desktop Chrome'],
@@ -528,12 +528,12 @@ export default defineConfig({
     // this read-only project.
       name: 'jasec-billing-read',
       testMatch: [
-        '**/regression/jasec/billing/ts-01-*.spec.ts',
-        '**/regression/jasec/billing/ts-02-*.spec.ts',
-        '**/regression/jasec/billing/ts-03-*.spec.ts',
-        '**/regression/jasec/billing/ts-04-*.spec.ts',
-        '**/regression/jasec/billing/ts-05-*.spec.ts',
-        '**/regression/jasec/billing/ts-09-*.spec.ts',
+        '**/jasec/billing/ts-01-*.spec.ts',
+        '**/jasec/billing/ts-02-*.spec.ts',
+        '**/jasec/billing/ts-03-*.spec.ts',
+        '**/jasec/billing/ts-04-*.spec.ts',
+        '**/jasec/billing/ts-05-*.spec.ts',
+        '**/jasec/billing/ts-09-*.spec.ts',
       ],
     },
 
@@ -542,7 +542,7 @@ export default defineConfig({
     //   $env:JASEC_TWO_CYCLE_ACCOUNT='<acct>'; npx playwright test --project=jasec-billing-statement
     {
       name: 'jasec-billing-statement',
-      testMatch: ['**/regression/jasec/billing/ts-14-*.spec.ts'],
+      testMatch: ['**/jasec/billing/ts-14-*.spec.ts'],
       dependencies: ['setup'],
       use: {
         ...devices['Desktop Chrome'],
@@ -559,7 +559,7 @@ export default defineConfig({
     // needs the browser and the logged-in session.
     {
       name: 'jasec-billing-settlement',
-      testMatch: ['**/regression/jasec/billing/ts-13-*.spec.ts'],
+      testMatch: ['**/jasec/billing/ts-13-*.spec.ts'],
       dependencies: ['setup'],
       use: {
         ...devices['Desktop Chrome'],
@@ -584,10 +584,10 @@ export default defineConfig({
     {
       name: 'jasec-accounting',
       testMatch: [
-        '**/regression/jasec/accounting/ts-01-*.spec.ts',
-        '**/regression/jasec/accounting/ts-02-*.spec.ts',
-        '**/regression/jasec/accounting/ts-03-*.spec.ts',
-        '**/regression/jasec/accounting/ts-04-*.spec.ts',   // net tie-out, read-only (2026-10-08)
+        '**/jasec/accounting/ts-01-*.spec.ts',
+        '**/jasec/accounting/ts-02-*.spec.ts',
+        '**/jasec/accounting/ts-03-*.spec.ts',
+        '**/jasec/accounting/ts-04-*.spec.ts',   // net tie-out, read-only (2026-10-08)
       ],
     },
 
@@ -596,7 +596,7 @@ export default defineConfig({
     // Needs the DB, therefore the VPN. No browser.
     {
       name: 'jasec-accounting-run',
-      testMatch: ['**/regression/jasec/accounting/ts-06-*.spec.ts'],
+      testMatch: ['**/jasec/accounting/ts-06-*.spec.ts'],
     },
 
     // ── JASEC billing TRUE-UP: the 0-30 kWh fixed charge and the cycle length
@@ -607,7 +607,7 @@ export default defineConfig({
     // Bills and invoices through the Core UI Bill Pending screen since 2026-10-06 - needs the browser + session.
     {
       name: 'jasec-billing-trueup',
-      testMatch: ['**/regression/jasec/billing/ts-10-*.spec.ts'],
+      testMatch: ['**/jasec/billing/ts-10-*.spec.ts'],
       dependencies: ['setup'],
       use: {
         ...devices['Desktop Chrome'],
@@ -619,14 +619,14 @@ export default defineConfig({
     // Gated inside the spec behind JASEC_BREACH_RUN=true.
     {
       name: 'jasec-billing-breach',
-      testMatch: ['**/regression/jasec/billing/ts-11-*.spec.ts'],
+      testMatch: ['**/jasec/billing/ts-11-*.spec.ts'],
     },
     // ── JASEC billing: a customer who saved a card and topped up with it is still
     // invoiced (JEPYP-326). MUTATING: pays with the PlaceToPay test card, moves the
     // CCP clock, bills. Gated inside the spec behind JASEC_SAVEDCARD_RUN=true.
     {
       name: 'jasec-billing-savedcard',
-      testMatch: ['**/regression/jasec/billing/ts-12-*.spec.ts'],
+      testMatch: ['**/jasec/billing/ts-12-*.spec.ts'],
       dependencies: ['setup'],
       use: {
         ...devices['Desktop Chrome'],
@@ -636,7 +636,7 @@ export default defineConfig({
     {
       // Seeding only (gated JASEC_SEED_RUN): zero-usage invoices over GraphQL.
       name: 'jasec-seed',
-      testMatch: ['**/regression/jasec/seed/*.spec.ts'],
+      testMatch: ['**/jasec/seed/*.spec.ts'],
     },
 
     // ── JASEC USAGE: the credit breach billed into debt and recovered by a top-up (TC-60).
@@ -647,7 +647,7 @@ export default defineConfig({
     // ts-06+ is the mutating band here too; keep read-only usage specs at ts-01..05.
     {
       name: 'jasec-usage-run',
-      testMatch: ['**/regression/jasec/usage/ts-06-*.spec.ts'],
+      testMatch: ['**/jasec/usage/ts-06-*.spec.ts'],
       dependencies: ['setup'],
       use: {
         ...devices['Desktop Chrome'],
@@ -660,7 +660,7 @@ export default defineConfig({
     // it); runs after the tariff calculation cases.
     {
       name: 'jasec-usage-charges',
-      testMatch: ['**/regression/jasec/usage/ts-01-*.spec.ts'],
+      testMatch: ['**/jasec/usage/ts-01-*.spec.ts'],
       dependencies: ['setup'],
       use: {
         ...devices['Desktop Chrome'],
@@ -675,7 +675,7 @@ export default defineConfig({
     // the spec behind JASEC_USAGE_UI_RUN=true.
     {
       name: 'jasec-usage-screens',
-      testMatch: ['**/regression/jasec/usage/ts-07-*.spec.ts'],
+      testMatch: ['**/jasec/usage/ts-07-*.spec.ts'],
       dependencies: ['setup'],
       use: {
         ...devices['Desktop Chrome'],
@@ -686,7 +686,7 @@ export default defineConfig({
     // ── JASEC top-up: Self Care card mgmt, top-up, Min Amount business logic
     {
       name: 'jasec-top-up',
-      testMatch: ['**/regression/jasec/top-up/*.spec.ts'],
+      testMatch: ['**/jasec/top-up/*.spec.ts'],
       dependencies: ['setup'],
       use: {
         ...devices['Desktop Chrome'],

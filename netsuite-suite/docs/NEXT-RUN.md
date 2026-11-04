@@ -14,7 +14,7 @@ Paths below: **suite** = the root of this repo, **tools** = `netsuite-suite\tool
   If a run is killed, set it back by hand: `node tools\clock.js set $env:NS_BASELINE`.
   NetSuite refuses documents dated in a period that is not open (2028 to 2030 open on 31 Oct): if the clock moves into a year that is not open, date tool invoices in an open year (`invoice-and-credit.js <acc> 2028-…`). The screen cases keep the last invoice NetSuite accepted.
 - Settings that pods can overwrite on restart: check `daysBilledAfterSuspension` = 11, `fullCycleOnSameCycleReconnection` = false, `billUsedDaysOnCancel` = true, `financeSyncPrepaidInvoices` = true before billing runs (`ro-query.js` on `core_config.ccp_properties`).
-- Provisioning: the cycle (`ns-cycle.ps1`, DB step, no real NOKIA) uses ONT `ALCLB3D9363D / G-2425G-B` (one contract at a time; cancel the previous one). Real NOKIA / MOTV / PortaOne runs: `tests/eft-106/eft108-network.spec.ts` with ONT `ALCLB3D94488 / G-2425G-B` (§9); this environment and the Demo Sandbox share the NOKIA test system, so one environment at a time. **Never the CoopeG team's `ALCLB3A97FBA`**.
+- Provisioning: the cycle (`ns-cycle.ps1`, DB step, no real NOKIA) uses ONT `ALCLB3D9363D / G-2425G-B` (one contract at a time; cancel the previous one). Real NOKIA / MOTV / PortaOne runs: `tests/coopeg/tickets/eft-106/eft108-network.spec.ts` with ONT `ALCLB3D94488 / G-2425G-B` (§9); this environment and the Demo Sandbox share the NOKIA test system, so one environment at a time. **Never the CoopeG team's `ALCLB3A97FBA`**.
 - Free to test any time (clock moves included); the QA lead says when to stop. Long background runs get killed by memory pressure: run one block at a time.
 
 ## 1. Build check (read-only, ~10 min)
@@ -90,26 +90,26 @@ Suspended-line rules (UAT guide UAT-06..10): `.\ns-cycle.ps1 suspended -Start <Y
 | INV-018 | `.\ns.ps1 INV-018`: a manual invoice on 208886 reaches NetSuite, then Bills > UNDO_MANUAL_INVOICE > SUBMIT (the agents' way since 31 Oct) | invoice kept, CLOSED by a full credit note incl. taxes ("NC - Anulación por refacturación"), stamped, sent applied |
 | INV-001 | Coope contract 798166 (NetSuite customer 120998, bills on the 1st). A Daily Schedule takes its bills when it is created: `node tools\clean-schedules.js <date> <date> --go`, `.\ns-cycle.ps1 schedule -Date <date>`, `node tools\contract-state.js 798166 --calls` | recurring invoice sent once, accepted (FA…) |
 | CRN-006 (stamped reason) | `node tools\credit-note.js line 208886 <invoice> I_INT 500 WITHOUT_TAX "NC - Error en facturación" <date>` | tax code 5, tax 0, stamped, accepted |
-| CRN-004 | `$env:NS_BULK_INVOICE='<invoice of 208886>'; $env:NS_BULK_DATE='<credit window>'; npx playwright test tests/dev/ns-bulk-adjustment.spec.ts --project=dev` (clock set and restored). By hand: Core UI > AR Operations > Bulk Adjustments > Upload; example file in `netsuite-suite\evidence\bulk\`, new file name each time | file 1 / 0 / 0 / 1, line COMPLETED, credit note SUCCESS in NetSuite |
+| CRN-004 | `$env:NS_BULK_INVOICE='<invoice of 208886>'; $env:NS_BULK_DATE='<credit window>'; npx playwright test tests/coopeg/netsuite-actions/ns-bulk-adjustment.spec.ts --project=dev` (clock set and restored). By hand: Core UI > AR Operations > Bulk Adjustments > Upload; example file in `netsuite-suite\evidence\bulk\`, new file name each time | file 1 / 0 / 0 / 1, line COMPLETED, credit note SUCCESS in NetSuite |
 | AR-006 | `$env:NS_AR006_ACCOUNT='<account>'; $env:NS_AR006_INVOICE='<invoice whose collection started after the current settings>'; .\ns.ps1 AR-006`, clock before its next action. One grant per collection unit | SUCCESS, GRACE_PERIOD_REQUESTED, next action 5 days later |
-| Re-send a credit note | `$env:NS_RESEND='<acc>:<CR-id>,...'; npx playwright test tests/dev/ns-resend-credit-notes.spec.ts --project=dev` (Credit/Debit Notes > SYNC_CREDIT_NOTE, only on a credit in ERROR); API: `node tools\credit-note.js resend <acc> <CR-id>` | sync SUCCESS, NC… |
+| Re-send a credit note | `$env:NS_RESEND='<acc>:<CR-id>,...'; npx playwright test tests/coopeg/netsuite-actions/ns-resend-credit-notes.spec.ts --project=dev` (Credit/Debit Notes > SYNC_CREDIT_NOTE, only on a credit in ERROR); API: `node tools\credit-note.js resend <acc> <CR-id>` | sync SUCCESS, NC… |
 
 `<date>` / credit window: after the contract's latest credit note, not in September 2027, in an open NetSuite period:
 `node tools\ro-query.js "select accountid, max(notesdate) from core_engine.notes_unit where accountid in ('798169','244822','208886') group by 1"` (dates in UTC, +1 day locally). ENG-006-02 also credits 244822 (`NS_ENG00602_ACCOUNT` for another account). 244822's exemption runs to 2027-12-31.
 
 ## 5. NetSuite sandbox check (automated, view only)
-`$env:NS_SB_FIND='FA…,NC…'; npx playwright test tests/dev/ns-sandbox-check.spec.ts --project=dev` signs in itself (session in `playwright/.auth/netsuite-sandbox.json`, account in the git-ignored `.env.coopegsbx2`) and looks up each document number: total, customer, date, status, amount, with screenshots. All regression documents: `tests/dev/ns-sandbox-documents.spec.ts` → `netsuite-suite\results\NetSuite_sandbox_documents.csv`. Avoid fresh logins (each may show the security-questions prompt, never answered); never Edit / Save in NetSuite.
+`$env:NS_SB_FIND='FA…,NC…'; npx playwright test tests/coopeg/netsuite-actions/ns-sandbox-check.spec.ts --project=dev` signs in itself (session in `playwright/.auth/netsuite-sandbox.json`, account in the git-ignored `.env.coopegsbx2`) and looks up each document number: total, customer, date, status, amount, with screenshots. All regression documents: `tests/coopeg/netsuite-actions/ns-sandbox-documents.spec.ts` → `netsuite-suite\results\NetSuite_sandbox_documents.csv`. Avoid fresh logins (each may show the security-questions prompt, never answered); never Edit / Save in NetSuite.
 
 ## 6. Every case: how it runs
 | Case(s) | How | Notes |
 |---|---|---|
 | CRM-001, CRM-003, CRM-004, AUTH-001, REG-003, INV-003, INV-005, INV-006, INV-009, MAP-001, MAP-002, MAP-004, MAP-006, AR-001, AR-002, PAY-001, API-001, RPT-001/002, RPT-005 | `ns.ps1` | §2 |
-| CRM-005, CRM-006 | `tests/eft-106/eft107-client-issues.spec.ts` (EFT107-I1..I3: order number kept; no plan or active service before connection) | `netsuite-suite\eft-106\README.md` |
+| CRM-005, CRM-006 | `tests/coopeg/tickets/eft-106/eft107-client-issues.spec.ts` (EFT107-I1..I3: order number kept; no plan or active service before connection) | `netsuite-suite\eft-106\README.md` |
 | INV-007, INV-008, MAP-008, MAP-009, MAP-012, MAP-013 | `ns.ps1` with QA contracts | §2 |
 | INV-010 | `ns.ps1` with `NS_ALLOW_CLOCK=true` | §2 |
 | CRN-001, CRN-002, CRN-005..008, ENG-006-01, ADJ-001, ADJ-002 | `ns.ps1` in a credit window | §2 |
 | AR-006 | `ns.ps1` | §4 |
-| INV-004 | `tests/dev/ns-sync-invoice.spec.ts` on a prepaid electricity invoice | §9 (Bug_049) |
+| INV-004 | `tests/coopeg/netsuite-actions/ns-sync-invoice.spec.ts` on a prepaid electricity invoice | §9 (Bug_049) |
 | INV-002, REG-001, REG-002, SUS-001, CHG-001, CAN-001, CAN-002 | `ns-cycle.ps1 full` | §3 |
 | MAP-007 | `ns-cycle.ps1 provision -Tag X` + schedule | §3 |
 | MAP-003 | `ns-cycle.ps1 provision -Tag H` + schedule | §3 |
@@ -117,8 +117,8 @@ Suspended-line rules (UAT guide UAT-06..10): `.\ns-cycle.ps1 suspended -Start <Y
 | INV-018 | `ns.ps1` (Bills > Undo) | §4 |
 | INV-001, CRN-004 | 798166 + Daily Schedule / Bulk Adjustments upload | §4 |
 | ACC-001..003 | `ro-query.js` on `core_config.config_job_list` (CJ-12 has no EBS_EXTRACT) and `core_engine.job_schedule_list` (no EBS_EXTRACT after 2027-10-02) | |
-| PAY-002..005 | `tests/eft-106/eft108-payments-explore.spec.ts` (under / over / group payment on 208886) | Need confirmation (Coope) |
-| NET-001..004 | `tests/eft-106/eft108-network.spec.ts` | Blocked: §9 |
+| PAY-002..005 | `tests/coopeg/tickets/eft-106/eft108-payments-explore.spec.ts` (under / over / group payment on 208886) | Need confirmation (Coope) |
+| NET-001..004 | `tests/coopeg/tickets/eft-106/eft108-network.spec.ts` | Blocked: §9 |
 | Internal checks (ENV-*, ENG-007-*, ENG-006-02/03, MAP-005/011, AR-003/004, RPT-003, RET-003, EDGE-*) | `ns.ps1` / Dev, per `internal-checks.csv` | not in the client file |
 
 ## 7. Tools (`netsuite-suite\tools`)
@@ -139,7 +139,7 @@ Suspended-line rules (UAT guide UAT-06..10): `.\ns-cycle.ps1 suspended -Start <Y
 | `credit-note.js resend / line / show` | re-send a credit note; line credit with a chosen tax rule and reason, with exact times | credit note |
 | `eft106-report.js` | rebuilds the EFT-107 / 108 / 109 CSVs | files |
 
-UI runners (suite `tests\dev`, `--project=dev`): `ns-provision`, `ns-submit-order`, `ns-cancel-order` (Cancel / Suspend / Resume), `ns-billing-run`, `ns-discount-order` (`NS_DISC_ACCOUNT`, `NS_DISC_OFFER`, `NS_DISC_GO`) — `ns-cycle.ps1` drives them; `ns-sync-invoice` (`NS_SYNC_INVOICE=<acc>:<invoice>`, `NS_SYNC_SHOT_ONLY`), `ns-manual-invoice` (`NS_MI_ACCOUNT`, `NS_MI_LINE=<svc>:<item>:<price>`), `ns-credit-open` (EFT-110), `ns-sandbox-check`, `ns-sandbox-documents`, `ns-bill-action` (`NS_BILL=<acc>:<invoice>`, `NS_BILL_ACTION=UNDO_MANUAL_INVOICE | EXTEND_DUE_DATE`, `NS_BILL_DATE`, `NS_BILL_GO=true`: Bills actions offered, form, submit; INV-018 on screen, Bills due-date extension).
+UI runners (suite `tests\coopeg\netsuite-actions`, `--project=dev`): `ns-provision`, `ns-submit-order`, `ns-cancel-order` (Cancel / Suspend / Resume), `ns-billing-run`, `ns-discount-order` (`NS_DISC_ACCOUNT`, `NS_DISC_OFFER`, `NS_DISC_GO`) — `ns-cycle.ps1` drives them; `ns-sync-invoice` (`NS_SYNC_INVOICE=<acc>:<invoice>`, `NS_SYNC_SHOT_ONLY`), `ns-manual-invoice` (`NS_MI_ACCOUNT`, `NS_MI_LINE=<svc>:<item>:<price>`), `ns-credit-open` (EFT-110), `ns-sandbox-check`, `ns-sandbox-documents`, `ns-bill-action` (`NS_BILL=<acc>:<invoice>`, `NS_BILL_ACTION=UNDO_MANUAL_INVOICE | EXTEND_DUE_DATE`, `NS_BILL_DATE`, `NS_BILL_GO=true`: Bills actions offered, form, submit; INV-018 on screen, Bills due-date extension).
 
 ## 8. Report
 Client CSV: latest result only, business wording, each row states the rule and the result (no "as agreed", internal names, run labels, local bug ids or root causes). Statuses Pass / Fail / Blocked / Need confirmation. Evidence to the client: screenshots only (JSON is internal). Messages: I-voice, inside a ```text block, dev and business points sent separately. NetSuite numbers (FA… / NC…) only after the sandbox check (§5).
@@ -147,10 +147,10 @@ Client CSV: latest result only, business wording, each row states the rule and t
 ## 9. Retest checklist when fixes land
 | Pending item (owner) | Retest | Pass when | Then update |
 |---|---|---|---|
-| Bug_049 prepaid electricity stopped (dev) | Check `financeSyncPrepaidInvoices` = true; find a stamped, unsent prepaid invoice (`ro-query.js` on 146195), then `$env:NS_SYNC_INVOICE='146195:<invoice>'; npx playwright test tests/dev/ns-sync-invoice.spec.ts --project=dev`; §5 lookup. Once the team says how a new prepaid invoice is created: create one (`ns-manual-invoice.spec.ts` with `NS_MI_ACCOUNT=146195`, or their method) and send it | NetSuite SUCCESS with an FA… number; the public lighting line I-100005 carries the tax code Coope gives; found once in the sandbox | INV-004 → Pass; bugs.md, STATUS.md |
-| Overpayment rule (Coope, then dev if it changes) | `tests/eft-106/eft108-payments-explore.spec.ts` (four manual invoices on 208886, under / over / group payment) | Excess kept as a credit for the next invoice (Coope's answer) and how NetSuite learns of it; group payment as Coope confirms | PAY-002..005 |
+| Bug_049 prepaid electricity stopped (dev) | Check `financeSyncPrepaidInvoices` = true; find a stamped, unsent prepaid invoice (`ro-query.js` on 146195), then `$env:NS_SYNC_INVOICE='146195:<invoice>'; npx playwright test tests/coopeg/netsuite-actions/ns-sync-invoice.spec.ts --project=dev`; §5 lookup. Once the team says how a new prepaid invoice is created: create one (`ns-manual-invoice.spec.ts` with `NS_MI_ACCOUNT=146195`, or their method) and send it | NetSuite SUCCESS with an FA… number; the public lighting line I-100005 carries the tax code Coope gives; found once in the sandbox | INV-004 → Pass; bugs.md, STATUS.md |
+| Overpayment rule (Coope, then dev if it changes) | `tests/coopeg/tickets/eft-106/eft108-payments-explore.spec.ts` (four manual invoices on 208886, under / over / group payment) | Excess kept as a credit for the next invoice (Coope's answer) and how NetSuite learns of it; group payment as Coope confirms | PAY-002..005 |
 | A free test ONT (other test team / Coope; NOKIA itself works since 31 Oct) | ALCLB3D94488 is on the other team's 798696: once they cancel it (or with another free ONT), check nothing else holds it (`ro-query.js` on `core_engine.service_provision` / `core_oms.order_service_provisions`), confirm nothing runs on the Demo Sandbox, then `eft108-network.spec.ts` with `EFT_ONT='ALCLB3D94488'`, `EFT_ONT_MODEL='G-2425G-B'`, `EFT_ONT_CLEARED='true'`, `EFT_GO='true'`, `EFT_TV='true'` | NOKIA configures the ONT, order COMPLETED; MOTV creates the viewer profile; then suspension / reconnection / disconnection reach NOKIA | NET-001/002/004, EFT-107 #4, EFT-109 NOKIA / MOTV; `eft106-report.js` |
-| MOTV test user rights (Coope) | Same run with `EFT_TV='true'`; first read the latest MOTV answers (`CREATE_STB_PROFILE_ORDER` status 1, not 24) | MOTV creates the viewer profile | NET-002 |
+| MOTV e-mail / phone mapping (added by the team) | Same run with `EFT_TV='true'`; in Customer Activity the `CREATE_STB_PROFILE_ORDER` request carries the contract's e-mail and phone, not `--email--` / `--number--`; also the order's UPDATE_WORK_ORDER answers "registrados correctamente" (EFT-116) | MOTV status 1 and the viewer profile created; code 24 again → Coope (test user rights) | NET-002, EFT-109 MOTV / CoopeWeb |
 | PortaOne access + test number (Coope) | Same run with `EFT_DID='<number>'`, after Coope allows 50.16.147.102 to voip.coopeguanacaste.cr:443 | CREATE_CUSTOMER / CREATE_ACCOUNT / UPDATE_DID answered | NET-003, EFT-109 PortaOne |
 | Failed provisioning order retry (dev answer) | Order detail > Submit order / Cancel on a PROVISIONING_ERROR QA order | Retry or cancel possible on screen, ONT freed without the DB step | bugs.md |
 
@@ -159,7 +159,8 @@ After any retest: rerun the cases of the same area (§6), rebuild the EFT CSVs (
 **Side checks** (low priority, not NetSuite defects; from Coope's production billing run of 1 Nov 2026). Run once the November release reaches coopegsbx2, when there is time:
 - An invoice whose only line is the Fondo Mutualidad (660.00, no IVA) is stamped and reaches NetSuite with tax code 5 (production: the stamping provider refused such invoices; fix in the November release).
 - An unreadable answer from the stamping provider (JARS) never leaves an invoice issued in Hacienda but cancelled in Embrix, so missing from NetSuite (fix in the November release; hard to reproduce, check if it happens).
-- A plan change ordered in one month and completed in the next: the next invoice bills the new plan from the order date (production: 14 contracts billed the new plan only from the 1st).
+- A plan change ordered in one month and completed in the next: the expected start date of the new plan depends on Coope's answer to the November release question (request date, as today, or the day the change is completed, the team's recommendation). Either way no invoice goes negative (production: 173319 at -479,289.12 on the 1 Oct run; 14 contracts billed the new plan only from the 1st on the 1 Nov run).
+- Partial exemption (84.62 %): if Coope accepts computing the IVA from the points left, a 10,000.00 line carries 200.00 IVA instead of 199.94; MAP-008's amounts change and NetSuite must get the same tax as the invoice.
 
 ## 10. Another machine, or a demo
 **What a teammate needs** (both repos are private; give read access, never publish them):

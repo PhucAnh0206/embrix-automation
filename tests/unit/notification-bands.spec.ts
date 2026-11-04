@@ -27,7 +27,7 @@ import {
   amountAfter,
   isNegativeAmount,
   spanishMonth,
-} from '../../test-data/notifications/billing-events.templates';
+} from '../data/notifications/billing-events.templates';
 
 // Figures measured on jasec-dev and recorded in the runbook.
 const X = 2915.10;

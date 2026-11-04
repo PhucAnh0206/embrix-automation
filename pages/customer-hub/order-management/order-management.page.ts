@@ -207,11 +207,11 @@ export class OrderManagementPage extends BasePage {
   /**
    * Inside the "View Provisioning Data" modal:
    * Click "+ADD" → fill provisioningId and ontModel → click SUBMIT.
-   * Reads provisioning data from test-data/provisioning.data.json if not provided.
+   * Reads provisioning data from tests/data/provisioning.data.json if not provided.
    */
   async addProvisioningData(provisioningId?: string, ontModel?: string): Promise<void> {
     if (!provisioningId || !ontModel) {
-      const filePath = path.join(process.cwd(), 'test-data', 'provisioning.data.json');
+      const filePath = path.join(process.cwd(), 'tests', 'data', 'provisioning.data.json');
       const content = fs.readFileSync(filePath, 'utf-8');
       const data = JSON.parse(content) as Array<{ provisioningId: string; ontModel: string }>;
       provisioningId = provisioningId ?? data[0].provisioningId;

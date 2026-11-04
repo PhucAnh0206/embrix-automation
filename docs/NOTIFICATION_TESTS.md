@@ -107,13 +107,13 @@ Two things the automation deliberately does **not** settle:
 
 ## 6. Adding a template
 
-1. Copy `test-data/notifications/topup-confirmation.template.ts`; adjust `key`,
+1. Copy `tests/data/notifications/topup-confirmation.template.ts`; adjust `key`,
    `ticket`, `subject` and the `checks` array.
-2. Add a test in `tests/regression/jasec/notification/` that triggers the event,
+2. Add a test in `tests/jasec/notification/` that triggers the event,
    waits via `emailHelper.waitForEmail()`, then calls
    `reportHelper.evaluateAll(yourTemplate, ctx)` and asserts the results.
 3. If the template needs data the context does not carry, add optional fields to
-   `NotificationContext` in `test-data/notifications/types.ts`.
+   `NotificationContext` in `tests/data/notifications/types.ts`.
 
 `EmailHelper`, `NotificationReportHelper` and the report format are
 template-agnostic and need no changes.
@@ -126,9 +126,9 @@ template-agnostic and need no changes.
 |---|---|
 | `helpers/email.helper.ts` | IMAP client, HTML→text, entity decoding, CRC/kWh formatting |
 | `helpers/notification-report.helper.ts` | Evaluates checks, builds the Jira table. No Playwright imports (conventions §6.1) — the spec owns the assertions |
-| `test-data/notifications/types.ts` | `NotificationTemplate` / `FieldCheck` / `NotificationContext` |
-| `test-data/notifications/topup-confirmation.template.ts` | JEPYP-49 field expectations |
-| `tests/regression/jasec/notification/ts-01-topup-confirmation.spec.ts` | TC 4.1 |
+| `tests/data/notifications/types.ts` | `NotificationTemplate` / `FieldCheck` / `NotificationContext` |
+| `tests/data/notifications/topup-confirmation.template.ts` | JEPYP-49 field expectations |
+| `tests/jasec/notification/ts-01-topup-confirmation.spec.ts` | TC 4.1 |
 | `tests/unit/email-parsing.spec.ts` | Helper unit tests (`unit` project, no browser) |
 
 ---
@@ -231,7 +231,7 @@ spec silently skipped the suite even when it was explicitly requested.
 
 ## Switching environment
 
-Change `.env` only. Nothing in `helpers/` or `test-data/` is environment-specific.
+Change `.env` only. Nothing in `helpers/` or `tests/data/` is environment-specific.
 
 ```
 DB_HOST / DB_NAME / DB_USER / DB_PASSWORD    connection

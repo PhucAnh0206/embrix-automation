@@ -35,7 +35,7 @@ export default class NetsuiteCsvReporter implements Reporter {
 
   onTestEnd(test: TestCase, result: TestResult) {
     const id = test.title.split(':')[0].trim();
-    if (!/^[A-Z]{2,4}-[\w./-]+$/.test(id) || !test.location.file.includes('netsuite')) return;
+    if (!/^[A-Z]{2,4}-[\w./-]+$/.test(id) || !/[\\/]coopeg[\\/]netsuite[\\/]/.test(test.location.file)) return;  // the regression specs only, not netsuite-actions
     const ann = (t: string) => [...new Set(test.annotations.concat(result.annotations ?? []).filter(a => a.type === t).map(a => a.description ?? ''))];
     const forced = ann('ns-status').pop();
     const status = forced ?? (result.status === 'passed' ? 'Pass' : result.status === 'skipped' ? 'Not run' : 'Fail');

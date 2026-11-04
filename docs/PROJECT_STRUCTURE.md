@@ -78,16 +78,19 @@ EmbrixAuto/
 │
 ├── 📁 tests/                            ← All test specs
 │   ├── 📄 auth.setup.ts                ← Setup: login once, save session
-│   ├── 📁 smoke/
-│   │   └── 📄 health-check.spec.ts      ← SMOKE-01→04: login form, valid/invalid creds, page title
-│   └── 📁 regression/
-│       └── 📁 coopeguanacaste/          ← Regression tests for Coopeguanacaste customer
-│           └── 📄 ts-01.spec.ts         ← TS-01: Account → Invoice → Provisioning → Verify
-│
-├── 📁 test-data/                        ← Test data JSON (input for tests)
-│   ├── 📄 accounts.data.json           ← Account creation profile (RESIDENTIAL_DEFAULT)
-│   ├── 📄 services.data.json           ← Services configuration (BDL_INT_100MBPS)
-│   └── 📄 provisioning.data.json       ← Provisioning data (provisioningId, ontModel)
+│   ├── 📁 unit/  📁 smoke/              ← helper unit tests; smoke (health-check SMOKE-01→04)
+│   ├── 📁 data/                         ← Test data (input for tests)
+│   │   ├── 📄 accounts.data.json       ← Account creation profile (RESIDENTIAL_DEFAULT)
+│   │   ├── 📄 services.data.json       ← Services configuration (BDL_INT_100MBPS)
+│   │   ├── 📄 provisioning.data.json   ← Provisioning data (provisioningId, ontModel)
+│   │   └── 📁 notifications/           ← Notification template expectations
+│   ├── 📁 jasec/                        ← JASEC prepaid: one folder per area, + explore/, probes/, tickets/
+│   ├── 📁 coopeg/                       ← CoopeG
+│   │   ├── 📁 lifecycle/               ← TS-01: Account → Invoice → Provisioning → Verify
+│   │   ├── 📁 netsuite/                ← NetSuite regression (ns-00..98)
+│   │   ├── 📁 netsuite-actions/        ← NetSuite screen runners (project dev)
+│   │   └── 📁 tickets/eft-106/         ← EFT-107/108/109 escalation checks
+│   └── 📁 embrix-platform/              ← TS-02: the Embrix platform suite
 │
 ├── 📁 playwright/                       ← Playwright internal files
 │   └── 📁 .auth/                       ← Session + test context (DO NOT commit)
@@ -123,7 +126,7 @@ EmbrixAuto/
 | -------------- | ------------------------------------------- | ------------------------ | ---------- |
 | `setup`      | `**/auth.setup.ts`                        | Login once, save session | —         |
 | `smoke`      | `**/smoke/*.spec.ts`                      | Quick health check       | —         |
-| `regression` | `**/regression/coopeguanacaste/*.spec.ts` | Full regression tests    | `setup`  |
+| `regression` | `**/coopeg/lifecycle/*.spec.ts` | Full regression tests    | `setup`  |
 
 **Multi-environment** (configured via `TEST_ENV` variable or direct override):
 
@@ -437,7 +440,7 @@ Auto-attached to Playwright HTML report via `testInfo.attach()`.
 
 ---
 
-### 📁 `tests/regression/coopeguanacaste/ts-01.spec.ts`
+### 📁 `tests/coopeg/lifecycle/ts-01.spec.ts`
 
 **Purpose**: Full regression test suite for **Coopeguanacaste** customer, checking the end-to-end Order-to-Cash workflow.
 
@@ -454,7 +457,7 @@ Auto-attached to Playwright HTML report via `testInfo.attach()`.
 
 ---
 
-## 📁 The `test-data/` Directory
+## 📁 The `tests/data/` Directory
 
 | File                       | Description                                                                                             |
 | -------------------------- | ------------------------------------------------------------------------------------------------------- |
@@ -475,7 +478,7 @@ npx playwright test --project=regression
          │
          ▼
 [Project: regression]  ← Uses storageState from step above
-  regression/coopeguanacaste/ts-01.spec.ts
+  coopeg/lifecycle/ts-01.spec.ts
     │
     ├── TC-00: Set CCP Time (API)
     ├── TC-01: Create Account (API + UI verify)
@@ -586,7 +589,7 @@ npx playwright test --project=setup
 npx playwright test --project=regression --headed
 
 # 6. Run a specific file
-npx playwright test tests/regression/coopeguanacaste/ts-01.spec.ts --project=regression
+npx playwright test tests/coopeg/lifecycle/ts-01.spec.ts --project=coopeg-lifecycle
 
 # 7. View report
 npx playwright show-report

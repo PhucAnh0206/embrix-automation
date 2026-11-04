@@ -11,7 +11,7 @@ import type { SelfcareActivityPage } from './selfcare-activity.page';
  * involved. Confusing the two is the main trap here.
  *
  * What feeds the grid (traced 2026-08-26 on jasec-dev, see
- * tests/regression/jasec/payment/explore-01-make-payment-recon.spec.ts):
+ * tests/jasec/explore/payment/explore-01-make-payment-recon.spec.ts):
  *
  *   rated MDR usage → transaction_unit (USAGE / MEDIATION) → end-of-cycle
  *   billing job → bill_unit → invoice_unit (status ACTIVE, due > 0)

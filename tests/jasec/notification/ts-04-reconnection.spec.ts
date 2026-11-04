@@ -1,0 +1,723 @@
+/**
+ * TS-04 — Event 6, service reconnection after a top-up. Report cases 5.2 / 5.3.
+ *
+ * Both cases share ONE suspended account, in this order:
+ *
+ *   5.3  top up LESS than the debt  -> must NOT reconnect (state survives)
+ *   5.2  top up MORE than the debt  -> reconnects
+ *
+ * The order matters: `resumeRequiresSufficientBalance` means a partial top-up
+ * deliberately does not reconnect, so it leaves the account still suspended and
+ * available for the second case. Reversing them would burn the account.
+ *
+ * WHY THIS ONE NEEDS A BROWSER: there is no top-up API in this repo. Top-up is
+ * UI-only (`SelfcareTopupPage`), and it is the agent-assisted flow — an operator
+ * logs into Selfcare with the admin credentials and searches for the account — so
+ * no per-customer Selfcare password is needed.
+ *
+ * WHY PLACETOPAY AND NOT "PAY NOW": PAY NOW charges the card on file, and the
+ * suspended accounts available here have none — their payment profile is CHECK and
+ * the Card On File panel is empty (blank CVV and TOKEN). Clicking PAY NOW then does
+ * NOTHING AT ALL: no charge, no error message, no history row. PlaceToPay collects
+ * card details during checkout instead, so it works regardless of stored card state.
+ *
+ * Progress is confirmed from the DATABASE, not the Top Up history table. That table
+ * is what silently stayed empty on the PAY NOW attempt, and it also serves stale
+ * data after returning from PlaceToPay.
+ *
+ * WHY IT DISABLES THE CCP BASELINE: jasec-fixtures carries an AUTO fixture
+ * (`jasecCcpBaseline`) that parks the tenant CCP clock at the JASEC baseline before
+ * every test. The clock is shared with everyone on the tenant, and this spec acts on
+ * a suspended account it SEEDS ITSELF at the current CCP date (since 2026-10-05; it
+ * used to act on a pre-existing one), whose subscription is only effective from that
+ * date — so it opts out with `test.use({ ccpBaseline: null })` and leaves the clock
+ * alone. It used to escape the reset by not importing jasec-fixtures at
+ * all, which meant hand-copying page-factory's `page` helpers; the opt-out removed
+ * that duplication.
+ *
+ * State left behind: the account ends ACTIVE and in credit. That is the correct
+ * end state of a reconnection and is not restored — the runbook does the same
+ * ("Account D is left ACTIVE and topped up by Run B; that is fine"). Each run
+ * seeds and consumes ONE fresh account of its own (since 2026-10-05; it used to borrow
+ * from the tenant's pool - see ensureSuspendedCandidate).
+ *
+ * THE AGENT'S SIDE (since 2026-10-06). After each top-up a second tab opens the account in Core UI the
+ * way an agent would and holds the screens to the database: Balances shows the top-up, Services shows
+ * the subscription state, and In-complete Orders shows whether a RESUME was raised. The customer's page
+ * stays in Self Care throughout.
+ *
+ * Requires: VPN, DB_*, EMBRIX_USER / EMBRIX_PASSWORD, SELFCARE_BASE_URL.
+ */
+
+import { test, expect } from '../../../fixtures/jasec-fixtures';
+import { DbHelper } from '../../../helpers/db.helper';
+import { NotificationDbHelper } from '../../../helpers/notification-db.helper';
+import { EmailHelper, type ParsedEmail } from '../../../helpers/email.helper';
+import { NotificationReportHelper } from '../../../helpers/notification-report.helper';
+import { BILLING_EVENT_TEMPLATES } from '../../data/notifications/billing-events.templates';
+import type { NotificationContext } from '../../data/notifications/types';
+import { SelfcareLoginPage } from '../../../pages/selfcare/selfcare-login.page';
+import { SelfcareAccountSearchPage } from '../../../pages/selfcare/selfcare-account-search.page';
+import { SelfcareActivityPage } from '../../../pages/selfcare/selfcare-activity.page';
+import { SelfcareTopupPage } from '../../../pages/selfcare/selfcare-topup.page';
+import { PlaceToPayCheckoutPage } from '../../../pages/selfcare/placetopay-checkout.page';
+import { embrixCredentials } from '../../../helpers/credentials.helper';
+import { blockedIf } from '../../../helpers/blocked.helper';
+import { PrepaidSeedHelper } from '../../../helpers/prepaid-seed.helper';
+import { uniqueRunSuffix, assertQaMeter } from '../../../fixtures/create-prepaid-account.helper';
+import { AgentScreens, openAgentTab } from '../../../helpers/agent-screens.helper';
+import type { Page } from '@playwright/test';
+
+
+/**
+ * Accounts the suite must never consume.
+ *
+ * ACT-100174 is the evidence behind report cases 4.1 and 5.1 — reconnecting it
+ * would destroy the state those screenshots describe.
+ */
+const PROTECTED_ACCOUNTS = ['ACT-100174'];
+
+interface Candidate {
+  accountId: string;
+  debt: number;
+}
+
+let db: DbHelper;
+let notifyDb: NotificationDbHelper;
+const report = new NotificationReportHelper();
+
+/**
+ * Contact email captured before plus-addressing, so teardown can put it back
+ * even if the test fails partway.
+ */
+let contactRestore: { accountId: string; original: string; contactId: string } | null = null;
+
+test.beforeAll(async () => {
+  db = new DbHelper();
+  await db.connect();
+  notifyDb = new NotificationDbHelper(db);
+});
+
+test.afterAll(async () => {
+  // Restore the contact email first — leaving a plus-address behind would keep
+  // that account's real notifications flowing to a tagged inbox.
+  try {
+    if (contactRestore && notifyDb) {
+      await notifyDb.restoreContactEmail(
+        contactRestore.accountId, contactRestore.original, contactRestore.contactId,
+      );
+      console.log(`[TS-04] restored contact email for ${contactRestore.accountId}`);
+    }
+  } catch (err) {
+    console.error(`[TS-04] CONTACT EMAIL RESTORE FAILED: ${String(err)}`);
+  } finally {
+    await db?.disconnect();
+  }
+});
+
+/**
+ * Wait for the CRC balance to move away from `from`.
+ *
+ * Asserting on the Top Up history table proved unreliable — it stayed empty on a
+ * silently-failed PAY NOW, and serves stale data after a PlaceToPay round trip.
+ * The balance is the fact that matters, so poll it directly.
+ */
+async function waitForBalanceChange(
+  accountId: string,
+  from: number,
+  timeoutMs = 180_000,
+): Promise<number | null> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const now = await notifyDb.getCrcBalance(accountId);
+    if (now !== null && Math.abs(now - from) > 0.005) return now;
+    if (Date.now() > deadline) return now;
+    await new Promise((r) => setTimeout(r, 5_000));
+  }
+}
+
+async function subscriptionStatus(accountId: string): Promise<string> {
+  const rows = await db.query<{ status: string }>(
+    `SELECT status FROM core_engine.subscription WHERE accountid = $1 LIMIT 1`,
+    [accountId],
+  );
+  return rows[0]?.status ?? '(none)';
+}
+
+/**
+ * Highest `core_engine.activity` id right now, as a number.
+ *
+ * WHY AN ID AND NOT A TIMESTAMP. `activity.createddate` is stamped with the CCP
+ * clock, not wall time — dev rows carry dates in 2028 — so the old guard's
+ * `createddate > now() - interval '30 minutes'` compared a frozen clock against
+ * a real one. Rows stamped in the future always matched and rows stamped in the
+ * past never did, in both cases regardless of whether THIS run caused them.
+ * Ids are `A-105258`, a plain ascending sequence, so they order by creation.
+ */
+async function maxActivityId(): Promise<number> {
+  const rows = await db
+    .query<{ n: string }>(
+      `SELECT coalesce(max((regexp_replace(id, '[^0-9]', '', 'g'))::bigint), 0)::text AS n
+         FROM core_engine.activity`,
+    )
+    .catch(() => [] as Array<{ n: string }>);
+  return Number(rows?.[0]?.n ?? 0);
+}
+
+/**
+ * Wait for the reconnection to actually settle, then say how it settled.
+ *
+ * RECONNECTION IS ASYNCHRONOUS, AND THE OLD GUARD RACED IT. Clearing the debt
+ * raises a RESUME order; that order dispatches to JASEC's AMI; the AMI answers;
+ * only then does the subscription reach ACTIVE or the order reach
+ * PROVISIONING_ERROR. The previous code read the status once and looked for a
+ * refusal once, immediately — so whether the case reported BLOCKED or FAIL came
+ * down to whether the callback had landed yet. Measured on jasec-dev
+ * 2026-09-28: the SAME account FAILED on one run and reported BLOCKED on the
+ * next, with nothing about the environment changed.
+ *
+ * It was also FAIL-OPEN. The refusal lookup was not scoped to the account at
+ * all — ANY `No existe` anywhere on the tenant inside the window satisfied it,
+ * including one left by an earlier run. A genuine reconnection defect on this
+ * account would have been excused as an environment limit.
+ *
+ * So this polls, re-FETCHING both facts each time (a retry that re-checks a
+ * stale read proves nothing), and scopes the refusal to THIS account and to
+ * activity rows created after the caller's watermark. It returns rather than
+ * decides: ACTIVE wins, a refusal means BLOCKED, and neither within the timeout
+ * falls through to the normal assertion — which keeps the guard fail-CLOSED.
+ */
+async function settleReconnection(
+  accountId: string,
+  sinceActivityId: number,
+  timeoutMs = 150_000,
+): Promise<{ status: string; refusal: string | null }> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const status = await subscriptionStatus(accountId);
+    if (status === 'ACTIVE') return { status, refusal: null };
+
+    const rows = await db
+      .query<{ id: string }>(
+        `SELECT id FROM core_engine.activity
+          WHERE accountid = $1
+            AND response::text ILIKE '%No existe%'
+            AND (regexp_replace(id, '[^0-9]', '', 'g'))::bigint > $2
+          ORDER BY (regexp_replace(id, '[^0-9]', '', 'g'))::bigint DESC
+          LIMIT 1`,
+        [accountId, sinceActivityId],
+      )
+      .catch(() => [] as Array<{ id: string }>);
+    const refusal = rows?.[0]?.id ?? null;
+    if (refusal) return { status, refusal };
+
+    if (Date.now() > deadline) return { status, refusal: null };
+    await new Promise((r) => setTimeout(r, 5_000));
+  }
+}
+
+/**
+ * SEED OUR OWN SUBJECT, every run (2026-10-05).
+ *
+ * It used to BORROW a suspended account from the tenant's pool, and re-range one when
+ * the pool was empty. On prod build 2 (2026-10-05) that picked ACT-100110, a used
+ * account carrying an earlier RESUME stuck in PROVISIONING_ERROR - and on such an
+ * account a clearing top-up raises NO new RESUME at all (finding F7). TC-85 then failed
+ * for a reason that is not its question. F7 is a REAL product behaviour: it is reported
+ * (confirmed by the team 2026-10-08) and has its OWN official case, TC-132 (provisioning/auto-suspend-resume, tag tc-128),
+ * so this is not a workaround - TC-85's precondition is simply "a suspended customer in
+ * debt", and a fresh subject is the only way to guarantee it.
+ *
+ * Safe to automate, unlike a real breach suspension: the SUSPEND is BILLING-ONLY, which
+ * sends nothing to JASEC's AMI (asserted below - fails closed). Same shape as the
+ * credit-breach suspend (subscription + service unit SUSPENDED). The debt is then staged
+ * on our own account (a pure DB write that dispatches nothing).
+ *
+ * NOT the production shape on the meter side (team, 2026-10-08): a billing-only suspend
+ * leaves the meter ON, and debt written into the balance makes the top-up's credit check
+ * see the account over its limit - so a partial top-up runs the cut and sends the FIRST
+ * cut command for that meter (that is "O1", explained, not a defect). On a QA meter that
+ * cut fails (PROVISIONING_ERROR) and, until the F7 fix, blocks later automatic SUSPENDs
+ * on this account - harmless here, the account is never reused.
+ */
+const SEED_DEBT = 1500;
+
+async function ensureSuspendedCandidate(): Promise<Candidate | null> {
+  const seed = new PrepaidSeedHelper();
+  const s = uniqueRunSuffix();
+  const meter = assertQaMeter(`M-QARCN-${s}`);
+  // JASEC_RCN_PROFILE (optional, 2026-10-08): seed on another credit profile - e.g. "Prepaid Energy E2E No Window" so
+  // the partial top-up's cut (O1, explained 2026-10-08) runs at any hour; the stock profile defers it 20:00-08:00 CR.
+  const profile = (process.env.JASEC_RCN_PROFILE ?? '').trim() || undefined;
+  const { accountId } = await seed.seed({ meter, customerId: `E2ERCN-${s}`, name: `E2ERCN ${s}`, creditProfileName: profile });
+
+  // The NEW order completes asynchronously; suspend only once it is ACTIVE.
+  for (let i = 0; i < 20 && (await subscriptionStatus(accountId)) !== 'ACTIVE'; i++) {
+    await new Promise((r) => setTimeout(r, 3_000));
+  }
+  // Resolved while ACTIVE (the lookup only sees ACTIVE subscriptions). The debt itself is
+  // staged only AFTER the suspend: debt on an ACTIVE account could trigger a REAL balance
+  // suspension, and that one does reach the AMI.
+  const balanceUnitId = await db.getBalanceUnitIdForAccount(accountId);
+  const order = await seed.suspendAccountBillingOnly(accountId);
+  let status = '';
+  for (let i = 0; i < 20 && status !== 'SUSPENDED'; i++) {
+    await new Promise((r) => setTimeout(r, 3_000));
+    status = await subscriptionStatus(accountId);
+  }
+  if (status !== 'SUSPENDED') {
+    console.log(`
+[ts-04] seeded ${accountId} but billing-only SUSPEND ${order} left it ${status}.
+`);
+    return null;
+  }
+  const ami = await db.query<{ n: number }>(
+    `SELECT count(*)::int AS n FROM core_engine.activity WHERE accountid = $1 AND apiname ILIKE '%UTILITIES%'`,
+    [accountId],
+  );
+  if ((ami[0]?.n ?? 0) > 0) {
+    throw new Error(`billing-only SUSPEND ${order} on ${accountId} dispatched ${ami[0].n} AMI command(s) - it must send none.`);
+  }
+  // Throws unless exactly one CRC row was updated.
+  await db.setBalanceAmount(balanceUnitId, SEED_DEBT);
+  console.log(
+    `\n[ts-04] seeded OWN subject ${accountId} (meter ${meter}): billing-only SUSPEND ${order}, ` +
+    `debt staged ${SEED_DEBT} CRC. Nothing was dispatched to JASEC.\n`,
+  );
+  return { accountId, debt: SEED_DEBT };
+}
+
+test.describe('TS-04 — reconnection after top-up', () => {
+  // This spec owns the clock: it acts on a suspended account it seeds itself
+  // (since 2026-10-05), whose subscription is only effective from the tenant's
+  // current CCP date. Parking the
+  // clock at the JASEC baseline would put the account in the future and the
+  // top-ups would silently record nothing. Opting out is why this spec no longer
+  // needs to re-implement page-factory's `page` helpers by hand.
+  test.use({ ccpBaseline: null });
+
+  test('5.3 partial top-up does not reconnect, then 5.2 full top-up does', { tag: ['@tc-85', '@tc-86'] }, async ({ page, dialogs }) => {
+    // 25 minutes, and it is not padding. The internal waits alone can total 720s:
+    // two waitForBalanceChange at 180s (line ~306, ~343) plus notification settle
+    // windows of 120s and 240s. On top of that sit account search, two full
+    // PlaceToPay checkout round-trips, and the no-card guard step. At the previous
+    // 900s the budget left ~3 minutes for all of that and the run took 16.9m --
+    // it timed out with every assertion already logged as passing. Do not trim
+    // this without shortening the waits it exists to cover.
+    test.setTimeout(1_500_000);
+
+    const candidate = await ensureSuspendedCandidate();
+    // A missing account is an unmet PRECONDITION, not a product failure: without
+    // one, nothing was ever asked of the reconnection flow. This used to throw,
+    // so a tenant with no suspended accounts in range reported TS-04 as red and
+    // pointed the reader at reconnection logic that had never run.
+    //
+    // This case CONSUMES its account - it reconnects it. Since 2026-10-05 it
+    // seeds its own suspended subject every run (ensureSuspendedCandidate), so
+    // there is no shared pool to shrink any more; a BLOCKED here means the seed
+    // itself failed to reach SUSPENDED.
+    if (blockedIf(
+      !candidate,
+      'could not seed a suspended subject (the seeded account never reached ' +
+      'SUSPENDED after its billing-only SUSPEND order) - see the [ts-04] line above.',
+    )) return;
+    if (!candidate) return;
+
+    const { accountId, debt } = candidate;
+    // Watermark first: everything this test causes has a higher id.
+    const watermark = await notifyDb.getMaxNotificationId();
+    console.log(
+      `\n[TS-04] account ${accountId} | debt ${debt.toFixed(2)} | ` +
+      `status ${await subscriptionStatus(accountId)} | watermark ${watermark}`,
+    );
+
+    // ── Plus-address the recipient so delivered mail identifies the account ──
+    //
+    // Validation of the approach intended for Events 4/5 in ts-02: those two
+    // templates carry no account number, and their DB row is rolled back, so a
+    // delivered email cannot currently be tied to an account. Putting the account
+    // id in the To: header solves that without touching customer-facing copy.
+    //
+    // BALANCE_TOPUP is the ideal place to prove it, because that template DOES
+    // include "Número de Servicio" — so the To: header can be cross-checked
+    // against the body and the two must agree.
+    const monitored = process.env.NOTIFY_EMAIL_TO ?? '';
+    const plus = await notifyDb.setContactEmailToPlusAddress(accountId, monitored);
+    if (plus) {
+      contactRestore = { accountId, original: plus.original, contactId: plus.contactId };
+      console.log(`[TS-04] contact email ${plus.original} -> ${plus.applied}`);
+    } else {
+      test.info().annotations.push({
+        type: 'plus-address-skipped',
+        description:
+          `${accountId}'s contact is not the monitored mailbox, so it was left ` +
+          `alone — rewriting a real customer address would redirect their mail.`,
+      });
+    }
+
+    // The agent's Core UI tab, opened on first use (this page stays in Self Care).
+    let tab: Page | undefined;
+    const agent = async () => new AgentScreens(tab ??= await openAgentTab(page.context()));
+    const cents = (n: number | null | undefined) => n === null || n === undefined ? null : Math.round(Number(n) * 100) / 100;
+
+    const login = new SelfcareLoginPage(page);
+    const search = new SelfcareAccountSearchPage(page);
+    const activity = new SelfcareActivityPage(page);
+    const topup = new SelfcareTopupPage(page);
+    const checkout = new PlaceToPayCheckoutPage(page);
+
+    // Native dialogs come from the shared `dialogs` collector on the `page`
+    // fixture. Attaching a second page.on('dialog') here would double-settle
+    // every dialog and throw, because the collector is registered first.
+
+    await test.step('reach the account in Selfcare', async () => {
+      await login.goto();
+      const { username, password } = embrixCredentials();
+      await login.login(username, password);
+      await login.assertLoginSuccess();
+      await search.navigate();
+      // Verified working on pre-existing suspended accounts — Selfcare search is
+      // not limited to accounts a test just created.
+      await search.searchAndSelectAccount(accountId);
+      await activity.navigateToTopUp();
+      await topup.assertLoaded();
+      const min = await topup.getDisplayedMinimumAmount();
+      // Cross-check of the settled Min Amount rule: base + outstanding debt.
+      //
+      // There are TWO valid bases and this used to hardcode one: 2920 in the first
+      // month of the effective subscription, 3300 afterwards. On 2026-08-27
+      // ACT-100173 displayed 5739.30 -- exactly 2920 + 2819.30, i.e. correct --
+      // while this line printed "expected 6119.30" and so made a correct figure
+      // look like a defect in every report. Print both and name the one that
+      // matched rather than asserting a single base.
+      const firstMonthMin = 2920 + debt;
+      const ongoingMin = 3300 + debt;
+      const matchedBase =
+        Number(min) === firstMonthMin ? 'first-month base 2920'
+          : Number(min) === ongoingMin ? 'ongoing base 3300'
+            : 'NEITHER base';
+      console.log(
+        `[TS-04] displayed minimum "${min}" -- ${matchedBase} ` +
+        `(first-month ${firstMonthMin.toFixed(2)} / ongoing ${ongoingMin.toFixed(2)})`,
+      );
+    });
+
+    // ── PAY NOW with no card on file must warn, not fail silently ──────────
+    //
+    // Guarded: only click PAY NOW when the Card On File panel is confirmed empty.
+    // If a card were present this would charge it, and an unintended top-up here
+    // would clear the debt and destroy the 5.3 case below.
+    await test.step('PAY NOW without a saved card warns the user', async () => {
+      let cardEmpty = false;
+      try {
+        await activity.assertCardOnFileEmpty();
+        cardEmpty = true;
+      } catch {
+        test.info().annotations.push({
+          type: 'skipped',
+          description:
+            `${accountId} appears to have a card on file — skipping the no-card check ` +
+            `rather than risking an unintended charge.`,
+        });
+      }
+      if (!cardEmpty) return;
+
+      dialogs.reset();
+      await activity.navigateToTopUp();
+      await topup.assertLoaded();
+      await topup.enterAmount(1);
+      await topup.clickPayNow();
+      // The dialog is handled by the shared `dialogs` collector, so give it a moment to fire.
+      await page.waitForTimeout(2_000);
+
+      const captured = dialogs.messages;
+      console.log(`[TS-04] dialogs captured: ${captured.length ? captured.join(' | ') : '(none)'}`);
+      expect
+        .soft(
+          dialogs.sawMessage(/card/i),
+          `Expected a warning about the missing card. Captured: ` +
+          `${captured.length ? captured.join(' | ') : '(no dialog at all)'}`,
+        )
+        .toBe(true);
+
+      // Nothing should have been charged.
+      const unchanged = await notifyDb.getCrcBalance(accountId);
+      expect
+        .soft(unchanged ?? 0, 'a blocked PAY NOW must not change the balance')
+        .toBeCloseTo(debt, 2);
+    });
+
+    // ── 5.3 — partial top-up must NOT reconnect ────────────────────────────
+    const partial = Math.max(100, Math.floor(debt / 2));
+    await test.step(`5.3 — top up ${partial}, less than the ${debt.toFixed(2)} owed`, async () => {
+      const suspendsBefore = (await db.query<{ id: string }>(
+        `SELECT id FROM core_oms."order" WHERE accountid = $1 AND type = 'SUSPEND'`, [accountId])).map(r => r.id);
+      await topup.enterAmount(partial);
+      await topup.clickPayWithPlaceToPay();
+      try {
+        await checkout.completePaymentFlow('approve');
+      } catch (err) {
+        // The subject is freshly seeded, so it is in its first month and the
+        // displayed minimum is 2920 + debt (3300 + debt only from the second
+        // month; the figure in the message below is the ongoing-base one). Either
+        // way it by construction always EXCEEDS the debt. So if the amount field
+        // is validated against it, no top-up can ever leave the account still in
+        // debt, and case 5.3 is not reachable through Selfcare at all. Worth
+        // recording rather than failing.
+        test.info().annotations.push({
+          type: 'partial-topup-blocked',
+          description:
+            `Top-up of ${partial} (below the displayed minimum: 2920 + debt for this first-month subject; ongoing-base figure ${(3300 + debt).toFixed(2)}) ` +
+            `did not complete. If the minimum is enforced, case 5.3 cannot be produced via ` +
+            `Selfcare — every valid top-up clears the debt. ` +
+            `${String(err).split('\n')[0].slice(0, 140)}`,
+        });
+        console.log('[TS-04] partial top-up did not complete — see annotation');
+        return;
+      }
+
+      const balance = await waitForBalanceChange(accountId, debt, 180_000);
+      await notifyDb.waitForNotificationsToSettle({ afterId: watermark, quietMs: 20_000, timeoutMs: 120_000 });
+      const status = await subscriptionStatus(accountId);
+      const resumed = await notifyDb.getNotifications({
+        accountIds: [accountId], type: 'RESUME_SUBSCRIPTION', afterId: watermark,
+      });
+      console.log(`[TS-04] after partial: balance ${balance} | status ${status} | resume rows ${resumed.length}`);
+
+      // O1 - RECORDED, not judged. EXPLAINED by the team 2026-10-08, not a defect: this subject's suspend is billing-only
+      // (meter still on) and its debt sits in the balance, so the partial top-up's credit check runs the cut - the
+      // first cut command for that meter (prod ACT-100173 ORD-323, ACT-100202 ORD-380; preprod ORD-555).
+      const extra = (await db.query<{ id: string; status: string; userid: string }>(
+        `SELECT id, status, userid FROM core_oms."order" WHERE accountid = $1 AND type = 'SUSPEND'`, [accountId]))
+        .filter(o => !suspendsBefore.includes(o.id));
+      if (extra.length) {
+        test.info().annotations.push({ type: 'O1',
+          description: `a partial top-up on the cut account raised another SUSPEND: ${extra.map(o => `${o.id} ${o.status} by ${o.userid}`).join(', ')}` });
+        console.log(`[TS-04] O1 recorded: ${extra.map(o => o.id).join(', ')}`);
+      }
+
+      expect
+        .soft(status, `${accountId} must stay SUSPENDED after a partial top-up`)
+        .toBe('SUSPENDED');
+      expect
+        .soft(
+          resumed.length,
+          `no RESUME_SUBSCRIPTION should fire while the balance is still in debt ` +
+          `(balance ${balance})`,
+        )
+        .toBe(0);
+      expect
+        .soft(balance ?? 0, 'a partial top-up should reduce the debt but not clear it')
+        .toBeGreaterThan(0);
+
+      // TC-86 on the agent's screens: the top-up is visible, and nothing was reconnected.
+      const ui = await agent();
+      expect.soft(await ui.crcBalance(accountId), 'Core UI Balances must show the partial top-up (same figure as the database)')
+        .toBe(cents(balance));
+      const sv = await ui.services(accountId);
+      expect.soft(sv.sub, 'Core UI Services: the agent must see the account still SUSPENDED').toBe('SUSPENDED');
+      expect.soft(sv.incomplete.filter(r => /\bRESUME\b/.test(r)), 'Core UI In-complete Orders: a partial top-up must raise no RESUME')
+        .toEqual([]);
+    });
+
+    // ── 5.2 — clearing top-up must reconnect ───────────────────────────────
+    const remaining = (await notifyDb.getCrcBalance(accountId)) ?? debt;
+    // Just over the remaining debt. Deliberately BELOW the displayed minimum
+    // (2920 + debt for this freshly seeded, first-month subject; 3300 + debt from
+    // the second month): the runbook records reconnection working at a final balance
+    // of -0.70, so clearing the debt should be sufficient. If reconnection needs
+    // the full suggested minimum instead, this step catches that.
+    const clearing = Math.max(200, Math.ceil(remaining) + 200);
+    await test.step(`5.2 — top up ${clearing}, clearing the ${remaining} still owed`, async () => {
+      const before = (await notifyDb.getCrcBalance(accountId)) ?? remaining;
+      // Watermark BEFORE the top-up, so the AMI check below can only ever see a
+      // refusal THIS step provoked. See the guard for why that matters.
+      const activityWatermark = await maxActivityId();
+      await topup.reload(activity);
+      await topup.enterAmount(clearing);
+      await topup.clickPayWithPlaceToPay();
+      await checkout.completePaymentFlow('approve');
+
+      const balance = await waitForBalanceChange(accountId, before, 180_000);
+      await notifyDb.waitForNotificationsToSettle({ afterId: watermark, quietMs: 20_000, timeoutMs: 240_000 });
+      const { status, refusal } = await settleReconnection(accountId, activityWatermark);
+      console.log(
+        `[TS-04] after clearing: balance ${balance} | status ${status}` +
+        (refusal ? ` | AMI refusal ${refusal}` : ''),
+      );
+
+      expect.soft(balance ?? 0, 'balance should now be in credit (negative)').toBeLessThan(0);
+
+      // TC-85 on the agent's screens - also BEFORE the environment skip below, because what it proves
+      // (the top-up landed, the RESUME was raised) holds even when the AMI refuses our QA meter.
+      const ui = await agent();
+      expect(await ui.crcBalance(accountId), 'Core UI Balances must show the clearing top-up (same figure as the database)')
+        .toBe(cents(balance));
+      const sv = await ui.services(accountId);
+      expect(sv.sub, `Core UI Services must show what the account is (${status})`).toBe(status);
+      if (status === 'ACTIVE') {
+        expect(sv.incomplete, 'Core UI In-complete Orders must be empty once reconnected').toEqual([]);
+      } else {
+        expect(sv.incomplete.some(r => /\bRESUME\b/.test(r)),
+          'Core UI In-complete Orders must show the RESUME the clearing top-up raised').toBe(true);
+      }
+
+      /**
+       * THE AMI HALF CANNOT COMPLETE ON DEV (NOR ON PROD), AND THAT IS NOT A DEFECT.
+       *
+       * Also true on prod: its AMI rejects our QA meters too, so TC-85 is
+       * BLOCKED there (2026-10-08).
+       *
+       * Clearing the debt DOES trigger reconnection - the product raises a
+       * RESUME order correctly. That order then dispatches to JASEC's AMI,
+       * which does not know our synthetic meters and answers
+       * "El Medidor No existe" (77 such responses on jasec-dev, and the
+       * JEPYP-27 work recorded 25 commands every one answered the same way).
+       * The order lands in PROVISIONING_ERROR, so the subscription stays
+       * SUSPENDED and no RESUME_SUBSCRIPTION is sent.
+       *
+       * Asserting ACTIVE here therefore fails on an ENVIRONMENT limit while
+       * looking exactly like a product failure. It cost three wrong diagnoses
+       * on 2026-09-24 - a resume threshold, the credit-profile backfill, and a
+       * missing meter - before the AMI response settled it. So: report it and
+       * skip, per the rule that an unmet precondition is BLOCKED, never a FAIL.
+       *
+       * The evidence comes from `settleReconnection`, which WAITS for the async
+       * round trip and scopes the refusal to THIS account and to rows newer than
+       * a watermark taken before the top-up. Read its comment before touching
+       * this: the first version of the guard both raced the callback and
+       * accepted any refusal on the tenant, so it could excuse a real defect.
+       *
+       * No refusal within the timeout means we have no evidence of an
+       * environment limit, and the case falls through to the assertion below
+       * and FAILS - which is the honest outcome, not a gap.
+       *
+       * The balance half above still asserts normally - that is the part dev
+       * can actually answer. SUSPEND is unaffected; it does not need the AMI to
+       * acknowledge.
+       */
+      if (status !== 'ACTIVE' && refusal) {
+        const why =
+          `${accountId} stayed ${status}: the RESUME order was raised, but JASEC's AMI ` +
+          `answered "El Medidor No existe" for this meter (activity ${refusal}, raised by ` +
+          `THIS run), so provisioning could not complete. Environment limit on ${process.env.TEST_ENV ?? 'this tenant'} (QA meters are not in its AMI), not a ` +
+          `product defect - the balance rule worked and the reconnection WAS triggered.`;
+        console.log(`
+[TS-04] BLOCKED, not failed: ${why}
+`);
+        test.skip(true, why);
+        return;
+      }
+
+      expect.soft(status, `${accountId} should be back to ACTIVE`).toBe('ACTIVE');
+
+      // Both emails are expected: the top-up receipt and the reconnection notice.
+      const topupRows = await notifyDb.getNotifications({
+        accountIds: [accountId], type: 'BALANCE_TOPUP', afterId: watermark,
+      });
+      expect.soft(topupRows.length, 'expected a BALANCE_TOPUP notification').toBeGreaterThan(0);
+
+      const found = await notifyDb.getRenderedEmail(accountId, 'RESUME_SUBSCRIPTION', {
+        afterId: watermark,
+      });
+      expect
+        .soft(
+          found,
+          `no RESUME_SUBSCRIPTION notification for ${accountId} after clearing the debt ` +
+          `(balance ${balance}, status ${status}). Only 2 of these have ever been produced ` +
+          `on this tenant, so treat absence as a real finding rather than a flake.`,
+        )
+        .toBeTruthy();
+      if (!found) return;
+
+      const ctx: NotificationContext = {
+        accountId,
+        firstName: '', lastName: '',
+        recipient: found.row.email ?? process.env.NOTIFY_EMAIL_TO ?? '',
+        ccpDate: await notifyDb.getCcpDate(),
+        email: found.email,
+        // Body comes from email_notification.content, so delivery time is not
+        // measured here. Undefined rather than 0, which would read as instant.
+        deliverySeconds: undefined,
+        postBalance: balance ?? 0,
+        notificationStatus: found.row.status,
+        templateFile: await notifyDb.getTemplateFile('RESUME_SUBSCRIPTION'),
+      };
+
+      const template = BILLING_EVENT_TEMPLATES.RESUME_SUBSCRIPTION;
+      const results = report.evaluateAll(template, ctx);
+      for (const r of results) {
+        if (r.knownDefect) continue;
+        expect
+          .soft(r.passed, `RESUME_SUBSCRIPTION / ${r.row}\n  expected: ${r.expected}\n  actual:   ${r.actual}`)
+          .toBe(true);
+      }
+
+      const markdown = report.buildJiraTable(template, ctx, results);
+      const file = report.writeReport(template, ctx, markdown);
+      await test.info().attach(`RESUME_SUBSCRIPTION-${accountId}.md`, {
+        path: file, contentType: 'text/markdown',
+      });
+    });
+
+    // ── Does the plus-address actually reach the To: header? ────────────────
+    if (plus) {
+      await test.step('plus-addressed recipient identifies the account in delivered mail', async () => {
+        const tag = NotificationDbHelper.plusTag(accountId);
+        const emailHelper = new EmailHelper();
+        await emailHelper.connect();
+        let tagged: ParsedEmail[];
+        try {
+          tagged = await emailHelper.searchEmails({
+            match: (e) => e.to.includes(tag),
+            since: new Date(Date.now() - 60 * 60 * 1000),
+            limit: 10,
+          });
+        } finally {
+          await emailHelper.disconnect();
+        }
+
+        console.log(`[TS-04] emails addressed to "${tag}": ${tagged.length}`);
+        tagged.forEach((e) => console.log(`   ${e.subject}  ->  ${e.to}`));
+
+        expect
+          .soft(
+            tagged.length,
+            `No delivered email carried "${tag}" in its To: header. Either the ` +
+            `plus-address was not used as the recipient, or it was normalised away ` +
+            `en route — in which case this attribution approach will not work for ` +
+            `Events 4 and 5 either.`,
+          )
+          .toBeGreaterThan(0);
+
+        // Cross-check against the body. BALANCE_TOPUP prints the account number,
+        // so the To: header and the body must agree — that is what proves the
+        // header can be trusted for the templates that print nothing.
+        const topupEmail = tagged.find((e) => /Recarga/i.test(e.subject));
+        if (topupEmail) {
+          const inBody = topupEmail.field('Número de Servicio');
+          console.log(`[TS-04] cross-check — To: has ${tag}, body says "${inBody}"`);
+          expect
+            .soft(
+              inBody,
+              `To: header and body disagree. Header tagged ${tag}, body reported ` +
+              `"${inBody}". Attribution by header is only trustworthy if these match.`,
+            )
+            .toBe(accountId);
+        } else {
+          test.info().annotations.push({
+            type: 'cross-check-unavailable',
+            description:
+              `No Recarga email among the tagged results, so the To:-vs-body ` +
+              `cross-check could not run. Header attribution is unconfirmed.`,
+          });
+        }
+      });
+    }
+
+    console.log(
+      `\n[TS-04] ${accountId} consumed — left ACTIVE and in credit, which is the correct ` +
+      `end state for a reconnection.\n`,
+    );
+  });
+});

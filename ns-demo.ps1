@@ -51,7 +51,7 @@ try {
   Write-Host "  Starting: $(if ($Demo -eq 'all') { 'all six demos' } else { "demo $Demo, $($names[$Demo])" }). A browser window opens; the green bar at the top explains each step." -ForegroundColor Green
   # Playwright prints warnings on stderr: with 'Stop' Windows PowerShell would treat them as a failure.
   $ErrorActionPreference = 'Continue'
-  npx playwright test tests/dev/ns-demo.spec.ts --project=dev --headed --workers=1 --reporter=list
+  npx playwright test tests/coopeg/netsuite-actions/ns-demo.spec.ts --project=dev --headed --workers=1 --reporter=list
   if ($LASTEXITCODE -eq 0) { Write-Host '  Demo finished.' -ForegroundColor Green }
   else { Write-Host '  The demo stopped on a step (see the message above). Screenshots: test-results\.' -ForegroundColor Yellow }
 }

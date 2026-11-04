@@ -23,15 +23,19 @@ npx playwright test --ui
 
 | Track | Tenants | Where |
 |---|---|---|
-| JASEC prepaid | JASEC dev, preprod, dev on OCI | specs in `tests/regression/jasec/`. Onboarding guide, Parts 6–7 |
+| JASEC prepaid | JASEC dev, preprod, dev on OCI | specs in `tests/jasec/`. Onboarding guide, Parts 6–7 |
 | CoopeG ↔ NetSuite | coopegsbx2 | `ns.ps1`, `ns-cycle.ps1`, `netsuite-suite/`. Onboarding guide, Part 8, and `NETSUITE.md` |
-| Embrix platform | congero-oci | `tests/regression/embrixPlatform/`. Onboarding guide, Part 9 |
+| Embrix platform | congero-oci | `tests/embrix-platform/`. Onboarding guide, Part 9 |
 
 ## Folder map
 
 | Folder | What |
 |---|---|
-| `tests/` | the specs, one folder per track |
+| `tests/jasec/` | JASEC prepaid specs, one folder per area (`account`, `top-up`, `billing`, `notification`, `provisioning`, ...); `tickets/` = per-ticket runs |
+| `tests/coopeg/` | CoopeG: `lifecycle/`, `netsuite/` (regression), `netsuite-actions/` (screen runners used by `ns-cycle.ps1`), `tickets/eft-106/` |
+| `tests/embrix-platform/` | the Embrix platform suite |
+| `tests/data/` | input data for the specs |
+| `tests/unit/`, `tests/smoke/` | helper unit tests and smoke checks |
 | `pages/` | page objects (one class per screen) |
 | `fixtures/` | what Playwright prepares for each test (login, page objects, the clock) |
 | `helpers/` | database, API, mailbox and other helpers |

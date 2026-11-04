@@ -12,7 +12,7 @@ This report provides a detailed scan and effort estimation for the automation of
 
 > [!NOTE]
 > - Estimates are calculated assuming **1 Playwright QA Engineer** working full-time (8 hours/day).
-> - Already automated cases (TC-01, TC-02, and TC-03 in [ts-01.spec.ts](file:///d:/Works/EMBRIX/Automation/EmbrixAuto/tests/regression/coopeguanacaste/ts-01.spec.ts)) are counted as **0h** remaining effort.
+> - Already automated cases (TC-01, TC-02, and TC-03 in [ts-01.spec.ts](file:///d:/Works/EMBRIX/Automation/EmbrixAuto/tests/coopeg/lifecycle/ts-01.spec.ts)) are counted as **0h** remaining effort.
 > - Standard step implementation is estimated at **30 minutes/step**.
 > - Creating a **new Page Object File** is estimated at **4 hours**.
 > - Integration with external system mocks (GraphQL time shift, Nokia backend verification, email checking) includes a **+2.0h complexity buffer**.

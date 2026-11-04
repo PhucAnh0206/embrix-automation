@@ -120,7 +120,7 @@ export class AccountOrderApiHelper {
    * @returns An array of default ServicePayload objects.
    */
   private loadServicesConfig(): ServicePayload[] {
-    const filePath = path.join(process.cwd(), 'test-data', 'services.config.json');
+    const filePath = path.join(process.cwd(), 'tests', 'data', 'services.config.json');
     if (fs.existsSync(filePath)) {
       try {
         const content = fs.readFileSync(filePath, 'utf-8');
@@ -149,7 +149,7 @@ export class AccountOrderApiHelper {
     if (!name) {
       return this.loadServicesConfig();
     }
-    const filePath = path.join(process.cwd(), 'test-data', 'services.data.json');
+    const filePath = path.join(process.cwd(), 'tests', 'data', 'services.data.json');
     if (fs.existsSync(filePath)) {
       try {
         const content = fs.readFileSync(filePath, 'utf-8');
@@ -168,7 +168,7 @@ export class AccountOrderApiHelper {
     }
     // A name was asked for and not found. Falling back to the default bundle
     // would silently order the wrong catalog item.
-    throw new Error(`No service profile named "${name}" in test-data/services.data.json`);
+    throw new Error(`No service profile named "${name}" in tests/data/services.data.json`);
   }
 
   /**
@@ -177,7 +177,7 @@ export class AccountOrderApiHelper {
    * @returns A partial AccountAndOrderPayload object.
    */
   private loadAccountTemplate(profileName: string): Partial<AccountAndOrderPayload> {
-    const filePath = path.join(process.cwd(), 'test-data', 'accounts.data.json');
+    const filePath = path.join(process.cwd(), 'tests', 'data', 'accounts.data.json');
     if (fs.existsSync(filePath)) {
       try {
         const content = fs.readFileSync(filePath, 'utf-8');

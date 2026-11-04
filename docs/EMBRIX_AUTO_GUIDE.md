@@ -114,10 +114,10 @@ npx playwright test --project=regression --headed
 
 ```bash
 # Run the TS‑01 spec (regression suite)
-npx playwright test tests/regression/coopeguanacaste/ts-01.spec.ts --project=regression
+npx playwright test tests/coopeg/lifecycle/ts-01.spec.ts --project=coopeg-lifecycle
 
 # Headed mode
-npx playwright test tests/regression/coopeguanacaste/ts-01.spec.ts --project=regression --headed
+npx playwright test tests/coopeg/lifecycle/ts-01.spec.ts --project=coopeg-lifecycle --headed
 ```
 
 > **Important**
@@ -217,13 +217,13 @@ The report includes:
 
 | Folder                | Purpose                                                                                     |
 | --------------------- | ------------------------------------------------------------------------------------------- |
-| `tests/`            | Contains all test specifications (`*.spec.ts`), organized by type (smoke, regression)     |
+| `tests/`            | Contains all test specifications (`*.spec.ts`), one folder per track (jasec, coopeg, embrix-platform) plus unit, smoke, data |
 | `pages/`            | Page‑Object Model – one file per screen/section of the UI                                 |
 | `pages/components/` | Reusable UI components such as Toast, ReactSelect, Table, Sidebar                           |
 | `helpers/db/`       | Database helpers encapsulating SQL operations (e.g. JobScheduleDbHelper)                    |
 | `fixtures/`         | Playwright fixtures that inject page objects, helpers, and components into the test context |
 | `helpers/`          | Utility modules: API helpers, structured logger, timeout constants                          |
-| `test-data/`        | JSON files that provide input data for the tests                                            |
+| `tests/data/`        | JSON files that provide input data for the tests                                            |
 | `playwright/`       | Internal Playwright data: session storage and shared test context                           |
 | `docs/`             | Project documentation (this guide, project structure, demo scripts, etc.)                   |
 
@@ -242,7 +242,7 @@ The report includes:
 | SMOKE‑03 | Proper error message when credentials are invalid |
 | SMOKE‑04 | Page title is populated (basic SEO sanity)        |
 
-### 7.2. Regression Tests (`tests/regression/coopeguanacaste/`)
+### 7.2. Regression Tests (`tests/coopeg/lifecycle/`)
 
 **TS‑01** – Full Order‑to‑Cash flow:
 
@@ -310,7 +310,7 @@ Prefer the following locator strategies (in order):
 
 ### 8.5. Test Data Management
 
-- Never hard‑code values in the spec files. Load them from JSON files in `test-data/` or through API helpers.
+- Never hard‑code values in the spec files. Load them from JSON files in `tests/data/` or through API helpers.
 - Generate **unique IDs** for each run to avoid collisions.
 - Keep sensitive information (credentials, tokens) in the `.env` file – never commit them.
 

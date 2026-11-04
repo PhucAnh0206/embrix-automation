@@ -5,7 +5,7 @@ Environment: `jasec-dev`. Date: 2026-08-26. Owner: Anh Tran (QC).
 
 Nothing here is a ticketed test case. No TC numbers — numbering comes from the
 official case list once a proposal is accepted. Specs are named `explore-*`
-and live in `tests/regression/jasec/payment/`, project `jasec-payment`.
+and live in `tests/jasec/explore/payment/`, project `jasec-payment`.
 
 ---
 
@@ -367,7 +367,7 @@ rapid-double-click / double-return case is the obvious next case to add.
 ## 3. Automation delivered
 
 ```
-tests/regression/jasec/payment/
+tests/jasec/explore/payment/
   explore-01-make-payment-recon.spec.ts   R1  Make Payment: screen dump + API trace + selection probe
                                           R2  Core UI Billing Data → Payments + Id link probe
                                           R3  Self Care Billing Data → Payments + Id pill probe

@@ -1,6 +1,6 @@
 // EFT-106 escalation documents from the latest results (no history, business wording):
 //   eft-106\EFT-107-client-issues.csv, EFT-108-process-results.csv, EFT-109-integration-evidence.csv
-// Inputs: the client CSV (latest result per case), eft-106\results.json (written by tests\eft-106 specs).
+// Inputs: the client CSV (latest result per case), eft-106\results.json (written by tests\coopeg\tickets\eft-106 specs).
 //   node test-cases\netsuite\tools\eft106-report.js
 const fs = require('fs');
 const path = require('path');
@@ -20,9 +20,9 @@ const EV = fs.existsSync(path.join(OUT, 'evidence')) ? fs.readdirSync(path.join(
 const evidence = id => [`eft-106/evidence/${id}.json`, ...EV.filter(f => f.startsWith(`${id}-`) && f.endsWith('.png')).map(f => `eft-106/evidence/${f}`)].join('\n');
 const NEEDS = {
   ont: 'A free test ONT to repeat the full network cycle (connection, suspension, reconnection, disconnection) on a QA contract: NOKIA now configures the test ONT ALCLB3D94488, but it is in use on test contract 798696. Nothing to fix in Embrix.',
-  tv: 'Coope: give the MOTV user of the test environment the rights of the production user, or a MOTV test user. Then a TV order is repeated (plan BDL_INT_200MBPS_TV; MOTV logs the viewer in with the contract number, so no TV box is needed).',
+  tv: 'A new Internet + TV contract (plan BDL_INT_200MBPS_TV; MOTV logs the viewer in with the contract number, so no TV box is needed), now that the TV request carries the customer e-mail and phone. It needs a free test ONT. If MOTV still answers code 24, Coope: the rights of the MOTV user of the test environment.',
   voip: 'Coope: allow the test environment (50.16.147.102) to reach voip.coopeguanacaste.cr on port 443, and a free test number from the PortaOne number inventory. Then a phone order is repeated.',
-  coopeweb: 'Coope: give the user the test environment signs in with on CoopeWeb the rights for work-order updates (AprovisionamientoManual).',
+  coopeweb: '',
 };
 
 // ---- EFT-107: the 5 client issues ----
@@ -111,14 +111,14 @@ fs.writeFileSync(path.join(OUT, 'EFT-108-process-results.csv'), csv([['Business 
 const G = [
   ['NetSuite', 'EFT109-NETSUITE', 'Invoices and credit notes sent by Embrix and NetSuite\'s answers; the latest ones looked up in the NetSuite sandbox.', '', { status: 'Pass',
     result: 'Every stamped invoice and credit note of a contract registered in NetSuite is sent once and accepted; NetSuite\'s number (FA… / NC…) is kept on the Embrix document. A refused document keeps NetSuite\'s reason on the Bills / Credit Notes screen and can be sent again (e.g. contract not registered in NetSuite, accounting period not open). Latest: invoice FA586485 and credit memo NC1094 found once in the NetSuite sandbox with the same amounts.' }],
-  ['CoopeWeb', 'EFT109-COOPEWEB', 'Requests Coopeweb sends to Embrix (contracts, adjustments, payments, due dates, grace periods, invoice inquiry with PDF) and Embrix\'s messages to Coopeweb (work orders, provisioning confirmation, cancellation notice, SMS).', NEEDS.coopeweb, { status: 'Fail',
-    result: 'CoopeWeb → Embrix works: contracts and orders, credits, payments, due-date extensions, grace periods and invoice inquiries with PDF are answered (e.g. order ORD-3002 on 244764, 2 Nov). Embrix → CoopeWeb: provisioning confirmations are answered, but every work-order update has been rejected by CoopeWeb with HTTP 401 since 31 Oct (85 of 85), although CoopeWeb issues the sign-in token. Cancellation notices and SMS are issued in test mode and not delivered, as on the CoopeG Sandbox.' }],
+  ['CoopeWeb', 'EFT109-COOPEWEB', 'Requests Coopeweb sends to Embrix (contracts, adjustments, payments, due dates, grace periods, invoice inquiry with PDF) and Embrix\'s messages to Coopeweb (work orders, provisioning confirmation, cancellation notice, SMS).', NEEDS.coopeweb, { status: 'Pass',
+    result: 'CoopeWeb → Embrix works: contracts and orders, credits, payments, due-date extensions, grace periods and invoice inquiries with PDF are answered (e.g. order ORD-3002 on 244764, 2 Nov). Embrix → CoopeWeb: provisioning confirmations and work-order updates are answered (order 7130091 on 798698: "Datos de aprovisionamiento manual registrados correctamente"; the earlier HTTP 401 answers are fixed). Cancellation notices and SMS are issued in test mode and not delivered, as on the CoopeG Sandbox.' }],
   ['NOKIA', 'EFT109-NOKIA', 'Every NOKIA answer to this environment\'s provisioning, suspension, reconnection and disconnection orders.', NEEDS.ont, { status: 'Partly done',
     result: 'Provisioning works: NOKIA locates the test ONT ALCLB3D94488, finds the space and configures it on OLT-STC01 (operative status ENABLED) for test contract 798696 (31 Oct). The earlier refusals came from the test environment\'s NOKIA data (a position still held, missing OLT templates), fixed on 31 Oct (EFT-107 issue 4). Suspension, reconnection and disconnection have not yet been shown on a contract connected in NOKIA: the QA contracts were activated without NOKIA, so those orders are not sent for them.' }],
   ['PortaOne', 'EFT109-PORTAONE', 'Phone (VoIP) orders sent to PortaOne from this environment.', NEEDS.voip, { status: 'Blocked',
     result: 'The test environment cannot reach PortaOne: sign-ins time out ("connect timed out", 4 of the last 6), so no phone line has been created. Coope\'s firewall lets only production in.' }],
   ['MOTV', 'EFT109-MOTV', 'TV orders sent to MOTV from this environment.', NEEDS.tv, { status: 'Fail',
-    result: 'MOTV answers and the test user signs in, but MOTV refuses to create or remove TV customers for that user (code 24 on test contracts 798700, 798661 and 798696; production never gets this code).' }],
+    result: 'MOTV answers and the test user signs in, but every TV customer sent from this environment carried "--email--" and "--number--" instead of the customer e-mail and phone, and MOTV refused it (code 104 "Email --email-- is not valid email" on 798698; code 24 on 798659, 798661, 798696 and 798700). The e-mail and phone are now sent, as on the CoopeG Sandbox; a new TV order has not run since.' }],
 ];
 fs.writeFileSync(path.join(OUT, 'EFT-109-integration-evidence.csv'), csv([
   ['Integration', 'Status', 'What was checked', 'Result', 'Evidence', 'Needed to complete'],

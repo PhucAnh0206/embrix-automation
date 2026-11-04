@@ -3,7 +3,7 @@
  * docs\NetSuite\UI-FIRST-PLAN.md). Mapped and proven on 2026-10-24:
  *   - Manual Billing (/customers/<id>/manual-billing): invoice 0279714, same payload as the API path (FA586037)
  *   - Apply Adjustment (/ar-operations/adjustments/apply): line credit CR-105160 (NC988)
- *   - Bulk Adjustments upload: tests\dev\ns-bulk-adjustment.spec.ts
+ *   - Bulk Adjustments upload: tests\coopeg\netsuite-actions\ns-bulk-adjustment.spec.ts
  * Results are read back by the caller (NsApi reads / Customer Activity), as evidence next to the screen value.
  * Dates on the screens default to the CCP clock: the caller sets the clock first.
  */

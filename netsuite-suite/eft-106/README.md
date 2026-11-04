@@ -12,7 +12,7 @@ Plan, coverage and what is still needed: `docs\NetSuite\EFT-106-COVERAGE.md`.
 | `evidence\<check>-*.png` | – | Screenshots per check (latest run): Core UI screens (order, Services, Bills, Credit/Debit Notes, Customer Activity with request and answer) and the NetSuite sandbox search. None of PortaOne activity or MOTV's session login (they show tokens and passwords) |
 | `..\results\NetSuite_sandbox_documents.csv` + `..\evidence\netsuite-sandbox\` | regression | Every invoice / credit note the regression cases cite, looked up in the NetSuite sandbox (found once, same amount), with screenshots |
 
-Specs (`automation\embrix-automation\tests\eft-106\`, project `eft106`; VPN on for the database reads):
+Specs (`automation\embrix-automation\tests\coopeg\tickets\eft-106\`, project `eft106`; VPN on for the database reads):
 
 | Spec | Checks | Creates |
 |---|---|---|
@@ -25,8 +25,8 @@ Specs (`automation\embrix-automation\tests\eft-106\`, project `eft106`; VPN on f
 ```powershell
 cd D:\Dev\products\Embrix\automation\embrix-automation
 $env:EMBRIX_ENV_FILE='.env.coopegsbx2'
-npx playwright test --project=eft106 tests/eft-106/eft107-client-issues.spec.ts tests/eft-106/eft109-integrations.spec.ts tests/eft-106/eft108-processes.spec.ts --reporter=line
-npx playwright test --project=dev tests/dev/ns-sandbox-documents.spec.ts --reporter=line   # regression documents in the NetSuite sandbox
+npx playwright test --project=eft106 tests/coopeg/tickets/eft-106/eft107-client-issues.spec.ts tests/coopeg/tickets/eft-106/eft109-integrations.spec.ts tests/coopeg/tickets/eft-106/eft108-processes.spec.ts --reporter=line
+npx playwright test --project=dev tests/coopeg/netsuite-actions/ns-sandbox-documents.spec.ts --reporter=line   # regression documents in the NetSuite sandbox
 node ..\..\test-cases\netsuite\tools\eft106-report.js                                       # rebuild the three CSVs
 ```
 - EFT-108 statuses come from the client CSV: rerun the process cases with `ns.ps1` / `ns-cycle.ps1` (runbook `docs\NetSuite\NEXT-RUN.md`) before rebuilding.
@@ -36,4 +36,4 @@ node ..\..\test-cases\netsuite\tools\eft106-report.js                           
   plus `EFT_TV='true'` (plan BDL_INT_200MBPS_TV, QA e-mail on the contract; `EFT_EMAIL` / `EFT_PHONE` override it if MOTV refuses ours. MOTV uses the contract number as the viewer login: no TV box id),
   and `EFT_DID='<number from the PortaOne inventory>'`.
 - Judge an earlier run's contract without sending anything: `EFT_ACCOUNT='<account>'`; send its failed order again the agent's way (Order detail > Submit order): add `EFT_RESUBMIT='true'` (today this only re-checks NOKIA). A failed order keeps the ONT; before a fresh run release it: `node ..\..\test-cases\netsuite\tools\release-device.js <order> <serial>` (QA orders only, backup in `evidence\schedule-backups`). Last failed order holding ALCLB3D94488: `QA-ANH-NS-R2-10261545-E108-O`.
-- EFT-110 (credit notes): `npx playwright test --project=dev tests/dev/ns-credit-open.spec.ts` (read only): the three EFT-86 credit-note PDFs (created before the fix; regeneration not needed, so EFT110-HIST-PDF is informational) and "Factura Referencia" on stamped PDFs (EFT110-HIST-PDF, EFT110-REF).
+- EFT-110 (credit notes): `npx playwright test --project=dev tests/coopeg/netsuite-actions/ns-credit-open.spec.ts` (read only): the three EFT-86 credit-note PDFs (created before the fix; regeneration not needed, so EFT110-HIST-PDF is informational) and "Factura Referencia" on stamped PDFs (EFT110-HIST-PDF, EFT110-REF).

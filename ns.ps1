@@ -54,7 +54,7 @@ try {
   Write-Host "NetSuite (coopegsbx2): $($ids -join ', ')" -ForegroundColor Cyan
   # ns-08 / ns-98 are the NetSuite-side checks: they need a person to sign in to NetSuite first, so not here.
   $pw = @('playwright', 'test', '--project=netsuite', '--workers=1', '--output=test-results-coopegsbx2',
-          '--reporter=list,html,json,./reporters/netsuite-csv.reporter.ts', '--grep', $grep, 'regression/netsuite/ns-0[0-7]')
+          '--reporter=list,html,json,./reporters/netsuite-csv.reporter.ts', '--grep', $grep, 'coopeg/netsuite/ns-0[0-7]')
   if ($Headed) { $pw += '--headed' }
   & npx @pw
 } finally {

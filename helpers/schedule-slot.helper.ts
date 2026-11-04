@@ -48,7 +48,7 @@ export async function dateUsable(db: DbHelper, date: string): Promise<boolean> {
  * PROCESSING, or a tenant where reclaiming is not allowed. Callers BLOCK on free=false exactly as they did on a taken
  * date before.
  *
- * `anyTenant`: only for tests/dev/probe-rerun-completed-date.spec.ts, the experiment that qualifies a NEW tenant before
+ * `anyTenant`: only for tests/jasec/probes/probe-rerun-completed-date.spec.ts, the experiment that qualifies a NEW tenant before
  * it joins RECLAIM_TENANTS. Prod (`jasec`) is refused whatever is passed.
  */
 export async function ensureDateFree(

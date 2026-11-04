@@ -6,7 +6,7 @@
  *                          platform MOTV (UPDATE_PROVISIONING_IDENTIFIER on 244700): MOTV logs the viewer in with it
  *   VOIP      type DID:    Provisioning Id = the phone number from the PortaOne number inventory
  * The NOKIA / MOTV / PortaOne steps run for real once the order is created, so the safety checks below come first.
- * tests/dev/ns-provision.spec.ts keeps its own (Internet-only) copy of the screen steps.
+ * tests/coopeg/netsuite-actions/ns-provision.spec.ts keeps its own (Internet-only) copy of the screen steps.
  */
 import * as fs from 'fs';
 import { Client } from 'pg';

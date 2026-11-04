@@ -48,7 +48,7 @@ function Spec([string] $spec, [hashtable] $vars) {
     $env:EMBRIX_ENV_FILE = '.env.coopegsbx2'
     foreach ($k in $vars.Keys) { Set-Item "env:$k" $vars[$k] }
     $ErrorActionPreference = 'Continue' # npx writes to stderr; with 2>&1 PowerShell 5.1 would stop on it
-    npx playwright test "tests/dev/$spec" --project=dev --reporter=line 2>&1 | Select-String -Pattern '\[LOG\]|passed|failed' | ForEach-Object { Write-Host "  $_" }
+    npx playwright test "tests/coopeg/netsuite-actions/$spec" --project=dev --reporter=line 2>&1 | Select-String -Pattern '\[LOG\]|passed|failed' | ForEach-Object { Write-Host "  $_" }
   } finally {
     Pop-Location
     foreach ($k in $saved.Keys) { if ($null -eq $saved[$k]) { Remove-Item "env:$k" -ErrorAction SilentlyContinue } else { Set-Item "env:$k" $saved[$k] } }
