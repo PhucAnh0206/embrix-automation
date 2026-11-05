@@ -1,16 +1,18 @@
 /**
  * Helpers to bootstrap a JASEC prepaid account for a test.
  *
- * Two variants:
- *   • createPrepaidAccountOnly     — account only, no order/subscription.
- *   • createPrepaidAccountWithOrder — full setup (account + order + meter).
- *     Required whenever the test needs top-ups to actually process at the
- *     backend; account-only setups leave the customer without an active
- *     subscription so top-ups appear successful in the UI but don't persist.
+ * Two shapes, each built two ways:
+ *   • account only (no order/subscription)  — createPrepaidAccountOnly (Core UI) / seedPrepaidAccountOnly (GraphQL)
+ *   • account + order + meter                — createPrepaidAccountWithOrder (Core UI) / seedPrepaidAccountWithOrder (GraphQL)
+ *     Needed whenever top-ups must reach the backend: without a subscription a
+ *     top-up looks successful in the UI but does not persist.
  *
- * Both variants suffix customerId (and provisioningId, for the WithOrder
- * variant) with a unique value so reruns don't hit the DB's unique
- * constraints — see uniqueRunSuffix below.
+ * Rule: the screens are used where the case TESTS account creation (account/ts-01); a case that only needs an
+ * account uses the GraphQL seed, which stores exactly what the screens store. JASEC_ACCOUNT_SETUP=ui sends every
+ * such case back to the screens (see accountSetupMode).
+ *
+ * customerId, NISE and the meter carry a unique suffix so reruns don't hit the
+ * DB's unique constraints — see uniqueRunSuffix below.
  */
 
 import { Page, expect } from '@playwright/test';
@@ -243,8 +245,8 @@ export async function createPrepaidAccountWithOrder(
 }
 
 /**
- * Full setup: create a fresh account+order, log into Self Care, and act as
- * the account. Used by TS-02 / TS-03 (any test that needs top-ups to persist).
+ * Full setup through the Core UI wizard: create a fresh account+order, log into
+ * Self Care, and act as the account (the ui path of setUpAccountInSelfCareBy).
  */
 export async function setUpAccountInSelfCare(
   fixtures: SetUpWithOrderFixtures,
@@ -310,13 +312,13 @@ export async function attachToAccountInSelfCare(
 
 /**
  * Lightweight setup: create an account-only (no order), log into Self Care,
- * act as the account, and open Manage Payment Profile. Used by TS-01 card
- * management tests where a subscription is not required.
+ * act as the account, and open Manage Payment Profile, for card-management
+ * cases where a subscription is not required. Built the accountSetupMode(fallback) way.
  */
 export async function setUpAccountAndEnterManagePaymentProfile(
   fixtures: SetUpAccountOnlyFixtures,
   baseRow: PrepaidAccountRow,
-  fallback: AccountSetupMode = 'ui',   // the top-up suites pass 'seed'
+  fallback: AccountSetupMode = 'ui',
 ): Promise<string> {
   const {
     page, testLogger,
@@ -345,16 +347,9 @@ export async function setUpAccountAndEnterManagePaymentProfile(
  * FAST PATH — create the account through the CRM gateway instead of the Core UI
  * wizard, then log into Self Care against it.
  *
- * Drop-in for `setUpAccountInSelfCare` for tests that need an account with a
- * working subscription but NOT a meter. The gateway is fast:
- * the gateway returns in ~3s where the Core UI wizard takes ~95s (41s account
- * + 53s order across ~15 sequential clicks).
- *
- * USE FOR    top-up, saved-card and Min-Amount tests — anything that only needs
- *            balance to move.
- * DO NOT USE for MDR / tariff / tax-tier work, or notification Events 3 and 5.
- *
- * Why not for those: the gateway accepts `services[].provisioningId` and
+ * Only for a throwaway account whose shape does not matter (JASEC_ACCOUNT_SETUP=gateway); the suites use the
+ * screen-shaped seed instead. The gateway account differs from a screen-made one and has NO meter:
+ * the gateway accepts `services[].provisioningId` and
  * `meterReading` and then SILENTLY IGNORES them, returning HTTP 200 with
  * status SUCCESS. No `core_engine.service_provision` type=METER row is created,
  * so the account can never be rated. The meter is attached by a separate
@@ -442,16 +437,12 @@ export async function setUpAccountInSelfCareViaGateway(
   return accountId;
 }
 
-// ── SEED PATH: the same account the Create Account + Create Order screens make, over GraphQL ─────────────────────
+// ── SEED PATH: the account the Create Account + Create Order screens make, over GraphQL (~6 s instead of ~2 min) ──
 //
-// For cases that NEED an account but do not TEST creating one (top-up, saved card, minimum amount): the same rule
-// TC-148/149 follow. ~5 s instead of ~2 min of Core UI wizard per account. Account creation itself stays on the
-// screens (account/ts-01 calls createPrepaidAccountWithOrder directly and is not touched).
-//
-// Same shape as the screens, checked field by field on preprod 2026-11-05 (ACT-101299 by the screens vs a seed): type
-// PREPAID / subtype SUBTYPE_01, the row's contact (name + ID document + e-mail), street + district, NISE in clientId,
-// billing day, the row's meter + Lectura Inicial, credit profile "Prepaid Energy Profile", bundle B-100000-E,
-// isPartialFulfillmentAllowed. Country: the screen picks "Costa Rica" and stores CRI, so CRI is sent.
+// It sends the screens' own requests, so the stored account is the same field by field (checked against a
+// screen-made account): type PREPAID / subtype SUBTYPE_01, the row's contact, address and billing day, NISE, the
+// meter with its Lectura Inicial and rating link, credit profile, bundle lines and discounts. The screen picks
+// "Costa Rica" and stores CRI, so CRI is sent.
 
 /** The seed options that reproduce what the screens store for `row` (suffix = uniqueRunSuffix()). */
 function screenShapedSeed(row: PrepaidAccountRow, suffix: string): Omit<SeedPrepaidOptions, 'meter'> {
@@ -503,10 +494,7 @@ export async function seedPrepaidAccountOnly(row: PrepaidAccountRow, testLogger:
 
 export type AccountSetupMode = 'ui' | 'seed' | 'gateway';
 
-/**
- * How a case builds the account it needs: JASEC_ACCOUNT_SETUP=ui | seed | gateway, else the caller's default.
- * The top-up suites default to 'seed'; JASEC_ACCOUNT_SETUP=ui puts every one of them back on the Core UI wizard.
- */
+/** How a case builds the account it needs: JASEC_ACCOUNT_SETUP=ui | seed | gateway, else the caller's default. */
 export function accountSetupMode(fallback: AccountSetupMode): AccountSetupMode {
   const v = (process.env.JASEC_ACCOUNT_SETUP ?? '').trim().toLowerCase();
   return v === 'ui' || v === 'seed' || v === 'gateway' ? v : fallback;
@@ -541,54 +529,19 @@ export interface SwitchableSetupFixtures extends SetUpWithOrderFixtures {
 }
 
 /**
- * Account setup for the top-up suites, switchable at RUN TIME.
+ * Create the account + order + meter and open it in Self Care, built the way JASEC_ACCOUNT_SETUP says, else `fallback`:
  *
- *   default                     → `fallback`: the Core UI wizard (~95s to create), or the screen-shaped
- *                                 GraphQL seed (~6s, meter included) where the caller passes 'seed' -
- *                                 the top-up specs do since 2026-11-05
- *   JASEC_ACCOUNT_SETUP=ui      → Core UI wizard, whatever the caller's default
- *   JASEC_ACCOUNT_SETUP=seed    → screen-shaped GraphQL seed
- *   JASEC_ACCOUNT_SETUP=gateway → CRM gateway    (fast: ~2.2s to create, NO meter)
+ *   seed     screen-shaped GraphQL seed (~6 s) — what the top-up and notification specs pass
+ *   ui       Core UI wizard (~2 min)
+ *   gateway  CRM gateway (~3 s) — a different account shape and NO meter, so never for a case that reads the meter
+ *            or rates (receipt "Medidor", MDR, tariff, tax tiers)
  *
- * Across a full test, both ways:
- * gateway 1.7 min vs UI 4.9 min — about 3.2 minutes per test.
- *
- * DEFAULT IS THE UI PATH. A real customer is created through the Core UI, so
- * that is what the suite exercises by default. The gateway is a speed
- * optimisation and produces an account a real user would not have.
- *
- * Test data carries legalEntity `US`, which is what the Create Account form
- * defaults to and therefore what a real user gets. This is load-bearing: credit
- * profiles are attribute-matched on legalentity, and an account carrying `Jasec`
- * matches no profile at all, making it unrepresentative of production.
- *
- * The creation CHANNEL does not affect this. The gateway ignores the field and
- * stores `US` regardless; the UI pre-fills it. Do not reintroduce a per-path
- * legalEntity difference - there is none.
- *
- * Why a switch and not commented-out code: reverting has to be instant and
- * total. One env var puts every call site back on the Core UI path with no
- * edit, no redeploy and nothing to un-comment, and both paths stay compiled so
- * neither can silently rot.
- *
- * The gateway path is KEPT and still compiled — it is legitimate when you need
- * a throwaway account fast and the account shape is irrelevant to the
- * assertion.
- *
- *   npx playwright test --project=jasec-top-up               # Core UI (default)
- *   JASEC_ACCOUNT_SETUP=gateway npx playwright test ...      # fast gateway path
- *
- * DO NOT route a test through here if it needs a METER. The gateway cannot
- * attach one — both provisioning endpoints were tested and are
- * closed for this tenant, so the account is created without a meter and can
- * never be rated. TC 2.10 asserts "Medidor" on the receipt PDF and must keep
- * calling setUpAccountInSelfCare directly. Same for anything that rates:
- * MDR, tariff, tax tiers, notification Events 3 and 5.
+ * legalEntity is `US` on every path (the Create Account form's default, which credit profiles match on).
  */
 export async function setUpAccountForTopUp(
   fixtures: SwitchableSetupFixtures,
   baseRow: PrepaidAccountWithOrderRow,
-  fallback: AccountSetupMode = 'ui',   // the top-up suites pass 'seed'; other callers keep the Core UI default
+  fallback: AccountSetupMode = 'ui',
 ): Promise<string> {
   const mode = accountSetupMode(fallback);
   if (mode === 'seed') return setUpAccountInSelfCareBy('seed', fixtures, baseRow);

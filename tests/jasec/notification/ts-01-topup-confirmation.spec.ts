@@ -167,9 +167,8 @@ async function ensureAccount(
   const row: PrepaidAccountWithOrderRow = JSON.parse(JSON.stringify(baseRow));
   row.contact.email = EmailHelper.recipient();
 
-  // `row` carries the REWRITTEN contact.email above, and both setup paths honour
-  // it -- the gateway path reads row.contact.email rather than hardcoding one, so
-  // the confirmation email still lands in the monitored mailbox.
+  // `row` carries the REWRITTEN contact.email above; every setup path (seed, ui,
+  // gateway) uses row.contact.email, so the email lands in the monitored mailbox.
   const accountId = await setUpAccountForTopUp({
     page: f.page, testLogger: f.testLogger,
     accountOrderApiHelper: f.accountOrderApiHelper,

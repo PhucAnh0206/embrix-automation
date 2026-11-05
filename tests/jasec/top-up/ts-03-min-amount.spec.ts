@@ -45,9 +45,9 @@
  * the engine path above.
  *
  * Setup requirement: account MUST be created with a real order so top-ups
- * actually reach the backend. Since 2026-11-05 it is the GraphQL seed built like the Create Account / Create
- * Order screens (seedPrepaidAccountWithOrder); JASEC_ACCOUNT_SETUP=ui uses the Core UI wizard
- * (createPrepaidAccountWithOrder) again.
+ * actually reach the backend. It comes from the GraphQL seed built like the Create Account / Create
+ * Order screens (seedPrepaidAccountWithOrder); JASEC_ACCOUNT_SETUP=ui uses the Core UI wizard instead.
+ * The top-ups themselves stay in Self Care.
  *
  * Post-top-up refresh: Min Amount doesn't auto-refresh. Every post-top-up
  * assertion reloads the Top Up view first.
@@ -65,10 +65,9 @@
  * Debt is injected through the DB because JASEC only produces a positive CRC
  * balance through kWh consumption, which this suite does not drive.
  *
- * Account-setup strategy: 3.1 and 3.5 share one pristine account (see
- * `pristineAccount` below) — 3.1's only assertion is 3.5's first one, so they
- * were building the same account twice. 3.2, 3.3, 3.4 and 3.6 each still need
- * their own, because each one dirties it in a different way.
+ * Account sharing: 3.1 and 3.5 share one pristine account (see `pristineAccount`
+ * below) — 3.1's only assertion is 3.5's first one. 3.2, 3.3, 3.4 and 3.6 each
+ * need their own, because each one dirties it in a different way.
  */
 
 import * as fs from 'fs';
@@ -93,8 +92,7 @@ const PRISTINE_MONTH_B = '2026-08-15';
  * Shared by 3.1 and 3.5 — the only two tests here that need a PRISTINE account
  * (no top-up, no debt) and never dirty it. 3.1's single assertion, "Min = the
  * first-month base at a mid-month date", is literally 3.5's first assertion, so
- * the two were creating identical accounts and paying twice: 126s + 146s on the
- * 2026-08-20 run. One account covers both.
+ * one account covers both.
  *
  * Safe to reuse across the intervening tests (3.2-3.4) because those act on
  * their OWN accounts: 3.2 writes a balance, 3.3 and 3.4 top up, and none of them

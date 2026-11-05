@@ -84,19 +84,17 @@ export interface SeedPrepaidOptions {
    */
   category?: 'PREPAID' | 'POSTPAID';
   /**
-   * Screen-shaped account (2026-11-05, for cases that need an account but do not test creating one). Each one omitted
-   * = the seed's own value, unchanged: type RESIDENTIAL, subType NONE, contact "QA <customerId>", no ID document,
-   * isPartialFulfillmentAllowed not sent. The Create Account / Create Order screens store type PREPAID, subtype
-   * SUBTYPE_01 ("Residencial Permanente") and the clerk's contact.
+   * Screen-shaped account: the Create Account screen stores type PREPAID, subtype SUBTYPE_01 ("Residencial
+   * Permanente") and the clerk's contact. Omitted = RESIDENTIAL, NONE and contact "QA <customerId>".
    */
   accountType?: string;
   subType?: string;
   contact?: { firstName: string; lastName?: string; middleName?: string; identityDocument?: string };
   /**
-   * Send the NEW order exactly as the Create Order screen does (its request, read from a trace 2026-11-05): status
-   * CREATED, isPartialFulfillmentAllowed, the bundle's lines spelled out (read from the bundle, as the screen does), the meter without index/effectiveDate, no
-   * effective date (the server takes the clock), and submitted with executeFutureOrderNow:false. Omitted = the seed's
-   * own order, unchanged.
+   * Send the NEW order exactly as the Create Order screen does: status CREATED, isPartialFulfillmentAllowed, the
+   * bundle's lines spelled out, the meter without index/effectiveDate, no effective date (the server takes the clock),
+   * submitted with executeFutureOrderNow:false (the clock's future-order pin is left alone). Omitted = the seed's
+   * own order.
    */
   screenOrder?: boolean;
 }
@@ -302,8 +300,7 @@ export class PrepaidSeedHelper {
   }
 
   /**
-   * Wait for an order to reach a terminal status; returns it. The Core UI order screen waits for COMPLETED before
-   * the clerk moves on, so a seed standing in for that screen does too.
+   * Wait for an order to reach a terminal status; returns it (the Create Order screen also waits for COMPLETED).
    */
   async waitForOrder(orderId: string, maxSeconds = 180): Promise<string> {
     const TERMINAL = ['COMPLETED', 'PROVISIONING_ERROR', 'CANCELLED', 'CLOSED', 'FAILED', 'REJECTED'];

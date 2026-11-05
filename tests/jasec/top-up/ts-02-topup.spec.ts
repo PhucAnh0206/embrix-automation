@@ -16,27 +16,18 @@
  *   2.11 No / CLOSED subscription — the customer must not be charged
  *   2.12 ACTIVE and SUSPENDED subscriptions both charge AND register
  *
- * Account-setup strategy:
- *   • How an account is built (2026-11-05): these cases test top-ups, not account creation, so the account +
- *     order + meter come from the GraphQL seed, built exactly like the Create Account / Create Order screens
- *     (seedPrepaidAccountWithOrder, ~6 s instead of ~2 min each). Account creation itself is covered on the
- *     screens by account/ts-01. JASEC_ACCOUNT_SETUP=ui runs every case here on the Core UI wizard again.
- *   • Group A — SHARED account (2.2, 2.3a, 2.6, 2.7, 2.8, and 2.12's ACTIVE
- *     leg). The first Group A
- *     test to run creates ONE account with a saved card and one seed top-up;
- *     the rest attach a fresh page to it. Measured on the 2026-08-20 run:
- *     205s for the creating test vs 61-70s for each attaching one, so the
- *     sharing is worth roughly 7 minutes across the group. Running a single
- *     Group A test on its own still works — whichever runs first creates.
- *     Caveat: the cache is per WORKER, so a failure anywhere in the file
- *     restarts the worker and the next Group A test pays full price again.
- *     See fixtures/shared-account.helper.ts.
- *   • Group B — ISOLATED (2.1, 2.3b, 2.4, 2.5, 2.9, 2.10). Each creates
- *     its own fresh account because it needs a controlled initial state
- *     (empty history, exact row counts, ccpTime-driven dates, or — for
- *     TC 2.9 — a stable single-row history so `nth(0)` refers to the
- *     same top-up on both clicks). These are the remaining runtime cost of
- *     this file and cannot be shared without weakening the assertions.
+ * Account setup:
+ *   • These cases test top-ups, not account creation, so the account + order + meter come from the GraphQL
+ *     seed built exactly like the Create Account / Create Order screens (seedPrepaidAccountWithOrder). Card
+ *     saves and top-ups stay in Self Care. JASEC_ACCOUNT_SETUP=ui builds the accounts on the Core UI wizard.
+ *   • Group A — SHARED account (2.2, 2.3a, 2.6, 2.7, 2.8, and 2.12's ACTIVE leg). The first Group A test to
+ *     run creates ONE account with a saved card and one top-up; the rest attach a fresh page to it, which
+ *     saves the card tokenization and the top-up each time. Running a single Group A test on its own still
+ *     works — whichever runs first creates. Caveat: the cache is per WORKER, so a failure anywhere in the file
+ *     restarts the worker and the next Group A test creates again. See fixtures/shared-account.helper.ts.
+ *   • Group B — ISOLATED (2.1, 2.3b, 2.4, 2.5, 2.9, 2.10). Each creates its own fresh account because it needs
+ *     a controlled initial state (empty history, exact row counts, ccpTime-driven dates, or — for TC 2.9 — a
+ *     stable single-row history so `nth(0)` refers to the same top-up on both clicks).
  *
  * TC 2.6–2.10 require the Self Care `topupReceiptsEnabled` feature flag to be
  * on. It isn't readable at runtime, so it's declared via the
@@ -185,10 +176,8 @@ const RECEIPTS_SKIP_REASON =
   'Top-Up receipts are disabled on this environment (TOPUP_RECEIPTS_ENABLED=false)';
 
 // ── Shared-account plumbing for Group A (2.2, 2.3a, 2.6, 2.7, 2.8) ─────
-// Backed by the shared SharedAccount helper rather than a bespoke module-level
-// cache, so this file and the notification TS-01 suite — which had grown two
-// slightly different copies of the same idea — now share one implementation and
-// one set of documented caveats (see fixtures/shared-account.helper.ts).
+// Backed by the SharedAccount helper (fixtures/shared-account.helper.ts), shared
+// with the notification TS-01 suite.
 type GroupAFixtures = Parameters<typeof setUpAccountForTopUp>[0] & {
   selfcareActivityPage: SelfcareActivityPage;
   selfcareTopupPage: SelfcareTopupPage;
@@ -883,10 +872,8 @@ test.describe(
         // Freeze the clock so the PDF date is deterministic.
         const testDate = '2026-07-15';
         await serverHelper.setAndVerifyCcpTime(testDate);
-        // NOT setUpAccountForTopUp: TC 2.10 asserts the "Medidor" (Meter ID) field on
-        // the receipt PDF, and the CRM gateway cannot attach a meter. The GraphQL seed
-        // does (same meter + Lectura Inicial as the Core UI order); JASEC_ACCOUNT_SETUP=ui
-        // builds it through the Core UI order flow instead.
+        // NOT setUpAccountForTopUp: TC 2.10 asserts the "Medidor" (Meter ID) on the receipt PDF,
+        // so the gateway path (no meter) must never be used here - only seed or ui.
 
         const accountId = await setUpAccountInSelfCareBy(accountSetupMode('seed'), {
           page, testLogger, searchAccountsPage, createAccountPage,

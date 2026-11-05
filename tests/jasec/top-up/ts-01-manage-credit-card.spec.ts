@@ -8,13 +8,11 @@
  *   1.4 Delete a saved card
  *
  * Accounts are account-only (no order/subscription — card management does not
- * need one), which is why setup here is cheaper than in TS-02/TS-03.
- * The account comes from the GraphQL seed, built like the Create Account screen (2026-11-05: these cases test
- * cards, not account creation); JASEC_ACCOUNT_SETUP=ui creates it on the Core UI screen again.
+ * need one). These cases test cards, not account creation, so the account comes
+ * from the GraphQL seed built like the Create Account screen (seedPrepaidAccountOnly);
+ * JASEC_ACCOUNT_SETUP=ui creates it on the Core UI screen instead.
  *
- * Account-setup strategy. Each test used to create its own account, costing
- * 94-141s apiece (2026-08-20 run) for setup that is largely identical. One pair
- * shares now:
+ * Account sharing:
  *
  *   • 1.1 + 1.4 SHARE an account. 1.1 ends with a card saved, which is exactly
  *     the precondition 1.4 needs, so 1.4 skips both the account creation AND the
@@ -27,8 +25,7 @@
  *     tests whose whole assertion is "no card was saved". Sharing would make a
  *     card leaked by 1.2's abandoned session surface as a failure in 1.3 —
  *     reading as "a declined card got saved", which is a different and much more
- *     alarming defect than the real one. The ~100s saved is not worth pointing
- *     the finger at the wrong code path.
+ *     alarming defect than the real one.
  */
 
 import * as fs from 'fs';
