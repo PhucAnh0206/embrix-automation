@@ -170,9 +170,10 @@ export const test = base.extend<JasecFixtures & JasecOptions>({
   // serverHelper.setAndVerifyCcpTime() themselves, or disable the reset
   // entirely with `test.use({ ccpBaseline: null })`.
   //
-  // CLOCK (Anh 2026-10-19, replaces the 10-18 BLOCKED gate so a plain `npx playwright test --grep @tc-NN` runs): the
-  // clock is shared by the whole tenant, so the fixture remembers it, moves it to the baseline for the test, and PUTS IT
-  // BACK afterwards. JASEC_CLOCK_RESET=false opts out (the test then reports BLOCKED instead of touching the clock).
+  // CLOCK: the clock is shared by the whole tenant. The fixture moves it to the baseline at the START of the test - the
+  // one deliberate backward move on test tenants - and leaves it there: it is put back at the end only where
+  // CLOCK_RESTORE says so (prod, or JASEC_CLOCK_RESTORE=true; helpers/clock-policy.ts). JASEC_CLOCK_RESET=false opts
+  // out (the test then reports BLOCKED instead of touching the clock).
   jasecCcpBaseline: [
     async ({ serverHelper, ccpBaseline }, use, testInfo) => {
       // `null` means the spec manages the clock — do not touch it, and do not
