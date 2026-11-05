@@ -24,6 +24,7 @@ import { ScreenshotHelper } from '../helpers/screenshot.helper';
 import { TestLogger } from '../helpers/test-logger';
 import { embrixCredentials } from '../helpers/credentials.helper';
 import { AccountOrderApiHelper } from '../helpers/account-order-api.helper';
+import { PrepaidSeedHelper, type SeedPrepaidOptions } from '../helpers/prepaid-seed.helper';
 
 /** Data needed for the order + meter portion of the setup. */
 export interface JasecOrderData {
@@ -315,6 +316,7 @@ export async function attachToAccountInSelfCare(
 export async function setUpAccountAndEnterManagePaymentProfile(
   fixtures: SetUpAccountOnlyFixtures,
   baseRow: PrepaidAccountRow,
+  fallback: AccountSetupMode = 'ui',   // the top-up suites pass 'seed'
 ): Promise<string> {
   const {
     page, testLogger,
@@ -322,8 +324,8 @@ export async function setUpAccountAndEnterManagePaymentProfile(
     selfcareLoginPage, selfcareAccountSearchPage, selfcareActivityPage,
   } = fixtures;
 
-  const accountId = await createPrepaidAccountOnly(
-    page, searchAccountsPage, createAccountPage, baseRow, testLogger,
+  const accountId = await createPrepaidAccountOnlyBy(
+    accountSetupMode(fallback), page, searchAccountsPage, createAccountPage, baseRow, testLogger,
   );
 
   const { username, password } = embrixCredentials();
@@ -440,6 +442,96 @@ export async function setUpAccountInSelfCareViaGateway(
   return accountId;
 }
 
+// ── SEED PATH: the same account the Create Account + Create Order screens make, over GraphQL ─────────────────────
+//
+// For cases that NEED an account but do not TEST creating one (top-up, saved card, minimum amount): the same rule
+// TC-148/149 follow. ~5 s instead of ~2 min of Core UI wizard per account. Account creation itself stays on the
+// screens (account/ts-01 calls createPrepaidAccountWithOrder directly and is not touched).
+//
+// Same shape as the screens, checked field by field on preprod 2026-11-05 (ACT-101299 by the screens vs a seed): type
+// PREPAID / subtype SUBTYPE_01, the row's contact (name + ID document + e-mail), street + district, NISE in clientId,
+// billing day, the row's meter + Lectura Inicial, credit profile "Prepaid Energy Profile", bundle B-100000-E,
+// isPartialFulfillmentAllowed. Country: the screen picks "Costa Rica" and stores CRI, so CRI is sent.
+
+/** The seed options that reproduce what the screens store for `row` (suffix = uniqueRunSuffix()). */
+function screenShapedSeed(row: PrepaidAccountRow, suffix: string): Omit<SeedPrepaidOptions, 'meter'> {
+  const a = row.address;
+  return {
+    customerId: `${row.accountInfo.customerId}-${suffix}`,
+    clientId: `${row.accountInfo.clientId ?? 'NISE'}-${suffix}`,
+    name: '',
+    email: row.contact.email,
+    contact: {
+      firstName: row.contact.firstName, lastName: row.contact.lastName,
+      middleName: row.contact.middleName, identityDocument: row.contact.identityDocument,
+    },
+    address: { street: a.street, city: a.city, state: a.state, country: 'CRI', postalCode: a.postalCode, district: a.district },
+    billingDom: Number(row.billingProfile.billingDom ?? 1),
+    accountType: 'PREPAID',
+    subType: 'SUBTYPE_01',
+  };
+}
+
+/** Seed path of createPrepaidAccountWithOrder: account + order + meter, waited until the order is COMPLETED. */
+export async function seedPrepaidAccountWithOrder(
+  row: PrepaidAccountWithOrderRow, testLogger: TestLogger,
+): Promise<{ accountId: string; orderId: string; provisioningId: string }> {
+  const started = Date.now();
+  const suffix = uniqueRunSuffix();
+  const provisioningId = assertQaMeter(`${row.meter.provisioningId}${suffix}`);
+  const seed = new PrepaidSeedHelper(testLogger);
+  const { accountId, orderId } = await seed.seed({
+    ...screenShapedSeed(row, suffix),
+    meter: provisioningId,
+    startReading: row.meter.lecturaInicialKwh,
+    bundleId: row.bundleId,
+    screenOrder: true,
+  });
+  const status = await seed.waitForOrder(orderId);
+  expect(status, `seeded order ${orderId} on ${accountId} did not complete`).toBe('COMPLETED');
+  testLogger.data('Account created (seed)', { accountId, orderId, provisioningId, seconds: (Date.now() - started) / 1000 });
+  return { accountId, orderId, provisioningId };
+}
+
+/** Seed path of createPrepaidAccountOnly: the account, no order. */
+export async function seedPrepaidAccountOnly(row: PrepaidAccountRow, testLogger: TestLogger): Promise<string> {
+  const accountId = await new PrepaidSeedHelper(testLogger).createAccountOnly(screenShapedSeed(row, uniqueRunSuffix()));
+  expect(accountId).toMatch(/^(ACT|AC)-\d+$/);
+  testLogger.data('Account created (seed, no order)', { accountId });
+  return accountId;
+}
+
+export type AccountSetupMode = 'ui' | 'seed' | 'gateway';
+
+/**
+ * How a case builds the account it needs: JASEC_ACCOUNT_SETUP=ui | seed | gateway, else the caller's default.
+ * The top-up suites default to 'seed'; JASEC_ACCOUNT_SETUP=ui puts every one of them back on the Core UI wizard.
+ */
+export function accountSetupMode(fallback: AccountSetupMode): AccountSetupMode {
+  const v = (process.env.JASEC_ACCOUNT_SETUP ?? '').trim().toLowerCase();
+  return v === 'ui' || v === 'seed' || v === 'gateway' ? v : fallback;
+}
+
+/** setUpAccountInSelfCare, with the account built the `mode` way ('gateway' is not offered: it attaches no meter). */
+export async function setUpAccountInSelfCareBy(
+  mode: AccountSetupMode, fixtures: SetUpWithOrderFixtures, baseRow: PrepaidAccountWithOrderRow,
+): Promise<string> {
+  if (mode !== 'seed') return setUpAccountInSelfCare(fixtures, baseRow);
+  fixtures.testLogger.log('account setup: GraphQL seed, screen-shaped (JASEC_ACCOUNT_SETUP=ui for the Core UI wizard)');
+  const { accountId } = await seedPrepaidAccountWithOrder(baseRow, fixtures.testLogger);
+  await attachToAccountInSelfCare(fixtures, accountId);
+  return accountId;
+}
+
+/** createPrepaidAccountOnly, with the account built the `mode` way. */
+export async function createPrepaidAccountOnlyBy(
+  mode: AccountSetupMode, page: Page, searchAccountsPage: SearchAccountsPage, createAccountPage: CreateAccountPage,
+  baseRow: PrepaidAccountRow, testLogger: TestLogger,
+): Promise<string> {
+  if (mode !== 'seed') return createPrepaidAccountOnly(page, searchAccountsPage, createAccountPage, baseRow, testLogger);
+  return seedPrepaidAccountOnly(baseRow, testLogger);
+}
+
 /**
  * Fixture bundle for `setUpAccountForTopUp` — the UI set plus the API helper,
  * so EITHER path can run without the call site changing.
@@ -451,8 +543,12 @@ export interface SwitchableSetupFixtures extends SetUpWithOrderFixtures {
 /**
  * Account setup for the top-up suites, switchable at RUN TIME.
  *
- *   default                     → Core UI wizard (~95s to create)
- *   JASEC_ACCOUNT_SETUP=gateway → CRM gateway    (fast: ~2.2s to create)
+ *   default                     → `fallback`: the Core UI wizard (~95s to create), or the screen-shaped
+ *                                 GraphQL seed (~6s, meter included) where the caller passes 'seed' -
+ *                                 the top-up specs do since 2026-11-05
+ *   JASEC_ACCOUNT_SETUP=ui      → Core UI wizard, whatever the caller's default
+ *   JASEC_ACCOUNT_SETUP=seed    → screen-shaped GraphQL seed
+ *   JASEC_ACCOUNT_SETUP=gateway → CRM gateway    (fast: ~2.2s to create, NO meter)
  *
  * Across a full test, both ways:
  * gateway 1.7 min vs UI 4.9 min — about 3.2 minutes per test.
@@ -492,8 +588,10 @@ export interface SwitchableSetupFixtures extends SetUpWithOrderFixtures {
 export async function setUpAccountForTopUp(
   fixtures: SwitchableSetupFixtures,
   baseRow: PrepaidAccountWithOrderRow,
+  fallback: AccountSetupMode = 'ui',   // the top-up suites pass 'seed'; other callers keep the Core UI default
 ): Promise<string> {
-  const mode = (process.env.JASEC_ACCOUNT_SETUP ?? 'ui').trim().toLowerCase();
+  const mode = accountSetupMode(fallback);
+  if (mode === 'seed') return setUpAccountInSelfCareBy('seed', fixtures, baseRow);
   if (mode === 'gateway') {
     fixtures.testLogger.log(
       'account setup: CRM gateway (JASEC_ACCOUNT_SETUP=gateway) — NOTE this ' +

@@ -83,6 +83,22 @@ export interface SeedPrepaidOptions {
    * variable.
    */
   category?: 'PREPAID' | 'POSTPAID';
+  /**
+   * Screen-shaped account (2026-11-05, for cases that need an account but do not test creating one). Each one omitted
+   * = the seed's own value, unchanged: type RESIDENTIAL, subType NONE, contact "QA <customerId>", no ID document,
+   * isPartialFulfillmentAllowed not sent. The Create Account / Create Order screens store type PREPAID, subtype
+   * SUBTYPE_01 ("Residencial Permanente") and the clerk's contact.
+   */
+  accountType?: string;
+  subType?: string;
+  contact?: { firstName: string; lastName?: string; middleName?: string; identityDocument?: string };
+  /**
+   * Send the NEW order exactly as the Create Order screen does (its request, read from a trace 2026-11-05): status
+   * CREATED, isPartialFulfillmentAllowed, the bundle's lines spelled out (read from the bundle, as the screen does), the meter without index/effectiveDate, no
+   * effective date (the server takes the clock), and submitted with executeFutureOrderNow:false. Omitted = the seed's
+   * own order, unchanged.
+   */
+  screenOrder?: boolean;
 }
 
 export interface SeededPrepaidAccount {
@@ -172,12 +188,19 @@ export class PrepaidSeedHelper {
     // HTTP 400 from service-transactional. country is required by AddressInput and "" is refused ("not a valid
     // 'Country'"), so for a blank País pass 'CRI' - the Create Account form sends the tenant default too.
     const address = Object.entries(adr).map(([k, v]) => `${k}:${JSON.stringify(v)}`).join(', ');
-    // NOTE: no `userId` field — see trap 1.
+    const k = o.contact;
+    const names = k
+      ? [`firstName:${JSON.stringify(k.firstName)}`,
+         k.lastName ? `lastName:${JSON.stringify(k.lastName)}` : '',
+         k.middleName ? `middleName:${JSON.stringify(k.middleName)}` : '',
+         k.identityDocument ? `identityDocument:${JSON.stringify(k.identityDocument)}` : ''].filter(Boolean).join(', ')
+      : contactNames(o.customerId);
+    // NOTE: no `userId` field — see trap 1. An empty `name` is not sent (the Create Account screen stores none).
     const d = await this.post(`mutation { createAccount(input:{
-      currency:"CRC", type: RESIDENTIAL, accountCategory: ${o.category ?? 'PREPAID'},
-      customerSegment: B2C, salesChannel: NONE, marketSegment: NONE, subType: NONE,
-      name:"${o.name}", customerId:"${o.customerId}",${o.id !== undefined ? ` id:${JSON.stringify(o.id)},` : ''}${o.clientId ? ` clientId:"${o.clientId}",` : ''}
-      contacts:[{roles:[BILLING], ${contactNames(o.customerId)}, email:"${email}"}],
+      currency:"CRC", type: ${o.accountType ?? 'RESIDENTIAL'}, accountCategory: ${o.category ?? 'PREPAID'},
+      customerSegment: B2C, salesChannel: NONE, marketSegment: NONE, subType: ${o.subType ?? 'NONE'},
+      ${o.name ? `name:"${o.name}", ` : ''}customerId:"${o.customerId}",${o.id !== undefined ? ` id:${JSON.stringify(o.id)},` : ''}${o.clientId ? ` clientId:"${o.clientId}",` : ''}
+      contacts:[{roles:[BILLING], ${names}, email:"${email}"}],
       addresses:[{roles:[BILLING], ${address}}],
       billingProfiles:[{billingDom:${o.billingDom ?? 1}, billingFrequency: MONTHLY, invoiceType: SUMMARY,
                         invoiceDelivery: EMAIL, paymentProfileId:"PRIMARY"}],
@@ -186,6 +209,21 @@ export class PrepaidSeedHelper {
     const id = d?.createAccount?.id;
     if (!id) throw new Error('createAccount returned no id');
     return id;
+  }
+
+  /**
+   * The bundle's components as the Create Order screen sends them in `lines` (price offers and discount offers, every
+   * override null). Read from the bundle, like the screen, so a bundle change is followed rather than hard-coded.
+   */
+  private async bundleLines(bundleId: string): Promise<string> {
+    const d = await this.post(`{ getBundleById(input:{id:"${bundleId}"}) { components { index priceOfferId discountOfferId } } }`);
+    const comps: Array<{ index: number; priceOfferId?: string; discountOfferId?: string }> = d?.getBundleById?.components ?? [];
+    if (!comps.length) throw new Error(`bundle ${bundleId} has no components`);
+    const rel = 'relativeStart: null, relativeEnd: null, relativeStartUnit: null, relativeEndUnit: null';
+    return comps.map((c) => c.discountOfferId
+      ? `{index: ${c.index}, action: ADD, status: CREATED, quantity: null, priceOffset: null, ${rel}, discountOfferId: ${JSON.stringify(c.discountOfferId)}, discAmountOverride: null, discPercentOverride: null}`
+      : `{index: ${c.index}, action: ADD, status: CREATED, quantity: null, priceOverride: null, priceOffset: null, discountPercent: null, ${rel}, priceOfferId: ${JSON.stringify(c.priceOfferId)}}`,
+    ).join(', ');
   }
 
   /** Account only, no order - for cases that drive the ORDER through the Core UI. */
@@ -202,24 +240,34 @@ export class PrepaidSeedHelper {
     const bundleId = o.bundleId ?? 'B-100000-E';
     const profile = o.creditProfileName ?? 'Prepaid Energy Profile';
 
+    const reading = o.startReading !== undefined ? `, flexAttr16:"${o.startReading}"` : '';
+    const sub = `subscriptions:[{index:1, subscriptionName:"Primary", subscriptionCategory: ${o.category ?? 'PREPAID'},
+                      initialTerm:1, initialTermUnit: MONTHS, renewalTerm:1,
+                      renewalTermUnit: MONTHS, creditProfileName:"${profile}"}]`;
     // The meter goes in provisioningList — see trap 2.
-    const created = await this.post(`mutation { createOrder(input:{
+    const created = o.screenOrder
+      ? await this.post(`mutation { createOrder(input:{
+      type: NEW, accountId:"${accountId}", status: CREATED, userId:"congeroadmin", isPartialFulfillmentAllowed: true,
+      services:[{index:1, serviceType: ELECTRICITY, action: ADD, status: CREATED, bundleId:"${bundleId}",
+                 lines:[${await this.bundleLines(bundleId)}],
+                 provisioningList:[{provisioningId:"${o.meter}"${reading}, type:"METER"}], subscriptionName:"Primary"}],
+      ${sub}
+    }){ id status } }`)
+      : await this.post(`mutation { createOrder(input:{
       type: NEW, accountId:"${accountId}", userId:"congeroadmin",
       effectiveDate:"${effectiveDate}",
-      subscriptions:[{index:1, subscriptionName:"Primary", subscriptionCategory: ${o.category ?? 'PREPAID'},
-                      initialTerm:1, initialTermUnit: MONTHS, renewalTerm:1,
-                      renewalTermUnit: MONTHS, creditProfileName:"${profile}"}],
+      ${sub},
       services:[{index:1, serviceType: ELECTRICITY, action: ADD, bundleId:"${bundleId}",
                  subscriptionName:"Primary",
                  provisioningList:[{index:1, provisioningId:"${o.meter}", type:"METER",
-                                    effectiveDate:"${effectiveDate}"${o.startReading !== undefined ? `, flexAttr16:"${o.startReading}"` : ''}}]}]
+                                    effectiveDate:"${effectiveDate}"${reading}}]}]
     }){ id status } }`);
 
     const orderId = created?.createOrder?.id;
     if (!orderId) throw new Error('createOrder returned no id');
 
     await this.post(`mutation { updateOrderStatus(input:{
-      id:"${orderId}", status: SUBMITTED, userId:"congeroadmin", executeFutureOrderNow:true
+      id:"${orderId}", status: SUBMITTED, userId:"congeroadmin", executeFutureOrderNow:${o.screenOrder ? 'false' : 'true'}
     }){ id status } }`);
 
     return orderId;
@@ -251,6 +299,22 @@ export class PrepaidSeedHelper {
     );
 
     return { accountId, orderId, meter: o.meter, effectiveDate };
+  }
+
+  /**
+   * Wait for an order to reach a terminal status; returns it. The Core UI order screen waits for COMPLETED before
+   * the clerk moves on, so a seed standing in for that screen does too.
+   */
+  async waitForOrder(orderId: string, maxSeconds = 180): Promise<string> {
+    const TERMINAL = ['COMPLETED', 'PROVISIONING_ERROR', 'CANCELLED', 'CLOSED', 'FAILED', 'REJECTED'];
+    let status = '(none)';
+    for (let waited = 0; waited <= maxSeconds; waited += 3) {
+      const d = await this.post(`{ getOrderById(input:{id:"${orderId}"}) { status } }`);
+      status = String(d?.getOrderById?.status ?? '(none)');
+      if (TERMINAL.includes(status)) return status;
+      await new Promise((r) => setTimeout(r, 3_000));
+    }
+    return status;
   }
 
   /**

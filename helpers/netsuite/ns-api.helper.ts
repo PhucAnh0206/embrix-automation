@@ -264,7 +264,7 @@ export class NsApi {
     if (stored) await modify([{ index: 1 }]);
     if (percent !== null) {
       await modify([{
-        index: 1, startDate: '2020-01-01', endDate: '2030-12-31', percent,
+        index: 1, startDate: '2020-01-01', endDate: '2039-12-31', percent,
         ...(opts.certificate ? { taxCertificate: { certificateNumber: opts.certificate } } : {}),
         ...(opts.serviceTypes ? { serviceTypes: opts.serviceTypes.map((s, i) => ({ index: i + 1, serviceType: s })) } : {}),
       }]);

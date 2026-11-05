@@ -45,7 +45,9 @@
  * the engine path above.
  *
  * Setup requirement: account MUST be created with a real order so top-ups
- * actually reach the backend. Setup helper uses createPrepaidAccountWithOrder.
+ * actually reach the backend. Since 2026-11-05 it is the GraphQL seed built like the Create Account / Create
+ * Order screens (seedPrepaidAccountWithOrder); JASEC_ACCOUNT_SETUP=ui uses the Core UI wizard
+ * (createPrepaidAccountWithOrder) again.
  *
  * Post-top-up refresh: Min Amount doesn't auto-refresh. Every post-top-up
  * assertion reloads the Top Up view first.
@@ -105,7 +107,7 @@ const PRISTINE_MONTH_B = '2026-08-15';
  */
 const pristineAccount = new SharedAccount<Parameters<typeof setUpAccountForTopUp>[0]>({
   label: 'TS-03 pristine (3.1, 3.5)',
-  create: (fixtures) => setUpAccountForTopUp(fixtures, baseRow),
+  create: (fixtures) => setUpAccountForTopUp(fixtures, baseRow, 'seed'),
   attach: (fixtures, accountId) => attachToAccountInSelfCare(fixtures, accountId),
 });
 
@@ -174,7 +176,7 @@ test.describe(
           page, testLogger, accountOrderApiHelper, searchAccountsPage, createAccountPage,
           orderManagementPage, screenshotHelper,
           selfcareLoginPage, selfcareAccountSearchPage,
-        }, baseRow);
+        }, baseRow, 'seed');
 
         const debt = 500;
 
@@ -217,7 +219,7 @@ test.describe(
           page, testLogger, accountOrderApiHelper, searchAccountsPage, createAccountPage,
           orderManagementPage, screenshotHelper,
           selfcareLoginPage, selfcareAccountSearchPage,
-        }, baseRow);
+        }, baseRow, 'seed');
 
         await selfcareActivityPage.navigateToTopUp();
         await selfcareTopupPage.assertLoaded();
@@ -254,7 +256,7 @@ test.describe(
           page, testLogger, accountOrderApiHelper, searchAccountsPage, createAccountPage,
           orderManagementPage, screenshotHelper,
           selfcareLoginPage, selfcareAccountSearchPage,
-        }, baseRow);
+        }, baseRow, 'seed');
 
         await selfcareActivityPage.navigateToTopUp();
         await selfcareTopupPage.assertLoaded();
@@ -337,7 +339,7 @@ test.describe(
           page, testLogger, accountOrderApiHelper, searchAccountsPage, createAccountPage,
           orderManagementPage, screenshotHelper,
           selfcareLoginPage, selfcareAccountSearchPage,
-        }, baseRow);
+        }, baseRow, 'seed');
 
         await selfcareActivityPage.navigateToTopUp();
         await selfcareTopupPage.assertLoaded();

@@ -17,6 +17,10 @@
  *   2.12 ACTIVE and SUSPENDED subscriptions both charge AND register
  *
  * Account-setup strategy:
+ *   • How an account is built (2026-11-05): these cases test top-ups, not account creation, so the account +
+ *     order + meter come from the GraphQL seed, built exactly like the Create Account / Create Order screens
+ *     (seedPrepaidAccountWithOrder, ~6 s instead of ~2 min each). Account creation itself is covered on the
+ *     screens by account/ts-01. JASEC_ACCOUNT_SETUP=ui runs every case here on the Core UI wizard again.
  *   • Group A — SHARED account (2.2, 2.3a, 2.6, 2.7, 2.8, and 2.12's ACTIVE
  *     leg). The first Group A
  *     test to run creates ONE account with a saved card and one seed top-up;
@@ -47,10 +51,11 @@ import { LONG_WAIT } from '../../../helpers/timeouts.helper';
 import { AgentScreens, openAgentTab } from '../../../helpers/agent-screens.helper';
 import { fetchAndExtractPdfText } from '../../../helpers/pdf.helper';
 import {
-  setUpAccountInSelfCare,
+  setUpAccountInSelfCareBy,
   setUpAccountForTopUp,
   attachToAccountInSelfCare,
-  createPrepaidAccountOnly,
+  createPrepaidAccountOnlyBy,
+  accountSetupMode,
   uniqueRunSuffix,
   assertQaMeter,
   type PrepaidAccountWithOrderRow,
@@ -194,7 +199,7 @@ const groupAAccount = new SharedAccount<GroupAFixtures>({
   label: 'TS-02 Group A',
   create: async (fixtures) => {
     const { selfcareActivityPage, selfcareTopupPage, placeToPayCheckoutPage } = fixtures;
-    const accountId = await setUpAccountForTopUp(fixtures, baseRow);
+    const accountId = await setUpAccountForTopUp(fixtures, baseRow, 'seed');
 
     // Save a card so downstream Pay Now tests have a token.
     await selfcareActivityPage.navigateToManagePaymentProfile();
@@ -267,7 +272,7 @@ test.describe(
           page, testLogger, accountOrderApiHelper, searchAccountsPage, createAccountPage,
           orderManagementPage, screenshotHelper,
           selfcareLoginPage, selfcareAccountSearchPage,
-        }, baseRow);
+        }, baseRow, 'seed');
 
         // Top up in month A.
         await selfcareActivityPage.navigateToTopUp();
@@ -435,7 +440,7 @@ test.describe(
           page, testLogger, accountOrderApiHelper, searchAccountsPage, createAccountPage,
           orderManagementPage, screenshotHelper,
           selfcareLoginPage, selfcareAccountSearchPage,
-        }, baseRow);
+        }, baseRow, 'seed');
 
         // 500 explicitly, as this case always used, rather than the account's
         // displayed minimum - a declined charge is declined at any amount, and
@@ -505,7 +510,7 @@ test.describe(
           page, testLogger, accountOrderApiHelper, searchAccountsPage, createAccountPage,
           orderManagementPage, screenshotHelper,
           selfcareLoginPage, selfcareAccountSearchPage,
-        }, baseRow);
+        }, baseRow, 'seed');
 
         await selfcareActivityPage.navigateToManagePaymentProfile();
         await selfcareActivityPage.clickSaveWithPlaceToPay();
@@ -577,7 +582,7 @@ test.describe(
           page, testLogger, accountOrderApiHelper, searchAccountsPage, createAccountPage,
           orderManagementPage, screenshotHelper,
           selfcareLoginPage, selfcareAccountSearchPage,
-        }, baseRow);
+        }, baseRow, 'seed');
 
         await selfcareActivityPage.navigateToManagePaymentProfile();
         await selfcareActivityPage.clickSaveWithPlaceToPay();
@@ -814,7 +819,7 @@ test.describe(
           page, testLogger, accountOrderApiHelper, searchAccountsPage, createAccountPage,
           orderManagementPage, screenshotHelper,
           selfcareLoginPage, selfcareAccountSearchPage,
-        }, baseRow);
+        }, baseRow, 'seed');
 
         await selfcareActivityPage.navigateToManagePaymentProfile();
         await selfcareActivityPage.clickSaveWithPlaceToPay();
@@ -879,10 +884,11 @@ test.describe(
         const testDate = '2026-07-15';
         await serverHelper.setAndVerifyCcpTime(testDate);
         // NOT setUpAccountForTopUp: TC 2.10 asserts the "Medidor" (Meter ID) field on
-        // the receipt PDF, and the CRM gateway cannot attach a meter. This one must
-        // keep building its account through the Core UI order flow.
+        // the receipt PDF, and the CRM gateway cannot attach a meter. The GraphQL seed
+        // does (same meter + Lectura Inicial as the Core UI order); JASEC_ACCOUNT_SETUP=ui
+        // builds it through the Core UI order flow instead.
 
-        const accountId = await setUpAccountInSelfCare({
+        const accountId = await setUpAccountInSelfCareBy(accountSetupMode('seed'), {
           page, testLogger, searchAccountsPage, createAccountPage,
           orderManagementPage, screenshotHelper,
           selfcareLoginPage, selfcareAccountSearchPage,
@@ -1464,8 +1470,8 @@ test.describe(
           // Created without an order on purpose - that is what leaves an account
           // with no subscription, and TS-01 already relies on such accounts
           // working in Self Care.
-          const accountId = await createPrepaidAccountOnly(
-            page, searchAccountsPage, createAccountPage, baseRow, testLogger,
+          const accountId = await createPrepaidAccountOnlyBy(
+            accountSetupMode('seed'), page, searchAccountsPage, createAccountPage, baseRow, testLogger,
           );
           await attachToAccountInSelfCare(
             { selfcareLoginPage, selfcareAccountSearchPage }, accountId,

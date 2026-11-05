@@ -104,7 +104,7 @@ export class Shots {
     const p = this.page;
     await goto(p, `/customers/${encodeURIComponent(accountId)}/activities`);
     await p.locator('input[name="startDate"]').fill('2020-01-01');
-    await p.locator('input[name="endDate"]').fill('2030-12-31');
+    await p.locator('input[name="endDate"]').fill('2039-12-31');
     // Busy accounts (208886) have hundreds of rows: narrow to the API, as an agent would.
     if (apiName) {
       await p.locator('.form-group', { has: p.getByText('Api Name', { exact: true }) }).locator('input').first().fill(apiName);

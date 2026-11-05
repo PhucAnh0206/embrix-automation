@@ -9,6 +9,8 @@
  *
  * Accounts are account-only (no order/subscription — card management does not
  * need one), which is why setup here is cheaper than in TS-02/TS-03.
+ * The account comes from the GraphQL seed, built like the Create Account screen (2026-11-05: these cases test
+ * cards, not account creation); JASEC_ACCOUNT_SETUP=ui creates it on the Core UI screen again.
  *
  * Account-setup strategy. Each test used to create its own account, costing
  * 94-141s apiece (2026-08-20 run) for setup that is largely identical. One pair
@@ -66,7 +68,7 @@ async function attachAndOpenPaymentProfile(
 /** 1.1 saves a card; 1.4 deletes it. Same account, in that order. */
 const cardedAccount = new SharedAccount<CardFixtures>({
   label: 'TS-01 carded (1.1, 1.4)',
-  create: (fixtures) => setUpAccountAndEnterManagePaymentProfile(fixtures, baseRow),
+  create: (fixtures) => setUpAccountAndEnterManagePaymentProfile(fixtures, baseRow, 'seed'),
   attach: attachAndOpenPaymentProfile,
 });
 
@@ -220,7 +222,7 @@ test.describe(
         const accountId = await setUpAccountAndEnterManagePaymentProfile({
           page, testLogger, searchAccountsPage, createAccountPage,
           selfcareLoginPage, selfcareAccountSearchPage, selfcareActivityPage,
-        }, baseRow);
+        }, baseRow, 'seed');
 
         await selfcareActivityPage.clickSaveWithPlaceToPay();
         await placeToPayCheckoutPage.abandonCheckoutSession();
@@ -246,7 +248,7 @@ test.describe(
         const accountId = await setUpAccountAndEnterManagePaymentProfile({
           page, testLogger, searchAccountsPage, createAccountPage,
           selfcareLoginPage, selfcareAccountSearchPage, selfcareActivityPage,
-        }, baseRow);
+        }, baseRow, 'seed');
 
         await selfcareActivityPage.clickSaveWithPlaceToPay();
         await placeToPayCheckoutPage.submitDeclinedCard();

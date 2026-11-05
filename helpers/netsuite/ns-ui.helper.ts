@@ -252,7 +252,7 @@ export class NsUi {
 
   /**
    * Customer > Account Data > Tax Exemptions: sets exemption 1 (adds it, or edits it in place) with the API path's
-   * dates (2020-01-01 to 2030-12-31), percent, certificate (emptied when not given) and service types (old ones removed
+   * dates (2020-01-01 to 2039-12-31; the environment's clock runs years ahead, so an earlier end would expire the exemption), percent, certificate (emptied when not given) and service types (old ones removed
    * with the sub-table's Remove), then SAVE. The screen has no Remove for a whole exemption (commented out in the
    * source): removing one stays on the API (NsApi.setTaxExemption with null).
    */
@@ -272,7 +272,7 @@ export class NsUi {
       expect(await box.inputValue(), `${name} on the screen`).toBe(v);
     };
     await date('startDate', '2020-01-01');
-    await date('endDate', '2030-12-31');
+    await date('endDate', '2039-12-31');
     await row.locator('input[name=percent]').fill(String(percent));
     await row.locator('input[name=percent]').press('Tab');
     await row.locator('input[name=certificateNumber]').fill(opts.certificate ?? '');
