@@ -7,6 +7,8 @@
  * Creates a fresh prepaid account whose billing contact carries the
  * IMAP-monitored address, triggers the event, waits for the email, then
  * asserts every field defined by the template.
+ * The account is built by the GraphQL seed exactly like the Create Account / Create Order screens (this case
+ * tests the email, not account creation); JASEC_ACCOUNT_SETUP=ui creates it on the Core UI screens again.
  *
  * The account id is unique per run and appears in the body, so the email is
  * matched on it — never on subject alone. That is what stops a re-run from
@@ -175,7 +177,7 @@ async function ensureAccount(
     orderManagementPage: f.orderManagementPage, screenshotHelper: f.screenshotHelper,
     selfcareLoginPage: f.selfcareLoginPage,
     selfcareAccountSearchPage: f.selfcareAccountSearchPage,
-  }, row);
+  }, row, 'seed');
 
   const ccpDate = await f.serverHelper.getCcpTime();
   sharedAccount = { accountId, row, ccpDate };
