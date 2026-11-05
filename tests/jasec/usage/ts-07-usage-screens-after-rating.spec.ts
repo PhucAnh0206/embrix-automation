@@ -36,9 +36,8 @@
  * ── MUTATING ───────────────────────────────────────────────────────────────
  * Seeds an account, tops it up and drops a real MDR file through the loader.
  * Needs SSH to the control server AND the database, therefore the VPN, AND a
- * browser. Gated behind JASEC_USAGE_UI_RUN=true.
+ * browser. Refused on JASEC production.
  *
- *     $env:JASEC_USAGE_UI_RUN='true'
  *     npx playwright test --project=jasec-usage-screens --headed
  *
  * Owner: Anh Tran (QC).
@@ -52,8 +51,8 @@ import { OrderOutcomeHelper } from '../../../helpers/order-outcome.helper';
 import { TestLogger } from '../../../helpers/test-logger';
 import { uniqueRunSuffix, assertQaMeter } from '../../../fixtures/create-prepaid-account.helper';
 import { blockedIf } from '../../../helpers/blocked.helper';
+import { ON_JASEC_PROD, PROD_REFUSAL } from '../../../helpers/prod-guard';
 
-const RUN_ENABLED = String(process.env.JASEC_USAGE_UI_RUN ?? '').trim().toLowerCase() === 'true';
 
 /** Fixed charge plus 15 kWh — the documented recarga inicial. */
 const INITIAL_TOPUP = 20000;
@@ -123,11 +122,7 @@ test.describe('JASEC usage — rated usage is visible on both Core UI screens (M
   test('a rated reading appears on Rated Usage and on Usage Records', { tag: ['@tc-63'] }, async ({
     page, customerManagementPage, billsPage, testLogger,
   }) => {
-    blockedIf(
-      !RUN_ENABLED,
-      'JASEC_USAGE_UI_RUN is not "true". This spec seeds an account, drops a real ' +
-      'MDR file and moves a balance, so it never runs by accident.',
-    );
+    blockedIf(ON_JASEC_PROD, PROD_REFUSAL);
 
     const logger = new TestLogger('ts-07-usage-screens-after-rating');
     const db = new DbHelper(logger);

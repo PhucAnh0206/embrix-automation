@@ -13,16 +13,13 @@
  * batch id and flips them to POSTED. There is no un-extract. A day can only be
  * extracted once, so every run spends real test data.
  *
- * It is therefore gated twice over:
- *   - JASEC_EBS_RUN=true must be set, or the whole spec skips; and
- *   - it lives in the ts-06..ts-08 band, which is its own Playwright project
- *     (`jasec-accounting-run`) and is NOT part of any broad run.
+ * It is refused on JASEC production (helpers/prod-guard.ts), and it is its own
+ * Playwright project (`jasec-accounting-run`).
  *
  * It does NOT move the CCP clock, spend a job_schedule slot, or bill anything —
  * so it is far cheaper than the billing mutating band, and it never touches
  * JASEC's systems while `batchFinancialExtract` is true.
  *
- *     $env:JASEC_EBS_RUN='true'
  *     npx playwright test --project=jasec-accounting-run
  *
  *     # or pin the day to extract (the date you want EXTRACTED, not the argument)
@@ -46,12 +43,12 @@ import {
   type EbsExtractResult,
 } from '../../../helpers/accounting-gql.helper';
 import { blockedIf } from '../../../helpers/blocked.helper';
+import { ON_JASEC_PROD, PROD_REFUSAL } from '../../../helpers/prod-guard';
 
-const RUN_ENABLED = String(process.env.JASEC_EBS_RUN ?? '').trim().toLowerCase() === 'true';
 
 /**
- * A SECOND, SEPARATE gate for TC-158. JASEC_EBS_RUN alone must never be enough to
- * reach a case that posts into a customer's live accounting system.
+ * TC-158's own gate: running this spec must never be enough to reach a case that
+ * posts into a customer's live accounting system.
  */
 const GATEWAY_RUN = String(process.env.JASEC_GATEWAY_RUN ?? '').trim().toLowerCase() === 'true';
 /** The day to EXTRACT. The mutation argument is derived from it, never typed. */
@@ -80,11 +77,7 @@ test.describe('JASEC accounting — extract run (MUTATING)', { tag: ['@jasec', '
   });
 
   test('extract a day of journals, and prove the whole chain', { tag: ['@tc-155'] }, async () => {
-    blockedIf(
-      !RUN_ENABLED,
-      'JASEC_EBS_RUN is not "true". This spec consumes a day of revenue journals ' +
-      'irreversibly, so it never runs by accident. Set JASEC_EBS_RUN=true to run it.',
-    );
+    blockedIf(ON_JASEC_PROD, PROD_REFUSAL);
 
     // ── step 1: the configuration that decides what happens ───────────────
     const offset = await gql.extractOffsetDays();
@@ -447,23 +440,20 @@ test.describe('JASEC accounting — extract run (MUTATING)', { tag: ['@jasec', '
    * accepted as distinct operations — TWO to disregard, which is exactly how
    * batch 10017 ended up needing two.
    *
-   *     $env:JASEC_EBS_RUN='true'; $env:JASEC_GATEWAY_RUN='true'
+   *     $env:JASEC_GATEWAY_RUN='true'
    *     npx playwright test --project=jasec-accounting-run
    *
    * Owner: Anh Tran (QC). Run jointly with the team.
    */
   test('TC-158 — gateway delivers the batch to JASEC, and a resend deduplicates', { tag: ['@tc-155', '@tc-158'] }, async () => {
-    blockedIf(
-      !RUN_ENABLED,
-      'JASEC_EBS_RUN is not "true". This consumes a day of revenue journals irreversibly.',
-    );
+    blockedIf(ON_JASEC_PROD, PROD_REFUSAL);
     blockedIf(
       !GATEWAY_RUN,
       'JASEC_GATEWAY_RUN is not "true". This case POSTS INTO JASEC\'S LIVE ACCOUNTING ' +
       'SYSTEM — there is no test endpoint, dev and preprod both point at ' +
       'http://138.94.59.18:8087/centroContable. It runs only in an agreed window with ' +
-      'JASEC informed. A second, separate gate on purpose: JASEC_EBS_RUN alone must ' +
-      'never be enough to reach it.',
+      'JASEC informed. Its own gate on purpose: running the spec must never be ' +
+      'enough to reach it.',
     );
 
     const fileMode = await gql.isFlagOn('batchFinancialExtract');

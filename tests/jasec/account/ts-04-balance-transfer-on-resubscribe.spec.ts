@@ -28,8 +28,8 @@
  * it is BLOCKED (weekend / holiday rule), not a failure.
  *
  * MUTATING: seeds accounts, CANCEL / NEW orders, simulated JASEC callbacks, MDR readings, CCP clock (check 5; forward only, not put back on test tenants).
- * dev / preprod / prod TEST builds only (prod is the final customer build now - its gate refuses).
- *   $env:JASEC_BALANCE_TRANSFER_RUN='true'; npx playwright test --project=jasec-balance-transfer
+ * dev / preprod only; refused on JASEC production.
+ *   npx playwright test --project=jasec-balance-transfer
  * Without JASEC_JEPYP475_DEPLOYED=true a balance still on the closed subscription is BLOCKED "fix not deployed".
  * Business rules: JEPYP-475.
  */
@@ -52,8 +52,8 @@ import { sleep, poll } from '../../../helpers/poll.helper';
 import { ensureDateFree } from '../../../helpers/schedule-slot.helper';
 import { subscriptions, orderSettled, activeProvisioningId, type Sub } from '../../../helpers/subscription-state.helper';
 import { CLOCK_RESTORE, addDays, clockForward, clockPastAccount, firstOfNextMonth } from '../../../helpers/clock-policy';
+import { ON_JASEC_PROD, PROD_REFUSAL } from '../../../helpers/prod-guard';
 
-const RUN = String(process.env.JASEC_BALANCE_TRANSFER_RUN ?? '').trim().toLowerCase() === 'true';
 const DEPLOYED = String(process.env.JASEC_JEPYP475_DEPLOYED ?? 'true').trim().toLowerCase() === 'true';
 const TENANT = (process.env.TEST_ENV ?? 'jasec-dev').trim();
 const CALLBACK_URL = process.env.JASEC_PROVISION_CALLBACK_URL
@@ -207,7 +207,7 @@ async function mailsSince(db: DbHelper, accountId: string, type: string, waterma
 
 test.describe('JEPYP-475 - the balance follows the customer from a cancelled service to the new one', () => {
   test.use({ ccpBaseline: null });   // this spec manages the clock itself (check 5 only)
-  test.skip(!RUN, 'GATED: seeds accounts, places CANCEL / NEW orders. Set JASEC_BALANCE_TRANSFER_RUN=true.');
+  test.skip(ON_JASEC_PROD, PROD_REFUSAL);
   test.setTimeout(1_200_000);
 
   test('check 1: credit on a cancelled service moves to the new service @tc-04 @jepyp-475 @balance-transfer-credit',

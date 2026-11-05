@@ -22,7 +22,7 @@
  * MUTATING - dev, preprod, prod build 2; NEVER the final customer build: seeds accounts, moves the tenant CCP clock forward, spends a
  * SCHEDULED job slot on the bill date.
  *
- *   $env:JASEC_BREACH_RUN='true'; npx playwright test --project=jasec-billing-breach --reporter=line
+ *   npx playwright test --project=jasec-billing-breach --reporter=line
  *   optional: JASEC_BREACH_N (default 8), JASEC_BREACH_BDOM (default: picked so the bill date is free),
  *             JASEC_BREACH_TOPUPS="500,500" (credit for the LAST accounts, one value each; default none)
  *
@@ -58,11 +58,10 @@ import { BREACH_MINIMUM_BASE, BREACH_MINIMUM_BASE_AFTER_TOPUP, expectedMinimum }
 import { amountAfter } from '../../data/notifications/billing-events.templates';
 import { MdrRemoteHelper } from '../../../helpers/mdr-remote.helper';
 import { CLOCK_RESTORE } from '../../../helpers/clock-policy';
+import { ON_JASEC_PROD, PROD_REFUSAL } from '../../../helpers/prod-guard';
 
-const RUN = String(process.env.JASEC_BREACH_RUN ?? '').trim().toLowerCase() === 'true';
-// dev, preprod and prod build 2 (Anh, 2026-10-05: fixes land on preprod first; prod build 2 has no UAT on it).
-// NEVER the final customer build - that build is check-only (production checklist 9b), no tests, no data.
-const ALLOWED_ENV = ['jasec-dev', 'jasec-oci-dev', 'jasec-preprod', 'jasec'].includes(process.env.TEST_ENV ?? '');
+// JASEC test tenants only (prod is refused above, by ON_JASEC_PROD).
+const ALLOWED_ENV = ['jasec-dev', 'jasec-oci-dev', 'jasec-preprod'].includes(process.env.TEST_ENV ?? '');
 const N = Number(process.env.JASEC_BREACH_N ?? 8);
 // Billing day: JASEC_BREACH_BDOM if set, else picked so the first bill date has no job schedule yet (2026-10-19, was a
 // fixed 20 that went BLOCKED whenever that date was taken). All N accounts share it.
@@ -74,8 +73,8 @@ const CYCLE_CHARGE = Number(process.env.JASEC_CYCLE_CHARGE ?? 1943.40);
 const OWN_DATA_ONLY = ['jasec'].includes(process.env.TEST_ENV ?? '');
 
 test('several credit-limit breaches in one BILL_CHECK run do not freeze it', { tag: ['@tc-88', '@tc-89'] }, async ({ request }) => {
-  if (blockedIf(!RUN, 'JASEC_BREACH_RUN is not "true" - this seeds accounts and moves the CCP clock')) return;
-  if (blockedIf(!ALLOWED_ENV, `dev / preprod / prod build 2 only (TEST_ENV=${process.env.TEST_ENV})`)) return;
+  if (blockedIf(ON_JASEC_PROD, PROD_REFUSAL)) return;
+  if (blockedIf(!ALLOWED_ENV, `JASEC dev / preprod only (TEST_ENV=${process.env.TEST_ENV})`)) return;
   if (blockedIf(!hasDbConfig(), 'needs DB access to read the run result')) return;
   test.setTimeout(1_200_000);
 

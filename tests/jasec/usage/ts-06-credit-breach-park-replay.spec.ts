@@ -20,10 +20,9 @@
  *
  * ── MUTATING ───────────────────────────────────────────────────────────────
  * Seeds an account, drops real MDR files through the loader, and moves balances.
- * Gated behind JASEC_USAGE_RUN=true. Needs SSH to the control server AND the DB,
+ * Refused on JASEC production. Needs SSH to the control server AND the DB,
  * therefore the VPN. Test A also needs a browser (Core UI session).
  *
- *     $env:JASEC_USAGE_RUN='true'
  *     npx playwright test --project=jasec-usage-run
  *
  * Owner: Anh Tran (QC).
@@ -38,8 +37,8 @@ import { TestLogger } from '../../../helpers/test-logger';
 import { uniqueRunSuffix, assertQaMeter } from '../../../fixtures/create-prepaid-account.helper';
 import { blockedIf } from '../../../helpers/blocked.helper';
 import { AgentScreens, screenDateTime } from '../../../helpers/agent-screens.helper';
+import { ON_JASEC_PROD, PROD_REFUSAL } from '../../../helpers/prod-guard';
 
-const RUN_ENABLED = String(process.env.JASEC_USAGE_RUN ?? '').trim().toLowerCase() === 'true';
 
 /** Huy's recarga inicial: the 1,943.40 fixed charge plus 15 kWh. */
 const INITIAL_TOPUP = 3300;
@@ -196,11 +195,7 @@ test.describe('JASEC usage — credit breach billed into debt, then recovered (M
   test('a reading the balance cannot fund is billed into debt, the top-up pays it, nothing is charged twice', { tag: ['@tc-60'] }, async ({
     page, usagePage, billsPage,
   }) => {
-    blockedIf(
-      !RUN_ENABLED,
-      'JASEC_USAGE_RUN is not "true". This spec seeds an account, drops real MDR ' +
-      'files and moves balances, so it never runs by accident.',
-    );
+    blockedIf(ON_JASEC_PROD, PROD_REFUSAL);
 
     const logger = new TestLogger('ts-06-credit-breach-park-replay');
     const db = new DbHelper(logger);
@@ -464,11 +459,7 @@ test.describe('JASEC usage — credit breach billed into debt, then recovered (M
 
   test('B — a credit breach suspends the service, and a top-up resumes it', { tag: ['@tc-60'] }, async () => {
     // JEPYP-482 (2026-10-30): the breach is billed into debt before the suspension; the top-up pays the debt first.
-    blockedIf(
-      !RUN_ENABLED,
-      'JASEC_USAGE_RUN is not "true". This spec seeds an account, drops real MDR ' +
-      'files and moves balances, so it never runs by accident.',
-    );
+    blockedIf(ON_JASEC_PROD, PROD_REFUSAL);
 
     const logger = new TestLogger('ts-06-breach-suspension');
     const db = new DbHelper(logger);

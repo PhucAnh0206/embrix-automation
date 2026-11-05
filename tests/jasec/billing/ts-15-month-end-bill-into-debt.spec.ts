@@ -20,7 +20,7 @@
  * Other accounts: billing or cutting them on dev / preprod is fine (Anh 2026-10-20) - they are only logged. The one
  * block is a real device: DailySchedulePage.clickProcess BLOCKS when the run could cut a meter JASEC's AMI has
  * accepted (provisioning-safety.helper blockIfAcceptedMeterAtRisk). A date whose slot is already used still BLOCKS.
- *   $env:JASEC_REFUSED_BILL_RUN='true'; (optional: $env:JASEC_REFUSED_BILL_BDOM='<day>' - default: picked so the bill date is free)
+ *   (optional: $env:JASEC_REFUSED_BILL_BDOM='<day>' - default: picked so the bill date is free)
  *   npx playwright test --project=jasec-billing-refused --grep "@month-end-debt"
  */
 import { test, expect } from '../../../fixtures/jasec-fixtures';
@@ -34,10 +34,10 @@ import { ensureDateFree } from '../../../helpers/schedule-slot.helper';
 import { AgentScreens } from '../../../helpers/agent-screens.helper';
 import { poll } from '../../../helpers/poll.helper';
 import { CLOCK_RESTORE } from '../../../helpers/clock-policy';
+import { ON_JASEC_PROD, PROD_REFUSAL } from '../../../helpers/prod-guard';
 
-const RUN = String(process.env.JASEC_REFUSED_BILL_RUN ?? '').trim().toLowerCase() === 'true';
 const TENANT = (process.env.TEST_ENV ?? '').trim();
-const ALLOWED = ['jasec-dev', 'jasec-preprod', 'jasec'].includes(TENANT);
+const ALLOWED = ['jasec-dev', 'jasec-preprod'].includes(TENANT);
 // Billing day: JASEC_REFUSED_BILL_BDOM if set, else picked so the first bill date has no job schedule yet (2026-10-19,
 // was a fixed 11). Both DAILY dates are checked: foreign accounts due or over their limit are LOGGED (this run's
 // CREDIT_LIMIT_ACTIONS really cuts in Costa Rica daytime); only a used slot or a real-device meter blocks.
@@ -143,8 +143,8 @@ async function completeOrder(db: DbHelper, request: APIRequestContext, s: Subjec
 
 test('a month-end bill the balance cannot cover is billed into debt, the customer is cut, and a top-up reconnects @tc-153 @month-end-debt',
   async ({ dailySchedulePage, page, request, testLogger }) => {
-    if (blockedIf(!RUN, 'JASEC_REFUSED_BILL_RUN is not "true" - this seeds accounts, moves the clock and runs DAILY on 2 dates')) return;
-    if (blockedIf(!ALLOWED, `dev / preprod / prod test builds only (TEST_ENV=${TENANT})`)) return;
+    if (blockedIf(ON_JASEC_PROD, PROD_REFUSAL)) return;
+    if (blockedIf(!ALLOWED, `JASEC dev / preprod only (TEST_ENV=${TENANT})`)) return;
     if (blockedIf(!hasDbConfig(), 'needs DB access')) return;
     const notNow = crDaytimeReason();
     if (blockedIf(!!notNow, `the cut happens right after the bill only in Costa Rica weekday daytime (08:00-20:00): ${notNow}`)) return;

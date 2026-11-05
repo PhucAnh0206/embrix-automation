@@ -13,6 +13,7 @@ import type { NotificationContext } from '../../data/notifications/types';
 import { blockedIf } from '../../../helpers/blocked.helper';
 import { ensureDateFree } from '../../../helpers/schedule-slot.helper';
 import { EmailHelper } from '../../../helpers/email.helper';
+import { ON_JASEC_PROD, PROD_REFUSAL } from '../../../helpers/prod-guard';
 
 /**
  * Domains whose contacts may receive mail from this run's billing cohort, beyond
@@ -188,26 +189,12 @@ const BOMBEROS = BOMBEROS_FRAGMENT;
 const IVA = IVA_FRAGMENT;
 
 /**
- * The safety gate — same contract as TS-02's, and for the same reason.
- *
- * THIS SPEC MOVES THE TENANT-GLOBAL CCP CLOCK (`setAndVerifyCcpTime` below) and
- * spends a job_schedule slot. For a while it did so with no gate at all, which
- * meant a bare `npx playwright test` — which runs every project — would move the
- * shared clock to whatever date it resolves. That is worse than it sounds: the
- * date is chosen for un-billed accounts, which are often in the PAST, so an
- * accidental full-repo run could drag the clock backward by a year for everyone.
- *
- * So it runs only when JEPYP230_TIER_RUN=true is set explicitly (a full run
- * does). Until 2026-10-18 playwright.config.ts also set it whenever the project was
- * named on the command line (`npm run test:notification:tiers`); that auto-switch
- * is gone, so the npm script alone now skips - set the env var first.
- *
- * Deliberately a SEPARATE flag from JEPYP230_LIVE_RUN: naming one of the two
- * clock-moving projects must not silently enable the other, because they must
- * never run against the same date — TS-02's BILL_CHECK bills every account due
- * that date, which would leave this spec nothing to bill.
+ * THIS SPEC MOVES THE TENANT-GLOBAL CCP CLOCK (`setAndVerifyCcpTime` below) and spends a job_schedule slot. It runs
+ * whenever it is run on dev or preprod and is refused on JASEC production (helpers/prod-guard.ts). The date it picks
+ * itself is never before the clock (see the floor below); only a date pinned by hand with JEPYP230_TIER_DATE can be.
+ * Don't pin TS-02 and this spec to the same date: TS-02's BILL_CHECK bills every account due that date, which would
+ * leave this spec nothing to bill.
  */
-const TIER_RUN = process.env.JEPYP230_TIER_RUN === 'true';
 
 let db: DbHelper;
 let notifyDb: NotificationDbHelper;
@@ -216,12 +203,7 @@ let jobs: JobScheduleHelper;
 let serverHelper: ServerHelper;
 
 test.beforeAll(async () => {
-  test.skip(
-    !TIER_RUN,
-    'Tier-boundary run. Ask for it by name (`npm run test:notification:tiers`) or ' +
-    'set JEPYP230_TIER_RUN=true — it moves the tenant-global CCP clock and spends ' +
-    'a job_schedule slot.',
-  );
+  test.skip(ON_JASEC_PROD, PROD_REFUSAL);
   db = new DbHelper();
   await db.connect();
   notifyDb = new NotificationDbHelper(db);

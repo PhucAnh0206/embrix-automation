@@ -25,10 +25,10 @@
  *     that was 60+ accounts for a single date. Nothing in this spec can narrow
  *     it — that is how the job selects work. Pick the date accordingly.
  *
- * So it is gated behind JEPYP230_LIVE_RUN=true and skips otherwise. Never remove
- * that gate: a bare `npx playwright test` must not be able to move the clock.
+ * It runs whenever it is run on dev or preprod (the date it picks is never before
+ * the clock) and is refused on JASEC production (helpers/prod-guard.ts).
  *
- *   JEPYP230_LIVE_RUN=true npm run test:notification:live
+ *   npx playwright test --project=jasec-notification-live
  * ─────────────────────────────────────────────────────────────────────────────
  *
  * Originals are written to output/artifacts/jepyp230-restore.json BEFORE anything is
@@ -63,23 +63,7 @@ import {
 import type { NotificationContext } from '../../data/notifications/types';
 import { blockedIf } from '../../../helpers/blocked.helper';
 import { ensureDateFree } from '../../../helpers/schedule-slot.helper';
-
-/**
- * The safety gate.
- *
- * This spec must never fire by accident, because it moves a shared clock that
- * cannot be moved back. It runs only when JEPYP230_LIVE_RUN=true is set explicitly
- * (naming the project no longer switches it on - 2026-10-18).
- *
- * So a bare `npx playwright test` — which otherwise runs every project — reaches
- * these tests and skips them all. Verified, not assumed: see the gate check in
- * the run log.
- *
- * Until 2026-10-18 playwright.config.ts set this switch whenever the project was
- * named on the command line; that auto-switch is gone, so the env var is the only
- * way in (`$env:JEPYP230_LIVE_RUN='true'`).
- */
-const LIVE = process.env.JEPYP230_LIVE_RUN === 'true';
+import { ON_JASEC_PROD, PROD_REFUSAL } from '../../../helpers/prod-guard';
 
 /** Slot to use. SCHEDULED leaves DAILY free for whoever else needs the date. */
 const FREQUENCY = (process.env.JEPYP230_FREQUENCY as 'DAILY' | 'SCHEDULED') ?? 'SCHEDULED';
@@ -221,11 +205,7 @@ function requirePlan(): RunPlan | null {
 }
 
 test.beforeAll(async () => {
-  test.skip(
-    !LIVE,
-    'Live staged billing run. Set JEPYP230_LIVE_RUN=true to enable — it moves the ' +
-    'shared tenant CCP clock (left there on test tenants) and consumes a job_schedule slot.',
-  );
+  test.skip(ON_JASEC_PROD, PROD_REFUSAL);
   api = await playwrightRequest.newContext();
   db = new DbHelper();
   await db.connect();

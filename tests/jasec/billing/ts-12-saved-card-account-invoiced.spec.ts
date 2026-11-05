@@ -23,7 +23,7 @@
  * and bills through the Core UI Daily Schedule screen (a DAILY on a free or reclaimed date). dev, preprod (own data only - never touch others'
  * accounts; Anh 2026-10-05) and prod build 2; never on the final customer build.
  *
- *   $env:JASEC_SAVEDCARD_RUN='true'; npx playwright test --project=jasec-billing-savedcard --reporter=line
+ *   npx playwright test --project=jasec-billing-savedcard --reporter=line
  *   optional: JASEC_SAVEDCARD_CONTROL=true, JASEC_SAVEDCARD_BDOM (default: picked so the bill date is free)
  */
 import { test, expect } from '../../../fixtures/jasec-fixtures';
@@ -35,8 +35,8 @@ import { AgentScreens } from '../../../helpers/agent-screens.helper';
 import { seedOnFreeBillDate } from '../../../helpers/free-billing-day.helper';
 import { ensureDateFree } from '../../../helpers/schedule-slot.helper';
 import { CLOCK_RESTORE } from '../../../helpers/clock-policy';
+import { ON_JASEC_PROD, PROD_REFUSAL } from '../../../helpers/prod-guard';
 
-const RUN = String(process.env.JASEC_SAVEDCARD_RUN ?? '').trim().toLowerCase() === 'true';
 const CONTROL = String(process.env.JASEC_SAVEDCARD_CONTROL ?? '').trim().toLowerCase() === 'true';
 // Billing day: JASEC_SAVEDCARD_BDOM if set, else picked so the first bill date has no daily run yet (2026-10-19,
 // was a fixed 22 that went BLOCKED whenever that date was taken).
@@ -54,7 +54,7 @@ test.use({ ccpBaseline: null });   // this case owns the clock: a free billing d
 async function journey(fx: any, control: boolean) {
   const { testLogger, selfcareLoginPage, selfcareAccountSearchPage, selfcareActivityPage,
           selfcareTopupPage, placeToPayCheckoutPage, page, billsPage, dailySchedulePage, accountInfoPage } = fx;
-  if (blockedIf(!RUN, 'JASEC_SAVEDCARD_RUN is not "true" - this pays, moves the CCP clock and bills')) return;
+  if (blockedIf(ON_JASEC_PROD, PROD_REFUSAL)) return;
   if (blockedIf(!hasDbConfig(), 'needs DB access to read the payment method and the invoice')) return;
   test.setTimeout(900_000);
   const mode = control ? 'CONTROL (pay directly, no saved card)' : 'saved card + Pay Now';
@@ -237,7 +237,8 @@ test('a customer who saved a card and topped up with it is still invoiced @tc-14
   placeToPayCheckoutPage, page, billsPage, dailySchedulePage, accountInfoPage }, CONTROL));
 
 // TC-148 (2026-10-19): a top-up paid with PlaceToPay directly, inside the billed cycle, is on that cycle's invoice.
-// One command: $env:JASEC_SAVEDCARD_RUN='true'; npx playwright test --grep "@tc-148" (ts-06 / ts-08 skip without their gates).
+// One case: npx playwright test --project=jasec-billing-savedcard --grep "@tc-148" (without --project, @tc-148 also
+// runs the ts-06 billing run, which carries the same tag).
 test('a top-up paid inside the billed cycle is on the invoice of that cycle @tc-148 @topup-on-invoice', async ({
   testLogger, selfcareLoginPage, selfcareAccountSearchPage, selfcareActivityPage,
   selfcareTopupPage, placeToPayCheckoutPage, page, billsPage, dailySchedulePage, accountInfoPage,

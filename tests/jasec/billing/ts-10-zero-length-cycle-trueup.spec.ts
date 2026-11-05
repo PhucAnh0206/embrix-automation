@@ -36,9 +36,8 @@
  *      Daily Schedule > Create > Process - exactly as production does it. ("Bill Pending charges" on the
  *      Bills screen is DISABLED for a 0-kWh cycle, so a manual bill is not how this cycle gets billed.)
  *   B  seeds an account whose billing day is TODAY's day and reads its first cycle - no billing, no clock move.
- * Only ever on accounts this spec created. Gated behind JASEC_TRUEUP_RUN=true.
+ * Only ever on accounts this spec created. Refused on JASEC production.
  *
- *     $env:JASEC_TRUEUP_RUN='true'
  *     npx playwright test --project=jasec-billing-trueup
  *
  * Coordinate before running: another session's date-sensitive spec will see the
@@ -60,8 +59,8 @@ import { blockedIf } from '../../../helpers/blocked.helper';
 import { seedOnFreeBillDate } from '../../../helpers/free-billing-day.helper';
 import { ensureDateFree } from '../../../helpers/schedule-slot.helper';
 import { CLOCK_RESTORE, clockForward, firstOfNextMonth } from '../../../helpers/clock-policy';
+import { ON_JASEC_PROD, PROD_REFUSAL } from '../../../helpers/prod-guard';
 
-const RUN_ENABLED = String(process.env.JASEC_TRUEUP_RUN ?? '').trim().toLowerCase() === 'true';
 
 /** The monthly fixed charge a sub-30 kWh cycle must be trued up to. */
 const FIXED_CHARGE = 1943.40;
@@ -107,11 +106,7 @@ test.describe('JASEC billing — 0-30 kWh true-up and cycle length (MUTATING)', 
   test.setTimeout(15 * 60 * 1000);
 
   test('A — a real cycle under 30 kWh is trued up to the fixed charge, and invoices', { tag: '@tc-61' }, async ({ page, billsPage, dailySchedulePage }) => {
-    blockedIf(
-      !RUN_ENABLED,
-      'JASEC_TRUEUP_RUN is not "true". This spec moves the TENANT-GLOBAL CCP clock ' +
-      'and bills accounts irreversibly, so it never runs by accident.',
-    );
+    blockedIf(ON_JASEC_PROD, PROD_REFUSAL);
 
     const logger = new TestLogger('ts-10-trueup-real-cycle');
     const db = new DbHelper(logger);
@@ -246,7 +241,7 @@ test.describe('JASEC billing — 0-30 kWh true-up and cycle length (MUTATING)', 
   // build one - the seed defaulted to billing day 1 - and the disabled "Bill Pending charges" button it saw came
   // from the 0 kWh, not from the cycle length.)
   test('B — an account created on its billing day gets a full-month first cycle (no zero-length cycle)', { tag: '@tc-62' }, async () => {
-    blockedIf(!RUN_ENABLED, 'JASEC_TRUEUP_RUN is not "true".');
+    blockedIf(ON_JASEC_PROD, PROD_REFUSAL);
 
     const logger = new TestLogger('ts-10-first-cycle-on-billing-day');
     const db = new DbHelper(logger);

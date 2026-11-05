@@ -68,9 +68,8 @@ if (!process.env.TEST_WORKER_INDEX) {
   if (TENANT.note) console.log(`[tenant] note: ${TENANT.note}`);
 }
 
-// jasec-notification-live / -tiers used to switch their own gate on whenever the project name appeared on the
-// command line, so naming the project was enough to start a billing run. Removed 2026-10-18: set
-// JEPYP230_LIVE_RUN=true / JEPYP230_TIER_RUN=true explicitly.
+// Mutating JASEC specs run with nothing to set on dev / preprod and refuse JASEC production themselves
+// (helpers/prod-guard.ts). Only the cases that reach JASEC's own live systems (AMI, accounting gateway) keep a switch.
 
 export default defineConfig({
   testDir: './tests',
@@ -305,8 +304,8 @@ export default defineConfig({
 
     // ── JASEC notification live run: stages balance bands, fires a billing
     // schedule, asserts all seven events. IRREVERSIBLE — moves the tenant CCP
-    // clock forward and spends a job_schedule slot. Gated behind
-    // JEPYP230_LIVE_RUN=true inside the spec; skips without it.
+    // clock forward and spends a job_schedule slot. Refused on
+    // JASEC production.
     {
       name: 'jasec-notification-live',
       testMatch: ['**/jasec/notification/ts-02-*.spec.ts'],
@@ -408,10 +407,9 @@ export default defineConfig({
     // cannot stop the regression suite from billing.
     //
     // IRREVERSIBLE: moves the tenant CCP clock, spends a job_schedule slot, and
-    // bills real accounts (advancing their cycle). Gates live inside each spec
-    // and differ: ts-06 needs JASEC_BILL_RUN=true and refuses to start without an
-    // explicit JASEC_BILL_DATE; ts-08 is gated on JASEC_TOPUP_RUN; ts-07 has NO
-    // run gate - naming this project runs it.
+    // bills real accounts (advancing their cycle). ts-06 bills an account of its
+    // own (or JASEC_BILL_DATE); ts-07 only reads; ts-08 is a step of the billing
+    // script, gated on JASEC_TOPUP_RUN so a project run never tops up after billing.
     // Needs a browser and the DB, therefore the VPN.
     {
       name: 'jasec-billing-run',
@@ -450,7 +448,7 @@ export default defineConfig({
 
     {
       // TC-153 (2026-10-15): a month-end bill the balance cannot cover is billed into debt, the customer is cut, a
-      // top-up reconnects (the F8 fix). Gated JASEC_REFUSED_BILL_RUN=true; runs only in Costa Rica weekday daytime.
+      // top-up reconnects (the F8 fix). Runs only in Costa Rica weekday daytime.
       name: 'jasec-billing-refused',
       testMatch: ['**/jasec/billing/ts-15-*.spec.ts'],
       dependencies: ['setup'],
@@ -478,7 +476,7 @@ export default defineConfig({
 
     {
       // JEPYP-475 (prepared 2026-10-17, fix not deployed yet): the balance of a cancelled subscription moves to the new
-      // one (credit and debt). Gated JASEC_BALANCE_TRANSFER_RUN=true; BLOCKED "fix not deployed" until
+      // one (credit and debt). BLOCKED "fix not deployed" until
       // JASEC_JEPYP475_DEPLOYED=true. Account cases.
       name: 'jasec-balance-transfer',
       testMatch: ['**/jasec/account/ts-04-*.spec.ts'],
@@ -517,13 +515,12 @@ export default defineConfig({
     // official case list once a proposal is accepted.
     {
     // ── WHICH BILLING SPECS CHANGE DATA (the file number does NOT tell you) ──
-    // Checked 2026-10-18. Each mutating spec has its own *_RUN switch and its own project:
+    // Each mutating spec has its own project and refuses JASEC production:
     //
     //   read-only   ts-01..05, ts-09 (this project), ts-07 (jasec-billing-run, reads an invoice),
     //               ts-13 (settlement), ts-14 (statement)
-    //   MUTATING    ts-06 JASEC_BILL_RUN, ts-08 JASEC_TOPUP_RUN (jasec-billing-run),
-    //               ts-10 JASEC_TRUEUP_RUN, ts-11 JASEC_BREACH_RUN, ts-12 JASEC_SAVEDCARD_RUN,
-    //               ts-15 JASEC_REFUSED_BILL_RUN - bill real accounts irreversibly on a free billing day
+    //   MUTATING    ts-06 + ts-08 (jasec-billing-run; ts-08 is a script step, JASEC_TOPUP_RUN),
+    //               ts-10, ts-11, ts-12, ts-15 - bill real accounts irreversibly on a free billing day
     //   explore-NN  spike, not official coverage (jasec-billing-explore; some move the clock and bill)
     //
     // A new billing spec that changes data needs its own gate and its own project - never add it to
@@ -593,8 +590,8 @@ export default defineConfig({
       ],
     },
 
-    // MUTATING half. Gated inside the spec behind JASEC_EBS_RUN=true and it
-    // refuses to start without one, so a broad run can never trigger an extract.
+    // MUTATING half: consumes a day of journals. Refused on JASEC production;
+    // TC-158 (posts to JASEC) keeps its own JASEC_GATEWAY_RUN switch.
     // Needs the DB, therefore the VPN. No browser.
     {
       name: 'jasec-accounting-run',
@@ -605,7 +602,7 @@ export default defineConfig({
     // it depends on. MUTATING and it MOVES THE TENANT-GLOBAL CCP CLOCK, so it is
     // its own project rather than part of the ts-06..08 billing band — a clock
     // move is a heavier conflict than billing one account, and it must never be
-    // picked up by a broad run. Gated inside the spec behind JASEC_TRUEUP_RUN=true.
+    // mixed into another project's run. Refused on JASEC production.
     // Bills and invoices through the Core UI Bill Pending screen since 2026-10-06 - needs the browser + session.
     {
       name: 'jasec-billing-trueup',
@@ -617,15 +614,15 @@ export default defineConfig({
       },
     },
     // ── JASEC billing: several credit-limit breaches in ONE BILL_CHECK run must not
-    // freeze it (preprod 2026-10-03). MUTATING, moves the CCP clock, dev only.
-    // Gated inside the spec behind JASEC_BREACH_RUN=true.
+    // freeze it (preprod 2026-10-03). MUTATING, moves the CCP clock.
+    // Refused on JASEC production.
     {
       name: 'jasec-billing-breach',
       testMatch: ['**/jasec/billing/ts-11-*.spec.ts'],
     },
     // ── JASEC billing: a customer who saved a card and topped up with it is still
     // invoiced (JEPYP-326). MUTATING: pays with the PlaceToPay test card, moves the
-    // CCP clock, bills. Gated inside the spec behind JASEC_SAVEDCARD_RUN=true.
+    // CCP clock, bills. Refused on JASEC production.
     {
       name: 'jasec-billing-savedcard',
       testMatch: ['**/jasec/billing/ts-12-*.spec.ts'],
@@ -643,7 +640,7 @@ export default defineConfig({
 
     // ── JASEC USAGE: the credit breach billed into debt and recovered by a top-up (TC-60).
     // MUTATING — seeds an account, drops real MDR files through the loader and
-    // moves balances. Gated inside the spec behind JASEC_USAGE_RUN=true. Needs
+    // moves balances. Refused on JASEC production. Needs
     // SSH to the control server and the DB, therefore the VPN. Checks the Core UI
     // Suspended/Failed Batches and Rated Usage screens, so it needs a session.
     // ts-06+ is the mutating band here too; keep read-only usage specs at ts-01..05.
@@ -673,8 +670,8 @@ export default defineConfig({
     // ── JASEC USAGE, through the UI: rated usage must reach the two Core UI
     // screens that display it — Billing Data > Rated Usage and > Usage Records.
     // MUTATING like -usage-run, and additionally needs a browser, so it is a
-    // separate project rather than another testMatch on that one. Gated inside
-    // the spec behind JASEC_USAGE_UI_RUN=true.
+    // separate project rather than another testMatch on that one. Refused on
+    // JASEC production.
     {
       name: 'jasec-usage-screens',
       testMatch: ['**/jasec/usage/ts-07-*.spec.ts'],

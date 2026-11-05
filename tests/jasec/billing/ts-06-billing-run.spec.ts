@@ -15,8 +15,8 @@
  * CoopeG suite), so this wires up existing code rather than adding any.
  *
  * IRREVERSIBLE. It moves the tenant CCP clock, spends a `job_schedule` slot, and
- * actually bills real accounts on the tenant, which advances their cycle. Gated
- * behind JASEC_BILL_RUN=true and it refuses to start without an explicit date.
+ * actually bills real accounts on the tenant, which advances their cycle. Refused
+ * on JASEC production; with no JASEC_BILL_DATE it bills an account of its own.
  *
  * THREE RULES THAT DECIDE WHETHER THIS DOES ANYTHING AT ALL:
  *
@@ -46,7 +46,8 @@
  *
  * USAGE
  *
- *   $env:JASEC_BILL_RUN='true'; $env:JASEC_BILL_DATE='2026-10-18'; npx playwright test --project=jasec-billing-run --reporter=line
+ *   npx playwright test --project=jasec-billing-run --reporter=line                                # its own account
+ *   $env:JASEC_BILL_DATE='2026-10-18'; npx playwright test --project=jasec-billing-run --reporter=line
  *
  * Add --headed to watch it happen. To find a safe date first — one with few
  * eligible accounts and a free slot — run the query in `pickDateHint` below.
@@ -67,6 +68,7 @@ import { uniqueRunSuffix, assertQaMeter } from '../../../fixtures/create-prepaid
 import { seedOnFreeBillDate } from '../../../helpers/free-billing-day.helper';
 import { ensureDateFree } from '../../../helpers/schedule-slot.helper';
 import { CLOCK_RESTORE } from '../../../helpers/clock-policy';
+import { ON_JASEC_PROD, PROD_REFUSAL } from '../../../helpers/prod-guard';
 
 /**
  * SELF-CONTAINED MODE (2026-10-19, Anh: one command, any time). With no JASEC_BILL_DATE the test bills an account of
@@ -377,13 +379,9 @@ type TaxRow = { taxtype: string; taxcode: string; taxrate: number; taxableamount
 
 test.describe('Billing via the Core UI Daily Schedule', () => {
   const givenDate = (process.env.JASEC_BILL_DATE ?? '').trim();
-  const enabled = process.env.JASEC_BILL_RUN === 'true';
   const maxAccounts = Number(process.env.JASEC_BILL_MAX_ACCOUNTS ?? '5');
 
-  test.skip(
-    !enabled,
-    'Set JASEC_BILL_RUN=true to run. This moves the CCP clock, spends a job_schedule slot and bills real accounts.',
-  );
+  test.skip(ON_JASEC_PROD, PROD_REFUSAL);
 
   test('a schedule created and processed in the UI produces an invoice', { tag: ['@tc-147', '@tc-148'] }, async ({
     page,
