@@ -435,8 +435,7 @@ export default defineConfig({
     // READ-ONLY: opens an existing invoice. No clock move, no billing run, no
     // job_schedule slot, so unlike the -live project it is safe at any time.
     {
-      // One folder, two projects, split by filename prefix: `explore-*` needs a
-      // browser and the VPN, `read-*` needs neither. Keep the prefixes.
+      // tests/jasec/explore/billing/: discovery spikes, not cases. They need a browser and the VPN.
       name: 'jasec-billing-explore',
       testMatch: ['**/jasec/explore/billing/explore-*.spec.ts'],
       dependencies: ['setup'],
@@ -475,9 +474,8 @@ export default defineConfig({
     },
 
     {
-      // JEPYP-475 (prepared 2026-10-17, fix not deployed yet): the balance of a cancelled subscription moves to the new
-      // one (credit and debt). BLOCKED "fix not deployed" until
-      // JASEC_JEPYP475_DEPLOYED=true. Account cases.
+      // JEPYP-475: the balance of a cancelled subscription moves to the new one (credit and debt). Account cases.
+      // JASEC_JEPYP475_DEPLOYED defaults to true; =false reports a balance left on the closed subscription as BLOCKED.
       name: 'jasec-balance-transfer',
       testMatch: ['**/jasec/account/ts-04-*.spec.ts'],
       dependencies: ['setup'],
@@ -503,8 +501,7 @@ export default defineConfig({
     },
 
     // ── JASEC billing READ: the invoice and the account statement as records,
-    // read over GraphQL. Shares the `billing/` folder with the explore spike and
-    // is separated by the `read-` filename prefix, NOT by directory.
+    // read over GraphQL (the read-only specs in tests/jasec/billing/).
     //
     // No browser, no `setup` dependency, no DB and therefore NO VPN — unlike
     // `jasec-billing-explore` (needs a browser to compare against Core UI) and
@@ -551,7 +548,7 @@ export default defineConfig({
 
     // ── JASEC TC-150 (read-only): a prepaid invoice is settled from the balance and never goes
     // to collections (Luis, 2026-10-05). Its OWN project, run AFTER the billing runs: its third
-    // test judges the invoices the latest TC-146 run recorded (output/artifacts/billing-run-invoices.json).
+    // test judges the invoices the latest TC-146 run recorded (output/artifacts/<tenant>/billing-run-invoices.json).
     // In jasec-billing-read it would run BEFORE them and judge a stale run.
     //   npx playwright test --project=jasec-billing-settlement
     // Tests 1-2 read the database only; test 3 also opens Core UI (Bills, Account Statement), so it
@@ -655,8 +652,8 @@ export default defineConfig({
     },
 
     // ── JASEC rating results on screen (READ-ONLY): the charges the tarification scenarios rated are shown
-    // on Rated Usage with the same amounts. Reads output/artifacts/block-e-results.json (run-block-E.ps1 writes
-    // it); runs after the tariff calculation cases.
+    // on Rated Usage with the same amounts. Reads output/artifacts/<tenant>/tariff-results.json (the tariff
+    // calculation runner writes it); runs after the tariff calculation cases.
     {
       name: 'jasec-usage-charges',
       testMatch: ['**/jasec/usage/ts-01-*.spec.ts'],

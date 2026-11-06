@@ -3,8 +3,7 @@
  *
  * WHY THIS EXISTS. Every billing run in the JASEC suite goes over GraphQL
  * (`JobScheduleHelper.createSchedule` + `processSchedule`) — see
- * `notification/ts-02-billing-events.spec.ts:694`, `notification/ts-05-tier-boundaries.spec.ts:396`
- * and `payment/explore-03-prove-bill-from-root.spec.ts:502`. The UI can do it
+ * `notification/ts-02-billing-events.spec.ts` and `notification/ts-05-tier-boundaries.spec.ts`. The UI can do it
  * too, which we only established on 2026-08-28, and nothing exercised that path.
  * This spec covers it. THE GRAPHQL PATH IS UNCHANGED and remains the one the
  * suite depends on — this is an addition, not a replacement, so if the screen
@@ -67,7 +66,6 @@ import { TestLogger } from '../../../helpers/test-logger';
 import { uniqueRunSuffix, assertQaMeter } from '../../../fixtures/create-prepaid-account.helper';
 import { seedOnFreeBillDate } from '../../../helpers/free-billing-day.helper';
 import { ensureDateFree } from '../../../helpers/schedule-slot.helper';
-import { CLOCK_RESTORE } from '../../../helpers/clock-policy';
 import { ON_JASEC_PROD, PROD_REFUSAL } from '../../../helpers/prod-guard';
 
 /**
@@ -609,7 +607,7 @@ test.describe('Billing via the Core UI Daily Schedule', () => {
        * tables means a run that LOOKS fine on screen but failed underneath — or
        * the reverse — is caught rather than passing on the half we happen to
        * read. Verified read-only against the live screen on 2026-09-11: all nine
-       * jobs parse (see explore-02-ui-surface S3c).
+       * jobs parse.
        *
        * The database read below stays the AUTHORITY: it is per-run and
        * date-scoped, where the cards show the schedule's current state. These are
@@ -1012,10 +1010,6 @@ test.describe('Billing via the Core UI Daily Schedule', () => {
         });
       }
     } finally {
-      if (restoreClock && CLOCK_RESTORE) {
-        await new PrepaidSeedHelper(testLogger).setCcpDate(restoreClock)
-          .catch(e => testLogger.log(`WARNING: clock not restored to ${restoreClock}: ${e}`));
-      }
       await db.disconnect();
     }
   });

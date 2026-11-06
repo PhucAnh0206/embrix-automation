@@ -19,7 +19,7 @@
     "test:notification:tiers": "playwright test --project=jasec-notification-tiers",
     "test:notification:all": "npm run test:unit && npm run test:notification:content && npm run test:notification:jasec && npm run test:notification:reconnect && npm run test:notification:tiers && npm run test:notification:live",
     "test:notification:jasec:headed": "playwright test --project=jasec-notification --headed",
-    "report": "playwright show-report",
+    "report": "playwright show-report output/playwright-report",
     "postinstall": "playwright install",
     "test:notification:safe": "npm run test:unit && npm run test:notification:content",
     "test:jasec:billing:read": "playwright test --project=jasec-billing-read",

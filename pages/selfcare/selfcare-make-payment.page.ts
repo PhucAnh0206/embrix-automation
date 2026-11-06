@@ -10,8 +10,7 @@ import type { SelfcareActivityPage } from './selfcare-activity.page';
  * away in the same Activity dropdown, credits the wallet with no invoice
  * involved. Confusing the two is the main trap here.
  *
- * What feeds the grid (traced 2026-08-26 on jasec-dev, see
- * tests/jasec/explore/payment/explore-01-make-payment-recon.spec.ts):
+ * What feeds the grid (traced 2026-08-26 on jasec-dev):
  *
  *   rated MDR usage → transaction_unit (USAGE / MEDIATION) → end-of-cycle
  *   billing job → bill_unit → invoice_unit (status ACTIVE, due > 0)
@@ -196,8 +195,7 @@ export class SelfcareMakePaymentPage extends BasePage {
    * leave `value="false"`, which is how the first version of this method passed a
    * click and then failed on the total. Dispatching the event directly reaches
    * React's synthetic onChange: measured on jasec-dev 2026-08-26, total 0 → 4.46,
-   * checkbox false → true, both pay buttons enabled. Strategy comparison is in
-   * explore-01's `selectionProbe` artifact.
+   * checkbox false → true, both pay buttons enabled.
    *
    * The running total is the assertion, not the DOM property: the input is
    * `readonly` and React-controlled, so `checked` can be set without the app

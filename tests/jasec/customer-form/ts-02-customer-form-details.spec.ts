@@ -21,6 +21,10 @@ import type { Page } from '@playwright/test';
 import { test, expect } from '../../../fixtures/page-factory';
 import { CreateAccountPage, type PrepaidAccountPayload } from '../../../pages/customer-hub/customer-management/create-account.page';
 import { DbHelper, hasDbConfig } from '../../../helpers/db.helper';
+import { ON_JASEC_PROD, PROD_REFUSAL } from '../../../helpers/prod-guard';
+
+// Creates or changes data: never on JASEC production (the client's live environment).
+test.skip(ON_JASEC_PROD, PROD_REFUSAL);
 
 const RUN = Date.now().toString(36).toUpperCase();
 const row = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'tests', 'data', 'jasec-prepaid-accounts.data.json'), 'utf8'))[0];

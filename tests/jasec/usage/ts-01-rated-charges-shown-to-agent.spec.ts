@@ -12,7 +12,7 @@
  * date, must list every one of those transactions with the same Net Amount. One reading, not the whole
  * history, so grid paging can never hide a row and fake a failure.
  *
- * INPUT: `output/artifacts/block-e-results.json`, the results file the QA tariff runner writes at the end of every run
+ * INPUT: `output/artifacts/<tenant>/tariff-results.json`, the results file the QA tariff runner writes at the end of every run
  * (since 2026-10-06). Missing, or written for another tenant = BLOCKED. A scenario that did not PASS is not
  * judged here - its arithmetic already failed or never ran.
  *
@@ -29,7 +29,7 @@ import { TestLogger } from '../../../helpers/test-logger';
 import { AgentScreens, uiAmount, screenDateTime } from '../../../helpers/agent-screens.helper';
 import { blockedIf } from '../../../helpers/blocked.helper';
 
-const HANDOFF = tenantArtifactPath('block-e-results.json')   // per tenant since 2026-10-14;
+const HANDOFF = tenantArtifactPath('tariff-results.json')   // per tenant since 2026-10-14;
 const TENANT = (process.env.TEST_ENV ?? '').trim();
 
 type BlockEResult = { TC: string; Verdict: string; Meter: string; Detail?: string };
@@ -54,7 +54,7 @@ test.describe('Tariff charges shown to the agent on Rated Usage @tarif-on-screen
     blockedIf(!hasDbConfig(), 'needs DB access to read the stored charge lines');
     const h = readHandoff();
     blockedIf(!h, `no tariff results file at ${HANDOFF} - run the tariff calculation cases first (ask the QA lead)`);
-    // run-block-E names environments dev / preprod / prod; the tenants are jasec-dev / jasec-preprod / jasec.
+    // The tariff runner names environments dev / preprod / prod; the tenants are jasec-dev / jasec-preprod / jasec.
     const tenantOf = (env: string) => env === 'prod' ? 'jasec' : env.startsWith('jasec') ? env : `jasec-${env}`;
     const sameTenant = tenantOf(h!.tenant) === TENANT;
     blockedIf(!sameTenant, `the tariff results file is for "${h!.tenant}" (finished ${h!.finishedUtc}), this run targets "${TENANT}"`);
@@ -62,7 +62,7 @@ test.describe('Tariff charges shown to the agent on Rated Usage @tarif-on-screen
     blockedIf(!passed.length, `the tariff run of ${h!.finishedUtc} has no PASS scenario with a meter/account to judge`);
     console.log(`  tariff run ${h!.finishedUtc} on ${h!.tenant}: judging ${passed.map(r => r.TC).join(', ')}`);
 
-    const db = new DbHelper(new TestLogger('block-e-on-screen'));
+    const db = new DbHelper(new TestLogger('tariff-on-screen'));
     await db.connect();
     const ui = new AgentScreens(page);
     try {

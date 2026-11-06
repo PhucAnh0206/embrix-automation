@@ -553,6 +553,6 @@ export async function setUpAccountForTopUp(
     );
     return setUpAccountInSelfCareViaGateway(fixtures, baseRow);
   }
-  fixtures.testLogger.log('account setup: Core UI wizard (default)');
+  fixtures.testLogger.log('account setup: Core UI wizard (JASEC_ACCOUNT_SETUP=ui, or the caller default)');
   return setUpAccountInSelfCare(fixtures, baseRow);
 }

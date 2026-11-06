@@ -34,7 +34,6 @@ import { blockedIf } from '../../../helpers/blocked.helper';
 import { AgentScreens } from '../../../helpers/agent-screens.helper';
 import { seedOnFreeBillDate } from '../../../helpers/free-billing-day.helper';
 import { ensureDateFree } from '../../../helpers/schedule-slot.helper';
-import { CLOCK_RESTORE } from '../../../helpers/clock-policy';
 import { ON_JASEC_PROD, PROD_REFUSAL } from '../../../helpers/prod-guard';
 
 const CONTROL = String(process.env.JASEC_SAVEDCARD_CONTROL ?? '').trim().toLowerCase() === 'true';
@@ -139,10 +138,8 @@ async function journey(fx: any, control: boolean) {
          JOIN core_engine.bill_unit bu ON bu.id = bp.nextbillunitid AND bu.status = 'PENDING'
         WHERE bp.accountid <> $1 AND bp.nextaccountingdate = $2::date - core_engine.get_future_cycle_date(bp.accountid)`,
       [accountId, billDate]);
-    // dev / preprod are test environments (Anh 2026-10-19): billing other accounts due that day is fine. prod: refuse.
+    // Test environment (Anh 2026-10-19): billing other accounts due that day is fine.
     if ((others[0]?.n ?? 0) > 0) {
-      if (blockedIf((process.env.TEST_ENV ?? '') === 'jasec',
-        `${others[0].n} other account(s) are also due on ${billDate} - refusing to bill them on prod; set JASEC_SAVEDCARD_BDOM to a free day`)) return;
       console.log(`  note: ${others[0].n} other account(s) are also due on ${billDate}; the daily run bills them too (test environment)`);
     }
     // The Daily Schedule screen shows whatever schedule already sits on the date (prod 2026-10-06), so the
@@ -223,7 +220,6 @@ async function journey(fx: any, control: boolean) {
     }
     console.log(`  PASS - ${mode}: ${accountId} invoiced`);
   } finally {
-    if (CLOCK_RESTORE) await seed.setCcpDate(startClock).catch(e => console.log(`  WARNING: clock not restored to ${startClock}: ${e}`));
     await db.disconnect();
   }
 }

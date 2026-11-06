@@ -26,6 +26,10 @@ import { OrderOutcomeHelper } from '../../../helpers/order-outcome.helper';
 import { DbHelper, hasDbConfig } from '../../../helpers/db.helper';
 import { checkFirstCycle } from '../../../helpers/first-bill-date.helper';
 import { tenantArtifactPath } from '../../../helpers/tenant-paths';
+import { ON_JASEC_PROD, PROD_REFUSAL } from '../../../helpers/prod-guard';
+
+// Creates or changes data: never on JASEC production (the client's live environment).
+test.skip(ON_JASEC_PROD, PROD_REFUSAL);
 
 const dataFile = path.join(process.cwd(), 'tests', 'data', 'jasec-prepaid-accounts.data.json');
 const rows: PrepaidAccountWithOrderRow[] = JSON.parse(fs.readFileSync(dataFile, 'utf-8'));

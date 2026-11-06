@@ -30,7 +30,7 @@
  * MUTATING: seeds accounts, CANCEL / NEW orders, simulated JASEC callbacks, MDR readings, CCP clock (check 5; forward only, not put back on test tenants).
  * dev / preprod only; refused on JASEC production.
  *   npx playwright test --project=jasec-balance-transfer
- * Without JASEC_JEPYP475_DEPLOYED=true a balance still on the closed subscription is BLOCKED "fix not deployed".
+ * JASEC_JEPYP475_DEPLOYED defaults to true; =false reports a balance still on the closed subscription as BLOCKED "fix not deployed".
  * Business rules: JEPYP-475.
  */
 import type { APIRequestContext, Page } from '@playwright/test';
@@ -51,7 +51,7 @@ import { attachToAccountInSelfCare } from '../../../fixtures/create-prepaid-acco
 import { sleep, poll } from '../../../helpers/poll.helper';
 import { ensureDateFree } from '../../../helpers/schedule-slot.helper';
 import { subscriptions, orderSettled, activeProvisioningId, type Sub } from '../../../helpers/subscription-state.helper';
-import { CLOCK_RESTORE, addDays, clockForward, clockPastAccount, firstOfNextMonth } from '../../../helpers/clock-policy';
+import { addDays, clockForward, clockPastAccount, firstOfNextMonth } from '../../../helpers/clock-policy';
 import { ON_JASEC_PROD, PROD_REFUSAL } from '../../../helpers/prod-guard';
 
 const DEPLOYED = String(process.env.JASEC_JEPYP475_DEPLOYED ?? 'true').trim().toLowerCase() === 'true';
@@ -420,7 +420,6 @@ test.describe('JEPYP-475 - the balance follows the customer from a cancelled ser
         expect.soft(after, 'it is charged to the NEW service\'s balance').toBeGreaterThan(before);
         expect.soft(await mailsSince(db, r.accountId, 'CREDIT_LIMIT_BREACH', r.t0), 'no Saldo Agotado for it').toBe(0);
       } finally {
-        if (CLOCK_RESTORE) await seed.setCcpDate(startClock).catch(e => console.log(`  WARNING: clock not restored to ${startClock}: ${e}`));
         await db.disconnect();
       }
     });
@@ -492,7 +491,6 @@ test.describe('JEPYP-475 - the balance follows the customer from a cancelled ser
         console.log(`  KWH buckets: ${kwhBuckets.map(b => `${b.sub} ${b.amount}`).join(', ')}`);
         expect.soft(kwhBuckets.reduce((s, b) => s + b.amount, 0), 'the month\'s kWh over all the account\'s buckets').toBeCloseTo(105, 3);
       } finally {
-        if (CLOCK_RESTORE) await seed.setCcpDate(clockAtStart).catch(e => console.log(`  WARNING: clock not restored to ${clockAtStart}: ${e}`));
         await db.disconnect();
       }
     });
@@ -603,15 +601,11 @@ test.describe('JEPYP-475 - the balance follows the customer from a cancelled ser
         const allow = (process.env.JASEC_DAILY_ALLOW ?? '').split(',').map(x => x.trim()).filter(Boolean);
         const notAllowed = foreign.filter(x => !allow.includes(x.id));
         if (allow.length) console.log(`  own-data guard: approved for this run: ${allow.join(', ')}`);
-        // Other customers' accounts the DAILY would bill block on prod only - dev and preprod are test environments
-        // (Anh 2026-10-19): there they are logged and billed too. A used date is reclaimed on dev / preprod (one daily run
-        // per date; schedule-slot.helper) and blocks only when that is not possible.
-        const onProd = (process.env.TEST_ENV ?? '') === 'jasec';
-        blockedIf(onProd && notAllowed.length > 0, `the DAILY on ${D} is not ours alone (foreign due: ` +
-          `${notAllowed.map(x => x.id).slice(0, 8).join(', ')}) - set ${c.bdomEnv}, or JASEC_DAILY_ALLOW for approved accounts`);
+        // Other customers' accounts the DAILY bills are logged and billed too (test environment, Anh 2026-10-19). A used
+        // date is reclaimed (one daily run per date; schedule-slot.helper) and blocks only when that is not possible.
         const slot = await ensureDateFree(db, D);
         blockedIf(!slot.free, `the DAILY on ${D} cannot run: ${slot.reason} - set ${c.bdomEnv} to another day`);
-        if (!onProd && notAllowed.length > 0) {
+        if (notAllowed.length > 0) {
           console.log(`  note: the DAILY on ${D} also bills ${notAllowed.length} other account(s) (test environment): ` +
             notAllowed.map(x => x.id).slice(0, 8).join(', '));
         }
@@ -649,7 +643,6 @@ test.describe('JEPYP-475 - the balance follows the customer from a cancelled ser
           expect.soft(Math.round((after - before) * 100) / 100, 'the balance does not move in the month after the closing bill').toBeCloseTo(0, 2);
         }
       } finally {
-        if (CLOCK_RESTORE) await seed.setCcpDate(startClock).catch(e => console.log(`  WARNING: clock not restored to ${startClock}: ${e}`));
         await db.disconnect();
       }
     });

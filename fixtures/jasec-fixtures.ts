@@ -23,6 +23,7 @@ import { PlaceToPayCheckoutPage } from '../pages/selfcare/placetopay-checkout.pa
 import { DbHelper, hasDbConfig } from '../helpers/db.helper';
 import { EmailHelper } from '../helpers/email.helper';
 import { CLOCK_RESTORE } from '../helpers/clock-policy';
+import { ON_JASEC_PROD } from '../helpers/prod-guard';
 
 /**
  * Baseline JASEC sandbox CCP (current-cycle-processing) time. The
@@ -179,6 +180,8 @@ export const test = base.extend<JasecFixtures & JasecOptions>({
       // `null` means the spec manages the clock — do not touch it, and do not
       // even read it, so an opted-out spec costs zero GraphQL calls here.
       if (ccpBaseline === null) { await use(); return; }
+      // JASEC prod runs on the real clock: never move it (helpers/clock-policy.ts).
+      if (ON_JASEC_PROD) { await use(); return; }
       // JASEC_CLOCK_KEEP=true (2026-10-20): run on the tenant's CURRENT clock. For seeds whose account a later step
       // (a server script) uses at the current clock - e.g. the rating cases: an account seeded at the baseline on preprod (clock
       // 11-xx) had no open billing cycle when its readings arrived, so the kWh accumulator stayed 0 and tax/tiers broke.

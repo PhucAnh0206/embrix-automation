@@ -33,7 +33,6 @@ import { seedOnFreeBillDate } from '../../../helpers/free-billing-day.helper';
 import { ensureDateFree } from '../../../helpers/schedule-slot.helper';
 import { AgentScreens } from '../../../helpers/agent-screens.helper';
 import { poll } from '../../../helpers/poll.helper';
-import { CLOCK_RESTORE } from '../../../helpers/clock-policy';
 import { ON_JASEC_PROD, PROD_REFUSAL } from '../../../helpers/prod-guard';
 
 const TENANT = (process.env.TEST_ENV ?? '').trim();
@@ -116,10 +115,7 @@ async function ownDataOnly(db: DbHelper, date: string): Promise<boolean> {
   const [dueX, cutX] = [notAllowed(due), notAllowed(cut)];
   const foreign = `due or overdue: ${dueX.map(x => x.id).slice(0, 10).join(', ') || 'none'}; ` +
     `over their limit: ${cutX.map(x => x.id).slice(0, 10).join(', ') || 'none'}`;
-  const onProd = TENANT === 'jasec';            // prod keeps the own-data block, like ts-04 and ts-11
-  if ((dueX.length || cutX.length) && !onProd) console.log(`  DAILY ${date} will also touch accounts that are not ours (allowed) - ${foreign}`);
-  if (blockedIf(onProd && (dueX.length > 0 || cutX.length > 0),
-    `the DAILY on ${date} cannot run - prod, accounts that are not ours: ${foreign}. Pick another JASEC_REFUSED_BILL_BDOM`)) return false;
+  if (dueX.length || cutX.length) console.log(`  DAILY ${date} will also touch accounts that are not ours (allowed) - ${foreign}`);
   // A used date is reclaimed on dev / preprod (schedule-slot.helper); blocks only when that is not possible.
   const slot = await ensureDateFree(db, date);
   return !blockedIf(!slot.free, `the DAILY on ${date} cannot run - ${slot.reason}. Pick another JASEC_REFUSED_BILL_BDOM`);
@@ -260,8 +256,6 @@ test('a month-end bill the balance cannot cover is billed into debt, the custome
       console.log(`  Core UI Services A: subscription ${sv.sub} (${sv.reason}); in-complete ${sv.incomplete.join(' | ') || 'none'}`);
       expect.soft(sv.sub, 'Core UI Services: A shows SUSPENDED').toBe('SUSPENDED');
     } finally {
-      if (CLOCK_RESTORE) await seed.setCcpDate(startClock).catch(e => console.log(`  WARNING: clock not restored to ${startClock}: ${e}`));
-      if (CLOCK_RESTORE) console.log(`  clock restored to ${startClock}`);
       await db.disconnect();
     }
   });

@@ -23,6 +23,10 @@ import { seedOnFreeBillDate } from '../../../helpers/free-billing-day.helper';
 import { blockedIf } from '../../../helpers/blocked.helper';
 import { sleep } from '../../../helpers/poll.helper';
 import { CLOCK_RESTORE } from '../../../helpers/clock-policy';
+import { ON_JASEC_PROD, PROD_REFUSAL } from '../../../helpers/prod-guard';
+
+// Creates or changes data: never on JASEC production (the client's live environment).
+test.skip(ON_JASEC_PROD, PROD_REFUSAL);
 
 const RUN = String(process.env.JASEC_BAND_SEED_RUN ?? '').trim().toLowerCase() === 'true';
 const ALLOWED = ['jasec-dev', 'jasec-preprod', 'jasec-oci-dev'].includes(process.env.TEST_ENV ?? '');

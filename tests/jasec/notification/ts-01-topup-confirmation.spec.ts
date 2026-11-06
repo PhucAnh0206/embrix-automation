@@ -44,6 +44,10 @@ import { NotificationReportHelper } from '../../../helpers/notification-report.h
 import { topUpConfirmationTemplate } from '../../data/notifications/topup-confirmation.template';
 import type { NotificationContext } from '../../data/notifications/types';
 import { blockedIf } from '../../../helpers/blocked.helper';
+import { ON_JASEC_PROD, PROD_REFUSAL } from '../../../helpers/prod-guard';
+
+// Creates or changes data: never on JASEC production (the client's live environment).
+test.skip(ON_JASEC_PROD, PROD_REFUSAL);
 
 const dataFile = path.join(process.cwd(), 'tests', 'data', 'jasec-prepaid-accounts.data.json');
 const dataRows: PrepaidAccountWithOrderRow[] = JSON.parse(fs.readFileSync(dataFile, 'utf-8'));

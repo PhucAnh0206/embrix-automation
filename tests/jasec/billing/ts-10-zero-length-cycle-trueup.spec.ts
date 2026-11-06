@@ -58,7 +58,7 @@ import { uniqueRunSuffix, assertQaMeter } from '../../../fixtures/create-prepaid
 import { blockedIf } from '../../../helpers/blocked.helper';
 import { seedOnFreeBillDate } from '../../../helpers/free-billing-day.helper';
 import { ensureDateFree } from '../../../helpers/schedule-slot.helper';
-import { CLOCK_RESTORE, clockForward, firstOfNextMonth } from '../../../helpers/clock-policy';
+import { clockForward, firstOfNextMonth } from '../../../helpers/clock-policy';
 import { ON_JASEC_PROD, PROD_REFUSAL } from '../../../helpers/prod-guard';
 
 
@@ -157,9 +157,8 @@ test.describe('JASEC billing — 0-30 kWh true-up and cycle length (MUTATING)', 
         `SELECT count(*)::int n FROM core_engine.billing_profile bp
           WHERE bp.accountid <> $1 AND bp.status = 'ACTIVE'
             AND bp.nextaccountingdate + core_engine.get_future_cycle_date(bp.accountid) = $2::date`, [accountId, billDate]);
-      // dev / preprod are test environments (Anh 10-19): billing other accounts due the same day is fine there. prod: refuse.
+      // Test environment (Anh 10-19): billing other accounts due the same day is fine.
       if ((others[0]?.n ?? 0) > 0) {
-        if (blockedIf((process.env.TEST_ENV ?? '') === 'jasec', `${others[0].n} other account(s) are also due on ${billDate} - refusing to bill them on prod`)) return;
         console.log(`  note: ${others[0].n} other account(s) are also due on ${billDate}; the daily run bills them too (test environment)`);
       }
       // A used date is reclaimed on dev / preprod (schedule-slot.helper); blocks only when that is not possible.
@@ -230,7 +229,6 @@ test.describe('JASEC billing — 0-30 kWh true-up and cycle length (MUTATING)', 
 
       console.log(`\n  PASS — ${accountId}: trued up to ${FIXED_CHARGE} and invoiced, billed from the Daily Schedule screen\n`);
     } finally {
-      if (CLOCK_RESTORE) await seed.setCcpDate(startDate).catch(e => console.log(`  WARNING: clock not restored to ${startDate}: ${e}`));
       await db.disconnect();
     }
   });

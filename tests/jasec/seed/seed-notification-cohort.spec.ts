@@ -32,6 +32,10 @@ import { TestLogger } from '../../../helpers/test-logger';
 import { uniqueRunSuffix, assertQaMeter } from '../../../fixtures/create-prepaid-account.helper';
 import { blockedIf } from '../../../helpers/blocked.helper';
 import { clockForward, firstOfNextMonth } from '../../../helpers/clock-policy';
+import { ON_JASEC_PROD, PROD_REFUSAL } from '../../../helpers/prod-guard';
+
+// Creates or changes data: never on JASEC production (the client's live environment).
+test.skip(ON_JASEC_PROD, PROD_REFUSAL);
 
 const RUN_ENABLED = String(process.env.JASEC_SEED_RUN ?? '').trim().toLowerCase() === 'true';
 const ALLOWED_ENV = ['jasec-dev', 'jasec-oci-dev', 'jasec-preprod', 'jasec'].includes(process.env.TEST_ENV ?? '');

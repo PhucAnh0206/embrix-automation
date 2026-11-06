@@ -57,7 +57,6 @@ import { NotificationDbHelper } from '../../../helpers/notification-db.helper';
 import { BREACH_MINIMUM_BASE, BREACH_MINIMUM_BASE_AFTER_TOPUP, expectedMinimum } from '../../../helpers/notification-bands';
 import { amountAfter } from '../../data/notifications/billing-events.templates';
 import { MdrRemoteHelper } from '../../../helpers/mdr-remote.helper';
-import { CLOCK_RESTORE } from '../../../helpers/clock-policy';
 import { ON_JASEC_PROD, PROD_REFUSAL } from '../../../helpers/prod-guard';
 
 // JASEC test tenants only (prod is refused above, by ON_JASEC_PROD).
@@ -298,7 +297,6 @@ test('several credit-limit breaches in one BILL_CHECK run do not freeze it', { t
         description: probe ? 'the MDR loader is not reachable - no reading sent' : 'no breached account without credit' });
     }
   } finally {
-    if (CLOCK_RESTORE) await seed.setCcpDate(startClock).catch(e => console.log(`  WARNING: clock not restored to ${startClock}: ${e}`));
     await db.disconnect();
   }
 });

@@ -28,6 +28,10 @@ import { PrepaidSeedHelper } from '../../../helpers/prepaid-seed.helper';
 import { DbHelper, hasDbConfig } from '../../../helpers/db.helper';
 import { blockedIf } from '../../../helpers/blocked.helper';
 import { AgentScreens } from '../../../helpers/agent-screens.helper';
+import { ON_JASEC_PROD, PROD_REFUSAL } from '../../../helpers/prod-guard';
+
+// Creates or changes data: never on JASEC production (the client's live environment).
+test.skip(ON_JASEC_PROD, PROD_REFUSAL);
 
 const BUNDLE = 'B-100000-E';
 // BILLING_ERROR is NOT terminal here: ORD-2076 (dev, 2026-10-02) showed it with an

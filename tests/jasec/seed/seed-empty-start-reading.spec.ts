@@ -12,8 +12,8 @@
  * NULL/empty. If the order path ever starts defaulting it, the case is BLOCKED, not
  * silently turned into the "typed 0" case.
  *
- * Writes the same handoff JSON ts-01 writes in calc mode, so run-block-E.ps1
- * reads it the same way. Gated:
+ * Writes the same handoff JSON ts-01 writes in calc mode, so the tariff calculation
+ * runner reads it the same way. Gated:
  *
  *   $env:JASEC_SEED_EMPTY_START='true'
  *   npx playwright test --project=jasec-seed --grep '@seed-empty-start'
@@ -27,6 +27,10 @@ import { TestLogger } from '../../../helpers/test-logger';
 import { uniqueRunSuffix, assertQaMeter } from '../../../fixtures/create-prepaid-account.helper';
 import { blockedIf } from '../../../helpers/blocked.helper';
 import { tenantArtifactPath } from '../../../helpers/tenant-paths';
+import { ON_JASEC_PROD, PROD_REFUSAL } from '../../../helpers/prod-guard';
+
+// Creates or changes data: never on JASEC production (the client's live environment).
+test.skip(ON_JASEC_PROD, PROD_REFUSAL);
 
 const RUN_ENABLED = String(process.env.JASEC_SEED_EMPTY_START ?? '').trim().toLowerCase() === 'true';
 

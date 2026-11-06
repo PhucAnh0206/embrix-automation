@@ -67,6 +67,10 @@ import { PrepaidSeedHelper } from '../../../helpers/prepaid-seed.helper';
 import { uniqueRunSuffix, assertQaMeter } from '../../../fixtures/create-prepaid-account.helper';
 import { AgentScreens, openAgentTab } from '../../../helpers/agent-screens.helper';
 import type { Page } from '@playwright/test';
+import { ON_JASEC_PROD, PROD_REFUSAL } from '../../../helpers/prod-guard';
+
+// Creates or changes data: never on JASEC production (the client's live environment).
+test.skip(ON_JASEC_PROD, PROD_REFUSAL);
 
 
 /**

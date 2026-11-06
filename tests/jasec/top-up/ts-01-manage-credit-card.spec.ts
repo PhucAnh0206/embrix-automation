@@ -40,6 +40,10 @@ import {
 } from '../../../fixtures/create-prepaid-account.helper';
 import { SharedAccount } from '../../../fixtures/shared-account.helper';
 import type { PlaceToPayCheckoutPage } from '../../../pages/selfcare/placetopay-checkout.page';
+import { ON_JASEC_PROD, PROD_REFUSAL } from '../../../helpers/prod-guard';
+
+// Creates or changes data: never on JASEC production (the client's live environment).
+test.skip(ON_JASEC_PROD, PROD_REFUSAL);
 
 const dataFile = path.join(process.cwd(), 'tests', 'data', 'jasec-prepaid-accounts.data.json');
 const dataRows: PrepaidAccountRow[] = JSON.parse(fs.readFileSync(dataFile, 'utf-8'));

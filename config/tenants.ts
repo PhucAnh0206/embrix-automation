@@ -4,8 +4,8 @@
  *
  * WHY THIS EXISTS. Suite and tenant used to be independent: `--project` chose
  * the specs, a `.env` file chose the target, and nothing checked they agreed.
- * With 21 projects and 6 profiles that is 126 combinations, of which about 8
- * are real. Worse, the old resolution fell back to a LIVE tenant when it could
+ * With dozens of projects and several env profiles most combinations are wrong,
+ * and only a few are real. Worse, the old resolution fell back to a LIVE tenant when it could
  * not work out which one you meant:
  *
  *     baseURL = EMBRIX_BASE_URL ?? BASE_URLS[ENV] ?? BASE_URLS['coopeg-sandbox']
@@ -72,28 +72,27 @@ export const TENANTS: Record<string, Tenant> = {
   // own database (in-cluster Postgres on OKE; seed/custom SQL excluded per the OCI deployment
   // checklist), clock 2027-04-09 and 0 accounts at handover, provisioningEnabled=false. Same
   // Core UI login as jasec-dev. Self Care = selfcare.jasec-oci-dev (no -ui; confirmed by Anh
-  // 2026-10-14). No DB credentials or control server yet: DB-backed and server-
-  // script cases report BLOCKED.
+  // 2026-10-14). The DB is reached through an SSH tunnel; there is no control server, so server scripts run
+  // from a local tree (see the note).
   'jasec-oci-dev': {
     baseUrl: 'https://core-ui.jasec-oci-dev.embrix.org/',
     graphqlUrl: 'https://service-transactional.jasec-oci-dev.embrix.org/graphql',
     selfcareUrl: 'https://selfcare.jasec-oci-dev.embrix.org/',
     // root answers 404 like jasec-dev's; /graphql answers 401 without auth (same as dev) - it is up.
     crmGatewayUrl: 'https://crm-gateway.jasec-oci-dev.embrix.org',
-    // In-cluster Postgres (David's loader diagram, 10-22). QA has no DB access yet; this pins the name for the DB guard.
+    // In-cluster Postgres (David's loader diagram, 10-22), reached through the SSH tunnel; this pins the name for the DB guard.
     dbName: 'coredb-jasec-oci-dev',
     suites: ['jasec-'],
     note: 'JASEC dev on OCI. DB via SSH tunnel (127.0.0.1:15432), MDR over SFTP, server scripts in a local tree (no control server).',
   },
 
-  // JASEC PRODUCTION, test build (build 1). Added 2026-09-30. The team will wipe
-  // it and rebuild for the customer afterwards - but anything that reaches
-  // OUTSIDE Embrix cannot be wiped: provisioning is fully armed against JASEC's
-  // live AMI and account creation would send real commands. Projects are
-  // allowed by EXACT name, each one approved deliberately (dates below). Since
-  // 2026-09-30 that includes mutating suites, for the TEST builds only: shrink
-  // this list back to read-only before the customer build, which is check-only
-  // (PRODUCTION-SETUP-CHECKLIST.md).
+  // JASEC PRODUCTION - the client's LIVE environment since 2026-10-20, LOCKED: read-only checks only (build-check
+  // customer profile, read-only q.js), no cases, no data, no logins. The suite list is tied to the build through
+  // JASEC_PROD_BUILD in the local .env.prod (fail closed):
+  //   test-build-*            -> every jasec-* suite (a test build only; each spec keeps its own guards)
+  //   anything else or unset  -> NOTHING, not even the tenant-agnostic projects except unit (isSuiteAllowed)
+  // .env.prod says final-customer-build. Mutating specs also refuse prod themselves (helpers/prod-guard.ts).
+  // A getter, not a value: this module is imported before dotenv.config() runs.
   jasec: {
     baseUrl: 'https://core-ui.jasec.embrix.org/',
     graphqlUrl: 'https://service-transactional.jasec.embrix.org/graphql',
@@ -101,28 +100,11 @@ export const TENANTS: Record<string, Tenant> = {
     crmGatewayUrl: 'https://crm-gateway.jasec.embrix.org',
     // On coopeg-prod-db (CoopeG's production DB server), reached over the Coopeg VPN.
     dbName: 'coredb-jasec',
-    // jasec-billing-run also holds ts-06/ts-08, which mutate but are each gated
-    // behind their own *_RUN env flag; only ts-07 runs without one.
-    // 2026-09-30 widened to account creation + top-up, approved by Anh (test
-    // data on build 1 is fine; the team wipes and rebuilds for the customer).
-    // Checked the same day on prod: provisioningEnabled=false (no AMI
-    // dispatch), pacEnabled=false (no Hacienda), batchFinancialExtract=true (no
-    // live ledger post), PlaceToPay = checkout-test. Re-check before each run.
-    // TIED TO THE BUILD (2026-10-05, Anh: "prod build 2 we can freely test anything; when the
-    // final prod version comes out, we cannot test"). The allow-list used to be a fixed list of
-    // exact names, NOT tied to a build - whatever was opened for a test build would have stayed
-    // open on the customer build. Now it reads JASEC_PROD_BUILD from the local .env.prod:
-    //   test-build-*  -> every jasec-* suite, like dev (each spec keeps its own gates/guards)
-    //   anything else, or unset -> NOTHING runs (fail closed). The final customer build is
-    //   check-only: PRODUCTION-SETUP-CHECKLIST 9b, read-only queries, no tests, no data.
-    // A getter, not a value: this module is imported before dotenv.config() runs.
-    // Outside-Embrix effects are still guarded per spec (AMI dispatch self-BLOCKs while
-    // provisioningEnabled=false, accounting-run refuses gateway mode, PlaceToPay = checkout-test).
     get suites() {
       const build = (process.env.JASEC_PROD_BUILD ?? '').trim().toLowerCase();
       return build.startsWith('test-build') ? ['jasec-'] : [];
     },
-    note: 'JASEC production: all jasec-* suites while JASEC_PROD_BUILD=test-build-*; nothing otherwise (final build is check-only).',
+    note: 'JASEC production, LIVE and locked: nothing runs (only a test build, JASEC_PROD_BUILD=test-build-*, would open the jasec-* suites).',
   },
 
   'coopeg-sandbox': {
@@ -281,8 +263,10 @@ export function assertSuiteAllowed(projectName: string, tenantName: string): voi
 
 /** The non-throwing form of assertSuiteAllowed, for filtering the project list. */
 export function isSuiteAllowed(projectName: string, tenantName: string): boolean {
-  if (TENANT_AGNOSTIC.includes(projectName)) return true;
   const tenant = TENANTS[tenantName];
+  // A LOCKED tenant (no suites - JASEC prod's customer build) gets nothing that logs in or touches it: of the
+  // tenant-agnostic projects only `unit` (pure helper logic, no browser, no network) stays.
+  if (TENANT_AGNOSTIC.includes(projectName)) return projectName === 'unit' || !tenant || tenant.suites.length > 0;
   if (!tenant) return false;
   return tenant.suites.some(p => suiteMatches(p, projectName));
 }

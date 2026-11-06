@@ -29,6 +29,10 @@ import {
 } from '../../../helpers/customer-contact.helper';
 import type { Page } from '@playwright/test';
 import type { TestLogger } from '../../../helpers/test-logger';
+import { ON_JASEC_PROD, PROD_REFUSAL } from '../../../helpers/prod-guard';
+
+// Creates or changes data: never on JASEC production (the client's live environment).
+test.skip(ON_JASEC_PROD, PROD_REFUSAL);
 
 const RUN = Date.now().toString(36).toUpperCase();
 const ARTIFACTS = path.join(process.cwd(), 'output', 'artifacts', 'tc-03-main-contact');

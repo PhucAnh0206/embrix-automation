@@ -37,6 +37,10 @@ import { uniqueRunSuffix, type PrepaidAccountWithOrderRow } from '../../../fixtu
 import { DbHelper, hasDbConfig } from '../../../helpers/db.helper';
 import { blockedIf } from '../../../helpers/blocked.helper';
 import { tenantArtifactPath } from '../../../helpers/tenant-paths';
+import { ON_JASEC_PROD, PROD_REFUSAL } from '../../../helpers/prod-guard';
+
+// Creates or changes data: never on JASEC production (the client's live environment).
+test.skip(ON_JASEC_PROD, PROD_REFUSAL);
 
 const ALLOWED = ['jasec-dev', 'jasec-oci-dev', 'jasec-preprod', 'jasec'].includes(process.env.TEST_ENV ?? '');
 const BAD = /[\s|'"\\]/;

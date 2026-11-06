@@ -31,6 +31,10 @@ import { SuspendResumeOrderPage } from '../../../../pages/customer-hub/order-man
 import { AccountInfoPage } from '../../../../pages/customer-hub/customer-management/account-details/account-data/account-info.page';
 import { poll } from '../../../../helpers/poll.helper';
 import { subscriptions, orderSettled } from '../../../../helpers/subscription-state.helper';
+import { ON_JASEC_PROD, PROD_REFUSAL } from '../../../../helpers/prod-guard';
+
+// Creates or changes data: never on JASEC production (the client's live environment).
+test.skip(ON_JASEC_PROD, PROD_REFUSAL);
 
 const RUN = String(process.env.JASEC_EVIDENCE_RUN ?? '').trim().toLowerCase() === 'true';
 const CREDIT = 522;
