@@ -31,14 +31,28 @@ export abstract class BasePage {
     const menu = this.page.getByRole('button', { name: menuText }).first();
     await menu.waitFor({ state: 'visible', timeout: SHORT_WAIT });
     await menu.click();
+    this.lastNavMenu = menuText;
   }
+
+  /** The top menu opened last, so clickNavLink can open it again if the click was lost. */
+  private lastNavMenu?: string | RegExp;
 
   /** Click a nav link and wait for URL to match. */
   async clickNavLink(linkName: string | RegExp, expectedUrlPattern: RegExp): Promise<void> {
     const link = this.page.getByRole('link', { name: linkName }).first();
     // MEDIUM_WAIT (was SHORT_WAIT): jasec-dev sidebar can take >5s to hydrate
     // after navigateToHome, especially on the first nav after auth.
-    await link.waitFor({ state: 'visible', timeout: MEDIUM_WAIT });
+    // Right after a page load, the top menu's first click can be lost while the page is still starting, and the
+    // dropdown never opens (preprod, Customer Hub > Customer Management). Click the menu again, up to twice.
+    for (let attempt = 0; ; attempt++) {
+      try {
+        await link.waitFor({ state: 'visible', timeout: this.lastNavMenu && attempt < 2 ? SHORT_WAIT : MEDIUM_WAIT });
+        break;
+      } catch (e) {
+        if (!this.lastNavMenu || attempt >= 2) throw e;
+        await this.page.getByRole('button', { name: this.lastNavMenu }).first().click();
+      }
+    }
     await link.click();
     await this.page.waitForURL(expectedUrlPattern, { timeout: MEDIUM_WAIT });
     await this.page.waitForLoadingToDisappear();
